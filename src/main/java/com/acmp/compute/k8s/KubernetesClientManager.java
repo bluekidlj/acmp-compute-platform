@@ -82,7 +82,7 @@ public class KubernetesClientManager {
         Namespace ns = new NamespaceBuilder()
                 .withNewMetadata().withName(namespaceName).endMetadata()
                 .build();
-        client.namespaces().resource(ns).createOrReplace();
+        client.namespaces().resource(ns).serverSideApply();
         log.info("已创建 Namespace: {} @ cluster {}", namespaceName, physicalClusterId);
     }
 
@@ -102,7 +102,7 @@ public class KubernetesClientManager {
                 .addToHard("pods", Quantity.parse(String.valueOf(maxPods)))
                 .endSpec()
                 .build();
-        client.resourceQuotas().inNamespace(namespace).resource(quota).createOrReplace();
+        client.resourceQuotas().inNamespace(namespace).resource(quota).serverSideApply();
         log.info("已创建 ResourceQuota: {} @ namespace {} (gpu={}, cpu={}, mem={}Gi, pods={})", 
                 quotaName, namespace, gpuSlots, cpuCores, memoryGiB, maxPods);
     }
@@ -116,7 +116,7 @@ public class KubernetesClientManager {
         try {
             client.load(new ByteArrayInputStream(yaml.getBytes(StandardCharsets.UTF_8)))
                     .inNamespace(namespace)
-                    .createOrReplace();
+                    .serverSideApply();
         } catch (Exception e) {
             log.error("应用 YAML 失败: {}", e.getMessage());
             throw new RuntimeException("应用 YAML 失败", e);
@@ -162,7 +162,7 @@ public class KubernetesClientManager {
     public void applyClusterScopedYaml(String physicalClusterId, String yaml) {
         KubernetesClient client = getClient(physicalClusterId);
         try {
-            client.load(new ByteArrayInputStream(yaml.getBytes(StandardCharsets.UTF_8))).createOrReplace();
+            client.load(new ByteArrayInputStream(yaml.getBytes(StandardCharsets.UTF_8))).serverSideApply();
         } catch (Exception e) {
             log.error("应用集群级 YAML 失败: {}", e.getMessage());
             throw new RuntimeException("应用集群级 YAML 失败", e);
@@ -195,7 +195,7 @@ public class KubernetesClientManager {
                 .withNamespace(namespace)
                 .endMetadata()
                 .build();
-        client.serviceAccounts().inNamespace(namespace).resource(sa).createOrReplace();
+        client.serviceAccounts().inNamespace(namespace).resource(sa).serverSideApply();
         log.info("已创建 ServiceAccount: {} @ namespace {}", saName, namespace);
     }
 
@@ -263,7 +263,7 @@ public class KubernetesClientManager {
                 .withRules(podRule, deploymentRule, jobRule, volcanoJobRule, svcRule, eventRule, pvcRule)
                 .build();
         
-        client.rbac().roles().inNamespace(namespace).resource(role).createOrReplace();
+        client.rbac().roles().inNamespace(namespace).resource(role).serverSideApply();
         log.info("已创建 Role: {} @ namespace {}", roleName, namespace);
     }
 
@@ -297,7 +297,7 @@ public class KubernetesClientManager {
                 .withSubjects(subject)
                 .build();
         
-        client.rbac().roleBindings().inNamespace(namespace).resource(rb).createOrReplace();
+        client.rbac().roleBindings().inNamespace(namespace).resource(rb).serverSideApply();
         log.info("已创建 RoleBinding: {} @ namespace {}", rbName, namespace);
     }
 
