@@ -3,6 +3,7 @@ package com.acmp.compute.controller;
 import com.acmp.compute.dto.CapacityResponse;
 import com.acmp.compute.dto.PhysicalClusterRegisterRequest;
 import com.acmp.compute.dto.PhysicalClusterResponse;
+import com.acmp.compute.entity.GpuBrand;
 import com.acmp.compute.service.PhysicalClusterService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -26,7 +27,7 @@ public class PhysicalClusterController {
     public ResponseEntity<PhysicalClusterResponse> register(@Valid @RequestBody PhysicalClusterRegisterRequest request) {
         PhysicalClusterResponse resp = physicalClusterService.register(
                 request.getName(), request.getKubeconfigBase64(),
-                request.getGpuTypes() != null ? request.getGpuTypes() : "NVIDIA",
+                request.getGpuTypes() != null ? request.getGpuTypes() : GpuBrand.NVIDIA.name(),
                 request.getLocation() != null ? request.getLocation() : "default");
         return ResponseEntity.status(HttpStatus.CREATED).body(resp);
     }

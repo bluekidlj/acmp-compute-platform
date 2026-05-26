@@ -30,8 +30,7 @@ public class ResourcePool {
     private Integer allocatedCpuCores;
     private Integer allocatedMemoryGib;
     private String hardwareType;
-    private String securityLevel;
-    private String gpuType;
+    private GpuBrand gpuType;
     private String jobTypes;
     private String status;
     private Instant createdAt;

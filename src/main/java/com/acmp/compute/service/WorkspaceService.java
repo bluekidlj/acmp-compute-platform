@@ -116,7 +116,7 @@ public class WorkspaceService {
                 .id(id).resourcePoolId(poolId).name(request.getName()).description(request.getDescription())
                 .namespace(ns).serviceAccountName(sa).volcanoQueueName(queueName).primaryClusterId(clusterId)
                 .gpuSlots(gpu).cpuCores(cpu).memoryGib(mem).maxPods(maxPods).nodeCount(1)
-                .hardwareType(pool.getHardwareType()).securityLevel(pool.getSecurityLevel())
+                .hardwareType(pool.getHardwareType())
                 .gpuType(request.getGpuType() != null ? request.getGpuType() : pool.getGpuType())
                 .jobTypes(request.getJobTypes() != null ? request.getJobTypes() : pool.getJobTypes())
                 .createdBy(user.getId()).status("active").build();

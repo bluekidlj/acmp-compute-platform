@@ -19,7 +19,7 @@ public class ComputeSpec {
     private String id;
     private String name;
     private String displayName;
-    private String gpuBrand;
+    private GpuBrand gpuBrand;
     // ── 预设 ResourceRequirements ──
     private Integer defaultGpuCount;
     private Integer defaultGpumemMb;
@@ -35,7 +35,6 @@ public class ComputeSpec {
     private String resourceQuotaKey;
     // ── 元信息 ──
     private Integer memoryGb;
-    private String architecture;
     private String description;
     private Instant createdAt;
     private Instant updatedAt;

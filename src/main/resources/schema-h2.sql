@@ -45,7 +45,6 @@ CREATE TABLE IF NOT EXISTS resource_pool (
     allocated_memory_gib INT DEFAULT 0,
     -- 划分维度
     hardware_type VARCHAR(64) DEFAULT 'NVIDIA-GPU',
-    security_level VARCHAR(32) DEFAULT 'NORMAL',
     gpu_type VARCHAR(64) DEFAULT 'NVIDIA',
     job_types VARCHAR(128) DEFAULT 'TRAINING,INFERENCE',
     status VARCHAR(32) NOT NULL DEFAULT 'active',
@@ -151,7 +150,6 @@ CREATE TABLE IF NOT EXISTS workspace (
     node_count INT DEFAULT 1,
     -- 划分维度（从父逻辑池继承）
     hardware_type VARCHAR(64) DEFAULT 'NVIDIA-GPU',
-    security_level VARCHAR(32) DEFAULT 'NORMAL',
     gpu_type VARCHAR(64) DEFAULT 'NVIDIA',
     job_types VARCHAR(128) DEFAULT 'TRAINING,INFERENCE',
     -- 描述
@@ -213,9 +211,7 @@ CREATE TABLE IF NOT EXISTS compute_spec (
     tolerations VARCHAR(1024),
     -- ResourceQuota 中的资源键
     resource_quota_key VARCHAR(255),
-    -- 元信息
     memory_gb INT,
-    architecture VARCHAR(64),
     description VARCHAR(512),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -269,11 +265,13 @@ CREATE TABLE IF NOT EXISTS workspace_member (
 );
 
 -- 初始规格数据
-MERGE INTO compute_spec (id, name, display_name, gpu_brand, memory_gb, architecture) KEY(id)
-VALUES ('spec-nvidia-a100-80g', 'nvidia-a100-80g', 'NVIDIA A100 80GB SXM', 'NVIDIA', 80, 'Ampere');
-MERGE INTO compute_spec (id, name, display_name, gpu_brand, memory_gb, architecture) KEY(id)
-VALUES ('spec-nvidia-a100-40g', 'nvidia-a100-40g', 'NVIDIA A100 40GB PCIe', 'NVIDIA', 40, 'Ampere');
-MERGE INTO compute_spec (id, name, display_name, gpu_brand, memory_gb, architecture) KEY(id)
-VALUES ('spec-nvidia-rtx4090-24g', 'nvidia-rtx4090-24g', 'NVIDIA RTX 4090 24GB', 'NVIDIA', 24, 'Ada Lovelace');
-MERGE INTO compute_spec (id, name, display_name, gpu_brand, memory_gb, architecture) KEY(id)
-VALUES ('spec-hygon-dcu-32g', 'hygon-dcu-32g', 'Hygon DCU 32GB', 'HYGON', 32, 'DCU');
+MERGE INTO compute_spec (id, name, display_name, gpu_brand, memory_gb) KEY(id)
+VALUES ('spec-nvidia-a100-80g', 'nvidia-a100-80g', 'NVIDIA A100 80GB SXM', 'NVIDIA', 80);
+MERGE INTO compute_spec (id, name, display_name, gpu_brand, memory_gb) KEY(id)
+VALUES ('spec-nvidia-a100-40g', 'nvidia-a100-40g', 'NVIDIA A100 40GB PCIe', 'NVIDIA', 40);
+MERGE INTO compute_spec (id, name, display_name, gpu_brand, memory_gb) KEY(id)
+VALUES ('spec-nvidia-rtx4090-24g', 'nvidia-rtx4090-24g', 'NVIDIA RTX 4090 24GB', 'NVIDIA', 24);
+MERGE INTO compute_spec (id, name, display_name, gpu_brand, memory_gb) KEY(id)
+VALUES ('spec-hygon-dcu-32g', 'hygon-dcu-32g', 'Hygon DCU 32GB', 'HYGON', 32);
+MERGE INTO compute_spec (id, name, display_name, gpu_brand, memory_gb) KEY(id)
+VALUES ('spec-huawei-ascend-910b', 'huawei-ascend-910b', 'HUAWEI Ascend 910B 64GB', 'HUAWEI_ASCEND', 64);

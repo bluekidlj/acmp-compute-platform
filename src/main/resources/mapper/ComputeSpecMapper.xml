@@ -16,7 +16,6 @@
         <result column="tolerations" property="tolerations"/>
         <result column="resource_quota_key" property="resourceQuotaKey"/>
         <result column="memory_gb" property="memoryGb"/>
-        <result column="architecture" property="architecture"/>
         <result column="description" property="description"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
@@ -26,11 +25,11 @@
         INSERT INTO compute_spec (id, name, display_name, gpu_brand,
             default_gpu_count, default_gpumem_mb, default_gpucores, default_cpu_cores, default_memory_gib,
             node_selector, tolerations, resource_quota_key,
-            memory_gb, architecture, description, created_at, updated_at)
+            memory_gb, description, created_at, updated_at)
         VALUES (#{id}, #{name}, #{displayName}, #{gpuBrand},
             #{defaultGpuCount}, #{defaultGpumemMb}, #{defaultGpucores}, #{defaultCpuCores}, #{defaultMemoryGib},
             #{nodeSelector}, #{tolerations}, #{resourceQuotaKey},
-            #{memoryGb}, #{architecture}, #{description}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            #{memoryGb}, #{description}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 
     <select id="findById" resultMap="BaseResultMap">

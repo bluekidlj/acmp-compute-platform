@@ -3,6 +3,7 @@ package com.acmp.compute.service;
 import com.acmp.compute.dto.CapacityResponse;
 import com.acmp.compute.dto.PhysicalClusterResponse;
 import com.acmp.compute.entity.PhysicalCluster;
+import com.acmp.compute.entity.GpuBrand;
 import com.acmp.compute.exception.ResourceNotFoundException;
 import com.acmp.compute.k8s.KubernetesClientManager;
 import com.acmp.compute.mapper.PhysicalClusterMapper;
@@ -38,7 +39,7 @@ public class PhysicalClusterService {
      */
     @Transactional(rollbackFor = Exception.class)
     public PhysicalClusterResponse register(String name, String kubeconfigBase64) {
-        return register(name, kubeconfigBase64, "NVIDIA", "default");
+        return register(name, kubeconfigBase64, GpuBrand.NVIDIA.name(), "default");
     }
 
     @Transactional(rollbackFor = Exception.class)

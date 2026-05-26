@@ -3,6 +3,7 @@ package com.acmp.compute.service;
 import com.acmp.compute.dto.PhysicalClusterRegisterRequest;
 import com.acmp.compute.dto.PhysicalClusterResponse;
 import com.acmp.compute.entity.PhysicalCluster;
+import com.acmp.compute.entity.GpuBrand;
 import com.acmp.compute.k8s.KubernetesClientManager;
 import com.acmp.compute.mapper.PhysicalClusterMapper;
 import lombok.RequiredArgsConstructor;
@@ -59,7 +60,7 @@ public class AdminPhysicalClusterService {
                 .id(id)
                 .name(request.getName())
                 .description(request.getDescription())
-                .gpuTypes(request.getGpuTypes() != null ? request.getGpuTypes() : "NVIDIA")
+                .gpuTypes(request.getGpuTypes() != null ? request.getGpuTypes() : GpuBrand.NVIDIA.name())
                 .location(request.getLocation() != null ? request.getLocation() : "default")
                 .kubeconfigBase64Encrypted(encryptedKubeconfig)
                 .status("active")

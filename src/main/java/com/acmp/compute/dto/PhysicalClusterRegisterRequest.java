@@ -1,7 +1,7 @@
 package com.acmp.compute.dto;
 
+import com.acmp.compute.entity.GpuBrand;
 import lombok.Data;
-
 import javax.validation.constraints.NotBlank;
 
 /** 
@@ -20,7 +20,7 @@ public class PhysicalClusterRegisterRequest {
     @NotBlank
     private String kubeconfigBase64;
     /** GPU 硬件类型，逗号分隔，如 NVIDIA,HYGON */
-    private String gpuTypes = "NVIDIA";
+    private String gpuTypes = GpuBrand.NVIDIA.name();
     /** 地域/机房，如 beijing, shanghai */
     private String location = "default";
 }

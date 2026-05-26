@@ -3,6 +3,7 @@ package com.acmp.compute.service;
 import com.acmp.compute.dto.ResourcePoolCreateRequest;
 import com.acmp.compute.dto.ResourcePoolResponse;
 import com.acmp.compute.entity.ResourcePool;
+import com.acmp.compute.entity.GpuBrand;
 import com.acmp.compute.exception.ResourceNotFoundException;
 import com.acmp.compute.exception.ForbiddenException;
 import com.acmp.compute.mapper.PhysicalClusterMapper;
@@ -48,8 +49,7 @@ public class ResourcePoolService {
                 .nodeCount(request.getNodeCount() != null ? request.getNodeCount() : 1)
                 .allocatedGpuSlots(0).allocatedCpuCores(0).allocatedMemoryGib(0)
                 .hardwareType(request.getHardwareType() != null ? request.getHardwareType() : "NVIDIA-GPU")
-                .securityLevel(request.getSecurityLevel() != null ? request.getSecurityLevel() : "NORMAL")
-                .gpuType(request.getGpuType() != null ? request.getGpuType() : "NVIDIA")
+                .gpuType(request.getGpuType() != null ? request.getGpuType() : GpuBrand.NVIDIA)
                 .jobTypes(request.getJobTypes() != null ? request.getJobTypes() : "TRAINING,INFERENCE")
                 .status("active").build();
         resourcePoolMapper.insert(pool);
@@ -84,8 +84,7 @@ public class ResourcePoolService {
                 .gpuSlots(p.getGpuSlots()).cpuCores(p.getCpuCores()).memoryGiB(p.getMemoryGiB())
                 .maxPods(p.getMaxPods()).nodeCount(p.getNodeCount())
                 .allocatedGpuSlots(alloc).availableGpuSlots(p.getGpuSlots() - alloc)
-                .hardwareType(p.getHardwareType()).securityLevel(p.getSecurityLevel())
-                .gpuType(p.getGpuType()).jobTypes(p.getJobTypes())
+                .hardwareType(p.getHardwareType()).gpuType(p.getGpuType()).jobTypes(p.getJobTypes())
                 .status(p.getStatus()).createdAt(p.getCreatedAt()).updatedAt(p.getUpdatedAt())
                 .build();
     }

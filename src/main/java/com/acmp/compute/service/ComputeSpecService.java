@@ -40,7 +40,6 @@ public class ComputeSpecService {
                 .displayName(request.getDisplayName())
                 .gpuBrand(request.getGpuBrand())
                 .memoryGb(request.getMemoryGb())
-                .architecture(request.getArchitecture())
                 .description(request.getDescription())
                 .build();
         specMapper.insert(spec);
@@ -124,7 +123,7 @@ public class ComputeSpecService {
         return SpecResponse.builder()
                 .id(s.getId()).name(s.getName()).displayName(s.getDisplayName())
                 .gpuBrand(s.getGpuBrand()).memoryGb(s.getMemoryGb())
-                .architecture(s.getArchitecture()).description(s.getDescription())
+                .description(s.getDescription())
                 .createdAt(s.getCreatedAt()).build();
     }
 }

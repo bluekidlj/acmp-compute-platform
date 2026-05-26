@@ -33,8 +33,7 @@ public class Workspace {
     private Integer nodeCount;
     // ── 维度 ──
     private String hardwareType;
-    private String securityLevel;
-    private String gpuType;
+    private GpuBrand gpuType;
     private String jobTypes;
     // ──
     private String createdBy;
