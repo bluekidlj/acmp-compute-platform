@@ -1,21 +1,29 @@
 package com.acmp.compute.service;
 
+import com.acmp.compute.entity.ComputeSpec;
 import com.acmp.compute.entity.PhysicalCluster;
+import com.acmp.compute.exception.BadRequestException;
 import com.acmp.compute.exception.ResourceNotFoundException;
 import com.acmp.compute.mapper.PhysicalClusterMapper;
 import com.acmp.compute.mapper.ResourcePoolMapper;
+import io.fabric8.kubernetes.client.utils.Serialization;
+import lombok.Builder;
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Map;
 
 /**
- * 物理池元数据加载服务。
- * 
- * 职责：加载逻辑资源池所关联的所有物理集群的调度约束（nodeSelector、taints）。
- * 用途：在部署模型或训练任务时，自动注入这些约束到 K8s Pod Spec。
+ * 池元数据服务：按规格在逻辑池关联的物理集群中选定一个调度目标。
+ *
+ * 设计：一个 Pod 只能落到一个节点，跨集群合并 nodeSelector 会产生"哪个节点都不满足"
+ * 的非法约束。正确做法：把 spec.nodeSelector 看作"目标节点组的标签子集"，
+ * 在池关联的物理集群中找到 nodeLabels ⊇ spec.nodeSelector 的那个集群，
+ * 然后用该集群的 nodeLabels + taints 作为最终调度约束。
  */
 @Slf4j
 @Service
@@ -26,128 +34,97 @@ public class PoolMetadataService {
     private final PhysicalClusterMapper physicalClusterMapper;
 
     /**
-     * 加载逻辑资源池关联的所有物理集群。
-     *
-     * @param resourcePoolId 逻辑资源池 ID
-     * @return 物理集群列表
-     * @throws ResourceNotFoundException 如果资源池不存在
+     * 加载逻辑池关联的所有物理集群。
      */
     public List<PhysicalCluster> loadPhysicalClustersByPool(String resourcePoolId) {
-        // 验证资源池存在
         resourcePoolMapper.findById(resourcePoolId)
                 .orElseThrow(() -> new ResourceNotFoundException("逻辑资源池不存在: " + resourcePoolId));
 
-        // 加载所有关联的物理集群
-        List<String> physicalClusterIds = resourcePoolMapper.findPhysicalClusterIds(resourcePoolId);
-        List<PhysicalCluster> clusters = physicalClusterIds.stream()
+        List<String> ids = resourcePoolMapper.findPhysicalClusterIds(resourcePoolId);
+        if (ids.isEmpty()) {
+            throw new BadRequestException("逻辑池 " + resourcePoolId + " 未关联任何物理集群");
+        }
+        return ids.stream()
                 .map(id -> physicalClusterMapper.findById(id)
                         .orElseThrow(() -> new ResourceNotFoundException("物理集群不存在: " + id)))
-                .collect(Collectors.toList());
-
-        log.info("✓ 加载资源池 {} 的 {} 个物理集群", resourcePoolId, clusters.size());
-        return clusters;
+                .collect(java.util.stream.Collectors.toList());
     }
 
     /**
-     * 合并所有物理集群的 nodeSelector。
+     * 按规格在逻辑池关联的物理集群中选定唯一目标集群。
      *
-     * 合并策略：
-     * - 若多个集群定义了相同的标签键，优先级不确定（可在后续扩展为配置驱动）
-     * - 若某集群未定义 nodeSelector，跳过该集群的贡献
-     *
-     * @param clusters 物理集群列表
-     * @return 合并后的 nodeSelector JSON 字符串（若无标签则为 null）
+     * 匹配规则：spec.nodeSelector 中每个 (key,value) 必须出现在 cluster.nodeLabels 中。
+     * 若 spec 未声明 nodeSelector，则取池关联的第一个集群（兼容旧行为）。
+     * 命中多个时取第一个匹配的集群（命中即返回）。
      */
-    public String mergeNodeSelectors(List<PhysicalCluster> clusters) {
-        if (clusters == null || clusters.isEmpty()) {
-            return null;
-        }
-
-        StringBuilder merged = new StringBuilder("{");
-        boolean hasContent = false;
-
-        for (PhysicalCluster cluster : clusters) {
-            if (cluster.getNodeLabels() == null || cluster.getNodeLabels().isEmpty()) {
-                continue;
-            }
-            // 简单方式：直接拼接（假设 nodeLabels 已是有效 JSON）
-            // 生产环境应使用 JSON 库进行正式合并
-            if (hasContent) {
-                merged.append(",");
-            }
-            merged.append(cluster.getNodeLabels().substring(1, cluster.getNodeLabels().length() - 1));
-            hasContent = true;
-        }
-
-        merged.append("}");
-        return hasContent ? merged.toString() : null;
-    }
-
-    /**
-     * 收集所有物理集群的污点容忍。
-     *
-     * @param clusters 物理集群列表
-     * @return 污点列表 JSON 字符串（若无污点则为 null）
-     */
-    public String collectTolerations(List<PhysicalCluster> clusters) {
-        if (clusters == null || clusters.isEmpty()) {
-            return null;
-        }
-
-        StringBuilder collected = new StringBuilder("[");
-        boolean hasContent = false;
-
-        for (PhysicalCluster cluster : clusters) {
-            if (cluster.getTaints() == null || cluster.getTaints().isEmpty()) {
-                continue;
-            }
-            // 假设 taints 为 JSON 数组字符串，去掉外层 [ ]
-            String taintsContent = cluster.getTaints();
-            if (taintsContent.startsWith("[") && taintsContent.endsWith("]")) {
-                taintsContent = taintsContent.substring(1, taintsContent.length() - 1);
-            }
-
-            if (hasContent && !taintsContent.isEmpty()) {
-                collected.append(",");
-            }
-            if (!taintsContent.isEmpty()) {
-                collected.append(taintsContent);
-                hasContent = true;
-            }
-        }
-
-        collected.append("]");
-        return hasContent ? collected.toString() : null;
-    }
-
-    /**
-     * 一次性加载并合并 nodeSelector 和 tolerations。
-     *
-     * @param resourcePoolId 逻辑资源池 ID
-     * @return 包含 nodeSelector 和 tolerations 的对象
-     */
-    public PoolMetadata loadPoolMetadata(String resourcePoolId) {
+    public TargetCluster pickClusterForSpec(String resourcePoolId, ComputeSpec spec) {
         List<PhysicalCluster> clusters = loadPhysicalClustersByPool(resourcePoolId);
-        String nodeSelector = mergeNodeSelectors(clusters);
-        String tolerations = collectTolerations(clusters);
 
-        return PoolMetadata.builder()
-                .resourcePoolId(resourcePoolId)
-                .physicalClusters(clusters)
-                .nodeSelector(nodeSelector)
-                .tolerations(tolerations)
+        Map<String, String> specLabels = parseJsonMap(spec.getNodeSelector());
+
+        if (specLabels.isEmpty()) {
+            PhysicalCluster c = clusters.get(0);
+            log.info("spec {} 未声明 nodeSelector，使用池中第一个物理集群 {}",
+                    spec.getName(), c.getId());
+            return toTarget(c);
+        }
+
+        for (PhysicalCluster c : clusters) {
+            Map<String, String> labels = parseJsonMap(c.getNodeLabels());
+            if (containsAll(labels, specLabels)) {
+                log.info("spec {} 命中物理集群 {} (labels={})", spec.getName(), c.getId(), labels);
+                return toTarget(c);
+            }
+        }
+
+        throw new BadRequestException(
+                "逻辑池 " + resourcePoolId + " 关联的物理集群没有满足规格 "
+                        + spec.getName() + " 节点标签 " + specLabels + " 的目标");
+    }
+
+    private TargetCluster toTarget(PhysicalCluster c) {
+        return TargetCluster.builder()
+                .clusterId(c.getId())
+                .clusterName(c.getName())
+                .nodeLabelsJson(c.getNodeLabels())
+                .taintsJson(c.getTaints())
                 .build();
     }
 
+    private boolean containsAll(Map<String, String> superSet, Map<String, String> subSet) {
+        for (Map.Entry<String, String> e : subSet.entrySet()) {
+            String v = superSet.get(e.getKey());
+            if (v == null || !v.equals(e.getValue())) return false;
+        }
+        return true;
+    }
+
+    private Map<String, String> parseJsonMap(String json) {
+        if (json == null || json.isEmpty()) return new LinkedHashMap<>();
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, String> m = Serialization.jsonMapper().readValue(json, Map.class);
+            return m;
+        } catch (Exception e) {
+            log.warn("解析 JSON Map 失败: {}", json, e);
+            return new LinkedHashMap<>();
+        }
+    }
+
     /**
-     * 池元数据对象（用于返回加载结果）。
+     * 选定的目标物理集群信息：用于工作空间 Namespace 创建及 Pod 调度。
+     *
+     * nodeLabelsJson 直接用作 Pod.nodeSelector，
+     * taintsJson 直接用作 Pod.tolerations。
      */
-    @lombok.Data
-    @lombok.Builder
-    public static class PoolMetadata {
-        private String resourcePoolId;
-        private List<PhysicalCluster> physicalClusters;
-        private String nodeSelector;
-        private String tolerations;
+    @Data
+    @Builder
+    public static class TargetCluster {
+        private String clusterId;
+        private String clusterName;
+        /** JSON: {"pool":"nvidia-gpu"} */
+        private String nodeLabelsJson;
+        /** JSON: [{"key":"nvidia.com/gpu",...}] */
+        private String taintsJson;
     }
 }

@@ -80,22 +80,27 @@
         WHERE rpsq.resource_pool_id = #{resourcePoolId}
     </select>
 
-    <!-- 工作空间 ↔ 规格配额 -->
+    <!-- 工作空间 × 逻辑池 × 规格配额（双层配额第二层） -->
     <insert id="insertWorkspaceSpecQuota">
-        MERGE INTO workspace_spec_quota (workspace_id, spec_id, max_quota, used_quota)
-        KEY(workspace_id, spec_id) VALUES (#{workspaceId}, #{specId}, #{maxQuota}, #{usedQuota})
+        MERGE INTO workspace_pool_spec_quota (workspace_id, resource_pool_id, spec_id, max_quota, used_quota)
+        KEY(workspace_id, resource_pool_id, spec_id)
+        VALUES (#{workspaceId}, #{resourcePoolId}, #{specId}, #{maxQuota}, #{usedQuota})
     </insert>
     <update id="updateWorkspaceSpecUsed">
-        UPDATE workspace_spec_quota SET used_quota = #{usedQuota}
-        WHERE workspace_id = #{workspaceId} AND spec_id = #{specId}
+        UPDATE workspace_pool_spec_quota SET used_quota = #{usedQuota}
+        WHERE workspace_id = #{workspaceId}
+          AND resource_pool_id = #{resourcePoolId}
+          AND spec_id = #{specId}
     </update>
     <delete id="deleteWorkspaceSpecQuotas">
-        DELETE FROM workspace_spec_quota WHERE workspace_id = #{workspaceId}
+        DELETE FROM workspace_pool_spec_quota WHERE workspace_id = #{workspaceId}
     </delete>
     <select id="findSpecQuotasByWorkspaceId" resultType="java.util.HashMap">
-        SELECT cs.name as spec_name, cs.id as spec_id, wsq.max_quota, wsq.used_quota,
-               (wsq.max_quota - wsq.used_quota) as available
-        FROM workspace_spec_quota wsq JOIN compute_spec cs ON cs.id = wsq.spec_id
-        WHERE wsq.workspace_id = #{workspaceId}
+        SELECT cs.name as spec_name, cs.id as spec_id,
+               wpsq.resource_pool_id, wpsq.max_quota, wpsq.used_quota,
+               (wpsq.max_quota - wpsq.used_quota) as available
+        FROM workspace_pool_spec_quota wpsq
+        JOIN compute_spec cs ON cs.id = wpsq.spec_id
+        WHERE wpsq.workspace_id = #{workspaceId}
     </select>
 </mapper>

@@ -62,6 +62,8 @@ public class AdminPhysicalClusterService {
                 .description(request.getDescription())
                 .gpuTypes(request.getGpuTypes() != null ? request.getGpuTypes() : GpuBrand.NVIDIA.name())
                 .location(request.getLocation() != null ? request.getLocation() : "default")
+                .nodeLabels(request.getNodeLabels())
+                .taints(request.getTaints())
                 .kubeconfigBase64Encrypted(encryptedKubeconfig)
                 .status("active")
                 .totalGpuSlots(0)

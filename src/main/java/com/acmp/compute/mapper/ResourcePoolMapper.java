@@ -12,12 +12,14 @@ public interface ResourcePoolMapper {
 
     int insert(ResourcePool entity);
     int update(ResourcePool entity);
-    int updateAllocated(ResourcePool entity);
 
     Optional<ResourcePool> findById(@Param("id") String id);
     List<ResourcePool> findAll();
     List<ResourcePool> findByPhysicalClusterId(@Param("physicalClusterId") String physicalClusterId);
-    int insertPhysicalCluster(@Param("resourcePoolId") String resourcePoolId, @Param("physicalClusterId") String physicalClusterId);
+
+    int insertPhysicalCluster(@Param("resourcePoolId") String resourcePoolId,
+                              @Param("physicalClusterId") String physicalClusterId);
     List<String> findPhysicalClusterIds(@Param("resourcePoolId") String resourcePoolId);
+
     int deleteById(@Param("id") String id);
 }

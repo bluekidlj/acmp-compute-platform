@@ -8,48 +8,26 @@
         <result column="description" property="description"/>
         <result column="department_code" property="departmentCode"/>
         <result column="department_name" property="departmentName"/>
-        <result column="gpu_slots" property="gpuSlots"/>
-        <result column="cpu_cores" property="cpuCores"/>
-        <result column="memory_gib" property="memoryGiB"/>
-        <result column="max_pods" property="maxPods"/>
-        <result column="node_count" property="nodeCount"/>
-        <result column="allocated_gpu_slots" property="allocatedGpuSlots"/>
-        <result column="allocated_cpu_cores" property="allocatedCpuCores"/>
-        <result column="allocated_memory_gib" property="allocatedMemoryGib"/>
-        <result column="hardware_type" property="hardwareType"/>
-        <result column="gpu_type" property="gpuType"/>
-        <result column="job_types" property="jobTypes"/>
         <result column="status" property="status"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
 
     <insert id="insert">
-        INSERT INTO resource_pool (id, name, description, department_code, department_name,
-            gpu_slots, cpu_cores, memory_gib, max_pods, node_count,
-            allocated_gpu_slots, allocated_cpu_cores, allocated_memory_gib,
-            hardware_type, gpu_type, job_types, status, created_at, updated_at)
-        VALUES (#{id}, #{name}, #{description}, #{departmentCode}, #{departmentName},
-            #{gpuSlots}, #{cpuCores}, #{memoryGiB}, #{maxPods}, #{nodeCount},
-            #{allocatedGpuSlots}, #{allocatedCpuCores}, #{allocatedMemoryGib},
-            #{hardwareType}, #{gpuType}, #{jobTypes}, #{status}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO resource_pool (id, name, description, department_code, department_name, status,
+                                   created_at, updated_at)
+        VALUES (#{id}, #{name}, #{description}, #{departmentCode}, #{departmentName}, #{status},
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 
     <update id="update">
         UPDATE resource_pool
-        SET name = #{name}, description = #{description}, department_code = #{departmentCode}, department_name = #{departmentName},
-            gpu_slots = #{gpuSlots}, cpu_cores = #{cpuCores}, memory_gib = #{memoryGiB}, max_pods = #{maxPods},
-            node_count = #{nodeCount},
-            hardware_type = #{hardwareType},
-            gpu_type = #{gpuType}, job_types = #{jobTypes},
-            status = #{status}, updated_at = CURRENT_TIMESTAMP
-        WHERE id = #{id}
-    </update>
-
-    <update id="updateAllocated">
-        UPDATE resource_pool
-        SET allocated_gpu_slots = #{allocatedGpuSlots}, allocated_cpu_cores = #{allocatedCpuCores},
-            allocated_memory_gib = #{allocatedMemoryGib}, updated_at = CURRENT_TIMESTAMP
+        SET name = #{name},
+            description = #{description},
+            department_code = #{departmentCode},
+            department_name = #{departmentName},
+            status = #{status},
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
     </update>
 

@@ -49,6 +49,12 @@ public class PhysicalClusterService {
 
     @Transactional(rollbackFor = Exception.class)
     public PhysicalClusterResponse register(String name, String kubeconfigBase64, String gpuTypes, String location) {
+        return register(name, kubeconfigBase64, gpuTypes, location, null, null);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public PhysicalClusterResponse register(String name, String kubeconfigBase64, String gpuTypes, String location,
+                                            String nodeLabels, String taints) {
         // 若前端传的是 Base64 编码的 kubeconfig 字符串，需先解码得到原始内容再校验
         String plainKubeconfig = kubeconfigBase64;
         if (!plainKubeconfig.contains("apiVersion") && !plainKubeconfig.contains("clusters:")) {
@@ -68,6 +74,8 @@ public class PhysicalClusterService {
                 .name(name)
                 .gpuTypes(gpuTypes)
                 .location(location)
+                .nodeLabels(nodeLabels)
+                .taints(taints)
                 .kubeconfigBase64Encrypted(encrypted)
                 .status("active")
                 .build();

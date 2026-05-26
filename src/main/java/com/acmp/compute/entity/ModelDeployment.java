@@ -9,7 +9,11 @@ import java.time.Instant;
 
 /**
  * vLLM 模型服务部署记录。
- * 模型与权重从本地获取（宿主机目录或 PVC），暂不考虑 OBS/SWR。
+ *
+ * 三个层级 ID：
+ *  - workspaceId    : K8s 边界（Namespace 所在）
+ *  - resourcePoolId : 配额归属（双层配额 L1）
+ *  - specId         : 算力规格（驱动资源键、调度约束）
  */
 @Data
 @Builder
@@ -17,13 +21,13 @@ import java.time.Instant;
 @AllArgsConstructor
 public class ModelDeployment {
     private String id;
+    private String workspaceId;
     private String resourcePoolId;
-    /** 部署名称，如 qwen3-svc-001 */
+    private String specId;
     private String name;
     private String modelName;
-    /** with_weights：镜像内或挂载路径有权重；without_weights：仅运行时镜像，须挂载权重路径 */
+    /** with_weights / without_weights */
     private String modelSource;
-    /** 本地路径：宿主机挂载到容器内的路径，如 /models/qwen3 */
     private String modelIdOrPath;
     private String vllmImage;
     private Integer gpuPerReplica;
@@ -34,7 +38,6 @@ public class ModelDeployment {
     private String k8sServiceName;
     /** pending / running / failed / stopped */
     private String status;
-    /** 服务访问地址，如 http://svc-name.namespace.svc.cluster.local:8000 */
     private String serviceUrl;
     private String createdBy;
     private Instant createdAt;

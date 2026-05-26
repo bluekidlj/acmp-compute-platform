@@ -28,7 +28,8 @@ public class PhysicalClusterController {
         PhysicalClusterResponse resp = physicalClusterService.register(
                 request.getName(), request.getKubeconfigBase64(),
                 request.getGpuTypes() != null ? request.getGpuTypes() : GpuBrand.NVIDIA.name(),
-                request.getLocation() != null ? request.getLocation() : "default");
+                request.getLocation() != null ? request.getLocation() : "default",
+                request.getNodeLabels(), request.getTaints());
         return ResponseEntity.status(HttpStatus.CREATED).body(resp);
     }
 

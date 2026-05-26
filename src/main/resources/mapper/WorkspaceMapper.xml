@@ -11,14 +11,8 @@
         <result column="service_account_name" property="serviceAccountName"/>
         <result column="volcano_queue_name" property="volcanoQueueName"/>
         <result column="primary_cluster_id" property="primaryClusterId"/>
-        <result column="gpu_slots" property="gpuSlots"/>
-        <result column="cpu_cores" property="cpuCores"/>
-        <result column="memory_gib" property="memoryGib"/>
         <result column="max_pods" property="maxPods"/>
         <result column="node_count" property="nodeCount"/>
-        <result column="hardware_type" property="hardwareType"/>
-        <result column="gpu_type" property="gpuType"/>
-        <result column="job_types" property="jobTypes"/>
         <result column="created_by" property="createdBy"/>
         <result column="status" property="status"/>
         <result column="created_at" property="createdAt"/>
@@ -26,21 +20,23 @@
     </resultMap>
 
     <insert id="insert">
-        INSERT INTO workspace (id, resource_pool_id, name, description,
-            namespace, service_account_name, volcano_queue_name, primary_cluster_id,
-            gpu_slots, cpu_cores, memory_gib, max_pods, node_count,
-            hardware_type, gpu_type, job_types,
-            created_by, status, created_at, updated_at)
-        VALUES (#{id}, #{resourcePoolId}, #{name}, #{description},
-            #{namespace}, #{serviceAccountName}, #{volcanoQueueName}, #{primaryClusterId},
-            #{gpuSlots}, #{cpuCores}, #{memoryGib}, #{maxPods}, #{nodeCount},
-            #{hardwareType}, #{gpuType}, #{jobTypes},
-            #{createdBy}, #{status}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO workspace
+            (id, resource_pool_id, name, description,
+             namespace, service_account_name, volcano_queue_name, primary_cluster_id,
+             max_pods, node_count, created_by, status, created_at, updated_at)
+        VALUES
+            (#{id}, #{resourcePoolId}, #{name}, #{description},
+             #{namespace}, #{serviceAccountName}, #{volcanoQueueName}, #{primaryClusterId},
+             #{maxPods}, #{nodeCount}, #{createdBy}, #{status},
+             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 
     <update id="update">
         UPDATE workspace
-        SET name = #{name}, description = #{description}, status = #{status}, updated_at = CURRENT_TIMESTAMP
+        SET name = #{name},
+            description = #{description},
+            status = #{status},
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
     </update>
 

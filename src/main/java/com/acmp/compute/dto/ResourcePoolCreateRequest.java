@@ -1,6 +1,7 @@
 package com.acmp.compute.dto;
 
-import com.acmp.compute.entity.GpuBrand;
+import lombok.Data;
+
 import javax.validation.constraints.Min;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotEmpty;
@@ -8,19 +9,43 @@ import javax.validation.constraints.NotNull;
 import javax.validation.constraints.Pattern;
 import java.util.List;
 
+/**
+ * 创建逻辑资源池请求。
+ *
+ * 设计：逻辑池本身不存调度规则/标签/资源数量；
+ * 资源按"规格 + 数量"维度划分，提交时给出 {@link SpecQuotaItem} 列表。
+ */
 @Data
 public class ResourcePoolCreateRequest {
-    @NotEmpty private List<String> physicalClusterIds;
-    @NotBlank private String name;
+    /** 关联的物理集群（至少一个） */
+    @NotEmpty
+    private List<String> physicalClusterIds;
+
+    @NotBlank
+    private String name;
+
     private String description;
-    @NotBlank @Pattern(regexp = "^[a-z0-9_-]+$") private String departmentCode;
-    @NotBlank private String departmentName;
-    @NotNull @Min(1) private Integer gpuSlots;
-    @NotNull @Min(1) private Integer cpuCores;
-    @NotNull @Min(1) private Integer memoryGib;
-    private Integer maxPods = 50;
-    private Integer nodeCount = 1;
-    private String hardwareType = "NVIDIA-GPU";
-    private GpuBrand gpuType = GpuBrand.NVIDIA;
-    private String jobTypes = "TRAINING,INFERENCE";
+
+    @NotBlank
+    @Pattern(regexp = "^[a-z0-9_-]+$")
+    private String departmentCode;
+
+    @NotBlank
+    private String departmentName;
+
+    /** 按规格的总配额清单，至少一条 */
+    @NotEmpty
+    private List<SpecQuotaItem> specQuotas;
+
+    @Data
+    public static class SpecQuotaItem {
+        /** 规格名（compute_spec.name），如 nvidia-rtx4090-24g */
+        @NotBlank
+        private String specName;
+
+        /** 该规格在池内的总配额（即可用副本数） */
+        @NotNull
+        @Min(0)
+        private Integer totalQuota;
+    }
 }

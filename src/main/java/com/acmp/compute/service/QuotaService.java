@@ -1,6 +1,5 @@
 package com.acmp.compute.service;
 
-import com.acmp.compute.entity.ComputeSpec;
 import com.acmp.compute.exception.BadRequestException;
 import com.acmp.compute.exception.ResourceNotFoundException;
 import com.acmp.compute.mapper.ComputeSpecMapper;
@@ -11,18 +10,18 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
- * 配额管理服务。
+ * 双层配额服务：
+ *  L1 - 逻辑池规格配额 (resource_pool_spec_quota.allocated_quota)
+ *  L2 - 工作空间规格配额 (workspace_pool_spec_quota.used_quota)
  *
- * 职责：
- * - 校验双层配额（逻辑池级 + 工作空间级）
- * - 预扣配额（在 K8s 部署前锁定配额）
- * - 回滚配额（部署失败时恢复配额）
- *
- * 算法：
- * 在规格中定义 resourceQuotaKey（默认为 "platform.io/{specName}"），
- * 作为 K8s ResourceQuota 中的自定义资源名。
+ * 部署/训练流程：
+ *  ① validateBothLevelQuotas
+ *  ② deductBothLevelQuotas
+ *  ③ K8s 操作（失败时回滚）
+ *  ④ 删除时 rollbackBothLevelQuotas
  */
 @Slf4j
 @Service
@@ -31,212 +30,121 @@ public class QuotaService {
 
     private final ComputeSpecMapper computeSpecMapper;
 
-    /**
-     * 校验逻辑资源池级配额。
-     *
-     * @param resourcePoolId 逻辑资源池 ID
-     * @param specId 规格 ID
-     * @param requestedUnits 请求数量（通常等于副本数）
-     * @throws BadRequestException 如果配额不足
-     */
+    // ─────────────────────────── L1: 逻辑池规格配额 ───────────────────────────
+
     public void validatePoolLevelQuota(String resourcePoolId, String specId, int requestedUnits) {
-        List<Map<String, Object>> quotas = computeSpecMapper.findSpecQuotasByResourcePoolId(resourcePoolId);
-
-        Map<String, Object> quota = quotas.stream()
-                .filter(q -> q.get("spec_id").equals(specId))
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "逻辑池 " + resourcePoolId + " 中不存在规格 " + specId + " 的配额"));
-
-        Integer totalQuota = (Integer) quota.get("total_quota");
-        Integer allocatedQuota = (Integer) quota.get("allocated_quota");
-        int availableQuota = totalQuota - allocatedQuota;
-
-        if (availableQuota < requestedUnits) {
-            throw new BadRequestException(
-                    String.format("逻辑池级配额不足: 需要 %d 单位，可用 %d 单位", requestedUnits, availableQuota));
+        Map<String, Object> quota = findPoolSpecQuotaRow(resourcePoolId, specId);
+        int total = toInt(quota.get("total_quota"));
+        int allocated = toInt(quota.get("allocated_quota"));
+        int available = total - allocated;
+        if (available < requestedUnits) {
+            throw new BadRequestException(String.format(
+                    "逻辑池级配额不足: 池=%s, 规格=%s, 需要=%d, 可用=%d (total=%d, allocated=%d)",
+                    resourcePoolId, specId, requestedUnits, available, total, allocated));
         }
-
-        log.info("✓ 逻辑池配额校验通过: 池={}, 规格={}, 请求={}, 可用={}", 
-                resourcePoolId, specId, requestedUnits, availableQuota);
+        log.debug("✓ L1 配额校验通过: 池={}, 规格={}, 请求={}, 可用={}",
+                resourcePoolId, specId, requestedUnits, available);
     }
 
-    /**
-     * 校验工作空间级配额。
-     *
-     * @param workspaceId 工作空间 ID
-     * @param specId 规格 ID
-     * @param requestedUnits 请求数量（通常等于副本数）
-     * @throws BadRequestException 如果配额不足
-     */
-    public void validateWorkspaceLevelQuota(String workspaceId, String specId, int requestedUnits) {
-        List<Map<String, Object>> quotas = computeSpecMapper.findSpecQuotasByWorkspaceId(workspaceId);
-
-        Map<String, Object> quota = quotas.stream()
-                .filter(q -> q.get("spec_id").equals(specId))
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "工作空间 " + workspaceId + " 中不存在规格 " + specId + " 的配额"));
-
-        Integer maxQuota = (Integer) quota.get("max_quota");
-        Integer usedQuota = (Integer) quota.get("used_quota");
-        int availableQuota = maxQuota - usedQuota;
-
-        if (availableQuota < requestedUnits) {
-            throw new BadRequestException(
-                    String.format("工作空间级配额不足: 需要 %d 单位，可用 %d 单位", requestedUnits, availableQuota));
-        }
-
-        log.info("✓ 工作空间级配额校验通过: 工作空间={}, 规格={}, 请求={}, 可用={}", 
-                workspaceId, specId, requestedUnits, availableQuota);
-    }
-
-    /**
-     * 双层配额校验。
-     *
-     * @param resourcePoolId 逻辑资源池 ID
-     * @param workspaceId 工作空间 ID
-     * @param specId 规格 ID
-     * @param requestedUnits 请求数量
-     * @throws BadRequestException 如果任一层配额不足
-     */
-    public void validateBothLevelQuotas(String resourcePoolId, String workspaceId, String specId, int requestedUnits) {
-        validatePoolLevelQuota(resourcePoolId, specId, requestedUnits);
-        validateWorkspaceLevelQuota(workspaceId, specId, requestedUnits);
-        log.info("✓ 双层配额校验通过: 池={}, 工作空间={}, 规格={}, 请求={}", 
-                resourcePoolId, workspaceId, specId, requestedUnits);
-    }
-
-    /**
-     * 预扣逻辑池级配额。
-     *
-     * 调用时机：K8s 部署成功后，立即扣减配额。
-     * 失败回滚：若后续出错，调用 rollbackPoolLevelQuota 恢复。
-     *
-     * @param resourcePoolId 逻辑资源池 ID
-     * @param specId 规格 ID
-     * @param units 扣减数量
-     */
     @Transactional(rollbackFor = Exception.class)
     public void deductPoolLevelQuota(String resourcePoolId, String specId, int units) {
-        List<Map<String, Object>> quotas = computeSpecMapper.findSpecQuotasByResourcePoolId(resourcePoolId);
-
-        Map<String, Object> quota = quotas.stream()
-                .filter(q -> q.get("spec_id").equals(specId))
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException("配额记录不存在"));
-
-        Integer currentAllocated = (Integer) quota.get("allocated_quota");
-        int newAllocated = currentAllocated + units;
-
+        Map<String, Object> quota = findPoolSpecQuotaRow(resourcePoolId, specId);
+        int newAllocated = toInt(quota.get("allocated_quota")) + units;
         computeSpecMapper.updateResourcePoolSpecAllocated(resourcePoolId, specId, newAllocated);
-        log.info("✓ 预扣逻辑池级配额: 池={}, 规格={}, 扣减={}, 新分配={}", 
+        log.debug("→ L1 配额已扣减: 池={}, 规格={}, units={}, allocated={}",
                 resourcePoolId, specId, units, newAllocated);
     }
 
-    /**
-     * 预扣工作空间级配额。
-     *
-     * @param workspaceId 工作空间 ID
-     * @param specId 规格 ID
-     * @param units 扣减数量
-     */
     @Transactional(rollbackFor = Exception.class)
-    public void deductWorkspaceLevelQuota(String workspaceId, String specId, int units) {
-        List<Map<String, Object>> quotas = computeSpecMapper.findSpecQuotasByWorkspaceId(workspaceId);
+    public void rollbackPoolLevelQuota(String resourcePoolId, String specId, int units) {
+        Map<String, Object> quota = findPoolSpecQuotaRow(resourcePoolId, specId);
+        int newAllocated = Math.max(0, toInt(quota.get("allocated_quota")) - units);
+        computeSpecMapper.updateResourcePoolSpecAllocated(resourcePoolId, specId, newAllocated);
+        log.debug("← L1 配额已回滚: 池={}, 规格={}, units={}, allocated={}",
+                resourcePoolId, specId, units, newAllocated);
+    }
 
-        Map<String, Object> quota = quotas.stream()
-                .filter(q -> q.get("spec_id").equals(specId))
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException("配额记录不存在"));
+    // ─────────────────────────── L2: 工作空间规格配额 ───────────────────────────
 
-        Integer currentUsed = (Integer) quota.get("used_quota");
-        int newUsed = currentUsed + units;
+    public void validateWorkspaceLevelQuota(String workspaceId, String resourcePoolId, String specId, int requestedUnits) {
+        Map<String, Object> quota = findWorkspaceSpecQuotaRow(workspaceId, resourcePoolId, specId);
+        int max = toInt(quota.get("max_quota"));
+        int used = toInt(quota.get("used_quota"));
+        int available = max - used;
+        if (available < requestedUnits) {
+            throw new BadRequestException(String.format(
+                    "工作空间级配额不足: ws=%s, 规格=%s, 需要=%d, 可用=%d (max=%d, used=%d)",
+                    workspaceId, specId, requestedUnits, available, max, used));
+        }
+        log.debug("✓ L2 配额校验通过: ws={}, 规格={}, 请求={}, 可用={}",
+                workspaceId, specId, requestedUnits, available);
+    }
 
-        computeSpecMapper.updateWorkspaceSpecUsed(workspaceId, specId, newUsed);
-        log.info("✓ 预扣工作空间级配额: 工作空间={}, 规格={}, 扣减={}, 新使用={}", 
+    @Transactional(rollbackFor = Exception.class)
+    public void deductWorkspaceLevelQuota(String workspaceId, String resourcePoolId, String specId, int units) {
+        Map<String, Object> quota = findWorkspaceSpecQuotaRow(workspaceId, resourcePoolId, specId);
+        int newUsed = toInt(quota.get("used_quota")) + units;
+        computeSpecMapper.updateWorkspaceSpecUsed(workspaceId, resourcePoolId, specId, newUsed);
+        log.debug("→ L2 配额已扣减: ws={}, 规格={}, units={}, used={}",
                 workspaceId, specId, units, newUsed);
     }
 
-    /**
-     * 双层配额预扣。
-     *
-     * @param resourcePoolId 逻辑资源池 ID
-     * @param workspaceId 工作空间 ID
-     * @param specId 规格 ID
-     * @param units 扣减数量
-     */
+    @Transactional(rollbackFor = Exception.class)
+    public void rollbackWorkspaceLevelQuota(String workspaceId, String resourcePoolId, String specId, int units) {
+        Map<String, Object> quota = findWorkspaceSpecQuotaRow(workspaceId, resourcePoolId, specId);
+        int newUsed = Math.max(0, toInt(quota.get("used_quota")) - units);
+        computeSpecMapper.updateWorkspaceSpecUsed(workspaceId, resourcePoolId, specId, newUsed);
+        log.debug("← L2 配额已回滚: ws={}, 规格={}, units={}, used={}",
+                workspaceId, specId, units, newUsed);
+    }
+
+    // ─────────────────────────── 双层封装 ───────────────────────────
+
+    public void validateBothLevelQuotas(String resourcePoolId, String workspaceId, String specId, int requestedUnits) {
+        validatePoolLevelQuota(resourcePoolId, specId, requestedUnits);
+        validateWorkspaceLevelQuota(workspaceId, resourcePoolId, specId, requestedUnits);
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public void deductBothLevelQuotas(String resourcePoolId, String workspaceId, String specId, int units) {
         deductPoolLevelQuota(resourcePoolId, specId, units);
-        deductWorkspaceLevelQuota(workspaceId, specId, units);
-        log.info("✓ 双层配额预扣完成: 池={}, 工作空间={}, 规格={}, 扣减={}", 
+        deductWorkspaceLevelQuota(workspaceId, resourcePoolId, specId, units);
+        log.info("✓ 双层配额已扣减: 池={}, ws={}, 规格={}, units={}",
                 resourcePoolId, workspaceId, specId, units);
     }
 
-    /**
-     * 回滚逻辑池级配额。
-     *
-     * 调用时机：部署失败或被撤销时，恢复已预扣的配额。
-     *
-     * @param resourcePoolId 逻辑资源池 ID
-     * @param specId 规格 ID
-     * @param units 恢复数量
-     */
-    @Transactional(rollbackFor = Exception.class)
-    public void rollbackPoolLevelQuota(String resourcePoolId, String specId, int units) {
-        List<Map<String, Object>> quotas = computeSpecMapper.findSpecQuotasByResourcePoolId(resourcePoolId);
-
-        Map<String, Object> quota = quotas.stream()
-                .filter(q -> q.get("spec_id").equals(specId))
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException("配额记录不存在"));
-
-        Integer currentAllocated = (Integer) quota.get("allocated_quota");
-        int newAllocated = Math.max(0, currentAllocated - units);
-
-        computeSpecMapper.updateResourcePoolSpecAllocated(resourcePoolId, specId, newAllocated);
-        log.info("✓ 回滚逻辑池级配额: 池={}, 规格={}, 恢复={}, 新分配={}", 
-                resourcePoolId, specId, units, newAllocated);
-    }
-
-    /**
-     * 回滚工作空间级配额。
-     *
-     * @param workspaceId 工作空间 ID
-     * @param specId 规格 ID
-     * @param units 恢复数量
-     */
-    @Transactional(rollbackFor = Exception.class)
-    public void rollbackWorkspaceLevelQuota(String workspaceId, String specId, int units) {
-        List<Map<String, Object>> quotas = computeSpecMapper.findSpecQuotasByWorkspaceId(workspaceId);
-
-        Map<String, Object> quota = quotas.stream()
-                .filter(q -> q.get("spec_id").equals(specId))
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException("配额记录不存在"));
-
-        Integer currentUsed = (Integer) quota.get("used_quota");
-        int newUsed = Math.max(0, currentUsed - units);
-
-        computeSpecMapper.updateWorkspaceSpecUsed(workspaceId, specId, newUsed);
-        log.info("✓ 回滚工作空间级配额: 工作空间={}, 规格={}, 恢复={}, 新使用={}", 
-                workspaceId, specId, units, newUsed);
-    }
-
-    /**
-     * 双层配额回滚。
-     *
-     * @param resourcePoolId 逻辑资源池 ID
-     * @param workspaceId 工作空间 ID
-     * @param specId 规格 ID
-     * @param units 恢复数量
-     */
     @Transactional(rollbackFor = Exception.class)
     public void rollbackBothLevelQuotas(String resourcePoolId, String workspaceId, String specId, int units) {
+        rollbackWorkspaceLevelQuota(workspaceId, resourcePoolId, specId, units);
         rollbackPoolLevelQuota(resourcePoolId, specId, units);
-        rollbackWorkspaceLevelQuota(workspaceId, specId, units);
-        log.info("✓ 双层配额回滚完成: 池={}, 工作空间={}, 规格={}, 恢复={}", 
+        log.info("✓ 双层配额已回滚: 池={}, ws={}, 规格={}, units={}",
                 resourcePoolId, workspaceId, specId, units);
+    }
+
+    // ─────────────────────────── helpers ───────────────────────────
+
+    private Map<String, Object> findPoolSpecQuotaRow(String resourcePoolId, String specId) {
+        List<Map<String, Object>> all = computeSpecMapper.findSpecQuotasByResourcePoolId(resourcePoolId);
+        return all.stream()
+                .filter(q -> Objects.equals(q.get("spec_id"), specId))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "逻辑池 " + resourcePoolId + " 未配置规格 " + specId + " 的配额"));
+    }
+
+    private Map<String, Object> findWorkspaceSpecQuotaRow(String workspaceId, String resourcePoolId, String specId) {
+        List<Map<String, Object>> all = computeSpecMapper.findSpecQuotasByWorkspaceId(workspaceId);
+        return all.stream()
+                .filter(q -> Objects.equals(q.get("spec_id"), specId)
+                        && Objects.equals(q.get("resource_pool_id"), resourcePoolId))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "工作空间 " + workspaceId + " 在池 " + resourcePoolId + " 中未配置规格 " + specId + " 的配额"));
+    }
+
+    private int toInt(Object v) {
+        if (v == null) return 0;
+        if (v instanceof Number) return ((Number) v).intValue();
+        try { return Integer.parseInt(v.toString()); } catch (Exception e) { return 0; }
     }
 }

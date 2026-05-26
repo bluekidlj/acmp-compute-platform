@@ -9,7 +9,7 @@ import java.time.Instant;
 
 /**
  * 工作空间 = K8s Namespace（100% 对应），用户唯一可见的资源边界。
- * 所有任务、数据、权限都在这一个 Namespace 内。
+ * 资源数量按规格管理（见 workspace_pool_spec_quota），此处不再保留 gpu/cpu/mem 聚合字段。
  */
 @Data
 @Builder
@@ -25,16 +25,9 @@ public class Workspace {
     private String serviceAccountName;
     private String volcanoQueueName;
     private String primaryClusterId;
-    // ── 配额（DB 备份 K8s ResourceQuota）──
-    private Integer gpuSlots;
-    private Integer cpuCores;
-    private Integer memoryGib;
+    // ── Pod 数量上限（与规格无关的全局约束）──
     private Integer maxPods;
     private Integer nodeCount;
-    // ── 维度 ──
-    private String hardwareType;
-    private GpuBrand gpuType;
-    private String jobTypes;
     // ──
     private String createdBy;
     private String status;

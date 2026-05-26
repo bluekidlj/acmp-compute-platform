@@ -1,5 +1,7 @@
 package com.acmp.compute.k8s;
 
+import com.acmp.compute.entity.ComputeSpec;
+import com.acmp.compute.entity.GpuBrand;
 import io.fabric8.kubernetes.api.model.*;
 import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.apps.DeploymentBuilder;
@@ -11,29 +13,62 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Kubernetes 资源 Builder 辅助类：使用 fabric8 Builder API 构建 K8s 资源。
- * 避免使用 YAML 模板，获得类型安全、编译时检查的好处。
+ * Kubernetes 资源构建器：把"算力规格 + 副本数"翻译为 K8s 资源。
+ *
+ * 资源量流转的关键映射：
+ *   规格 (ComputeSpec)                                  → Pod
+ *   ├─ gpuBrand        NVIDIA / HYGON / HUAWEI_ASCEND   → limits[gpuResourceKey] = gpuPerReplica
+ *   ├─ default*Counts  cpu/mem/gpumem/gpucores          → limits/requests
+ *   ├─ nodeSelector    {"pool":"nvidia-gpu"}            → Pod.nodeSelector
+ *   ├─ tolerations     [{key,operator,effect}]          → Pod.tolerations
+ *   └─ resourceQuotaKey  platform.io/{spec}             → limits[platform.io/{spec}] = replicas
+ *
+ * 最后一项让 Namespace 的 ResourceQuota（按 platform.io/{spec} 上限）真实生效。
  */
 @Slf4j
 public class K8sResourceBuilder {
 
     /**
+     * 根据 GPU 品牌返回对应的 K8s 设备资源键。
+     */
+    public static String gpuResourceKey(GpuBrand brand) {
+        if (brand == null) return "nvidia.com/gpu";
+        switch (brand) {
+            case NVIDIA:         return "nvidia.com/gpu";
+            case HYGON:          return "amd.com/dcu";
+            case HUAWEI_ASCEND:  return "huawei.com/ascend910";
+            default:             return "nvidia.com/gpu";
+        }
+    }
+
+    /**
+     * 根据 GPU 品牌返回额外的细粒度资源键（HAMi vGPU 等），可能不存在。
+     */
+    private static String gpuMemKey(GpuBrand brand) {
+        if (brand == GpuBrand.NVIDIA) return "nvidia.com/gpumem";
+        return null;
+    }
+
+    private static String gpuCoresKey(GpuBrand brand) {
+        if (brand == GpuBrand.NVIDIA) return "nvidia.com/gpucores";
+        return null;
+    }
+
+    // ─────────────────────────── vLLM Deployment + Service ───────────────────────────
+
+    /**
      * 构建 vLLM Deployment + Service YAML（规范版本）。
-     * 自动注入调度约束、资源限制、容忍度。
-     * 
-     * @param deploymentName Deployment 名称
-     * @param serviceName Service 名称
-     * @param namespace 目标 namespace
-     * @param image vLLM 镜像地址
-     * @param modelIdOrPath 模型路径
-     * @param gpuPerReplica 每个副本的 GPU 数量
-     * @param gpumemMb GPU 内存（MB）
-     * @param gpucores GPU 核心数
-     * @param replicas 副本数
-     * @param hostModelPath 宿主机模型路径（用于 hostPath 挂载，可选）
-     * @param nodeSelector 节点选择器（JSON 字符串或 null）
-     * @param tolerations 污点容忍（JSON 字符串或 null）
-     * @return 完整的 vLLM Deployment + Service YAML 字符串
+     *
+     * @param deploymentName Deployment 名
+     * @param serviceName    Service 名
+     * @param namespace      目标 namespace
+     * @param image          vLLM 镜像
+     * @param modelIdOrPath  容器内模型路径
+     * @param spec           算力规格（决定资源键、cpu/mem 默认值）
+     * @param replicas       副本数
+     * @param hostModelPath  宿主机模型目录（hostPath 挂载，可选）
+     * @param nodeSelector   nodeSelector JSON 字符串（可选，通常来自 spec）
+     * @param tolerations    tolerations JSON 字符串（可选，通常来自 spec）
      */
     public static String buildVllmDeploymentAndService(
             String deploymentName,
@@ -41,114 +76,77 @@ public class K8sResourceBuilder {
             String namespace,
             String image,
             String modelIdOrPath,
-            Integer gpuPerReplica,
-            Integer gpumemMb,
-            Integer gpucores,
+            ComputeSpec spec,
             Integer replicas,
             String hostModelPath,
             String nodeSelector,
             String tolerations) {
-        
-        // 构建 Container
+
+        int gpuPerReplica = spec.getDefaultGpuCount() != null ? spec.getDefaultGpuCount() : 1;
+        int cpuCores = spec.getDefaultCpuCores() != null ? spec.getDefaultCpuCores() : 4;
+        int memoryGib = spec.getDefaultMemoryGib() != null ? spec.getDefaultMemoryGib() : 16;
+
+        // 容器
         ContainerBuilder containerBuilder = new ContainerBuilder()
                 .withName("vllm")
                 .withImage(image)
                 .withPorts(new ContainerPortBuilder().withContainerPort(8000).withName("http").build())
                 .withEnv(
-                    new EnvVarBuilder().withName("VLLM_MODEL").withValue(modelIdOrPath != null ? modelIdOrPath : "/models").build(),
-                    new EnvVarBuilder().withName("NVIDIA_VISIBLE_DEVICES").withValue("all").build()
+                    new EnvVarBuilder().withName("VLLM_MODEL")
+                            .withValue(modelIdOrPath != null ? modelIdOrPath : "/models").build()
                 )
                 .withReadinessProbe(
                     new ProbeBuilder()
                         .withHttpGet(new HTTPGetActionBuilder()
-                            .withPath("/health")
-                            .withPort(new IntOrString(8000))
-                            .build())
+                                .withPath("/health").withPort(new IntOrString(8000)).build())
                         .withInitialDelaySeconds(60)
                         .withPeriodSeconds(10)
                         .build()
                 );
-        
-        // 构建资源限制
-        Map<String, Quantity> limits = new HashMap<>();
-        limits.put("nvidia.com/gpu", Quantity.parse(String.valueOf(gpuPerReplica != null ? gpuPerReplica : 1)));
-        if (gpumemMb != null && gpumemMb > 0) {
-            limits.put("nvidia.com/gpumem", Quantity.parse(String.valueOf(gpumemMb)));
-        }
-        if (gpucores != null && gpucores > 0) {
-            limits.put("nvidia.com/gpucores", Quantity.parse(String.valueOf(gpucores)));
-        }
-        
-        Map<String, Quantity> requests = new HashMap<>();
-        requests.put("nvidia.com/gpu", Quantity.parse(String.valueOf(gpuPerReplica != null ? gpuPerReplica : 1)));
-        
+
+        Map<String, Quantity> limits = buildResourceMap(spec, replicas, gpuPerReplica, cpuCores, memoryGib);
+        Map<String, Quantity> requests = new HashMap<>(limits);
+
         containerBuilder.withResources(new ResourceRequirementsBuilder()
                 .withLimits(limits)
                 .withRequests(requests)
                 .build());
-        
-        // 如果指定了 hostPath，添加 volumeMount 和 volume
+
         if (hostModelPath != null && !hostModelPath.isEmpty()) {
             containerBuilder.withVolumeMounts(
-                new VolumeMountBuilder()
-                    .withName("model-data")
-                    .withMountPath("/models")
-                    .build()
+                new VolumeMountBuilder().withName("model-data").withMountPath("/models").build()
             );
         }
-        
-        // 构建 Pod Template Spec
+
+        // Pod
         PodSpecBuilder podSpecBuilder = new PodSpecBuilder()
                 .withContainers(containerBuilder.build());
-        
-        // 合并 nodeSelector：物理池约束 + 默认 GPU 节点标签
-        Map<String, String> finalNodeSelector = new HashMap<>();
-        finalNodeSelector.put("gpu-node", "true");
-        if (nodeSelector != null && !nodeSelector.isEmpty()) {
-            try {
-                @SuppressWarnings("unchecked")
-                Map<String, String> poolNodeSelector = Serialization.jsonMapper().readValue(nodeSelector, Map.class);
-                finalNodeSelector.putAll(poolNodeSelector);
-            } catch (Exception e) {
-                log.warn("Failed to parse nodeSelector JSON: {}", nodeSelector, e);
-            }
+
+        Map<String, String> finalNodeSelector = parseNodeSelector(nodeSelector);
+        if (!finalNodeSelector.isEmpty()) {
+            podSpecBuilder.withNodeSelector(finalNodeSelector);
         }
-        podSpecBuilder.withNodeSelector(finalNodeSelector);
-        
-        // 添加污点容忍（来自物理池约束）
-        if (tolerations != null && !tolerations.isEmpty()) {
-            try {
-                @SuppressWarnings("unchecked")
-                List<Map<String, Object>> tolerationList = Serialization.jsonMapper().readValue(tolerations, List.class);
-                for (Map<String, Object> t : tolerationList) {
-                    Toleration tol = Serialization.jsonMapper().convertValue(t, Toleration.class);
-                    podSpecBuilder.addToTolerations(tol);
-                }
-            } catch (Exception e) {
-                log.warn("Failed to parse tolerations JSON: {}", tolerations, e);
-            }
-        }
-        
-        // 添加 Volume（如果使用 hostPath）
+
+        List<Toleration> tols = parseTolerations(tolerations);
+        for (Toleration t : tols) podSpecBuilder.addToTolerations(t);
+
         if (hostModelPath != null && !hostModelPath.isEmpty()) {
             podSpecBuilder.withVolumes(
                 new VolumeBuilder()
                     .withName("model-data")
                     .withHostPath(new HostPathVolumeSourceBuilder()
-                        .withPath(hostModelPath)
-                        .withType("Directory")
-                        .build())
+                            .withPath(hostModelPath).withType("Directory").build())
                     .build()
             );
         }
-        
-        // 构建 Deployment
+
+        // Deployment
         Deployment deployment = new DeploymentBuilder()
                 .withNewMetadata()
                     .withName(deploymentName)
                     .withNamespace(namespace)
                     .addToLabels("app", "vllm")
-                    .addToLabels("model", "vllm")
+                    .addToLabels("spec", spec.getName())
                 .endMetadata()
                 .withNewSpec()
                     .withReplicas(replicas != null ? replicas : 1)
@@ -160,13 +158,14 @@ public class K8sResourceBuilder {
                         .withNewMetadata()
                             .addToLabels("app", "vllm")
                             .addToLabels("deployment", deploymentName)
+                            .addToLabels("spec", spec.getName())
                         .endMetadata()
                         .withSpec(podSpecBuilder.build())
                     .endTemplate()
                 .endSpec()
                 .build();
-        
-        // 构建 Service
+
+        // Service
         Service service = new ServiceBuilder()
                 .withNewMetadata()
                     .withName(serviceName)
@@ -176,59 +175,18 @@ public class K8sResourceBuilder {
                     .addToSelector("app", "vllm")
                     .addToSelector("deployment", deploymentName)
                     .withPorts(new ServicePortBuilder()
-                        .withPort(8000)
-                        .withTargetPort(new IntOrString(8000))
-                        .withName("http")
-                        .build())
+                            .withPort(8000).withTargetPort(new IntOrString(8000)).withName("http").build())
                     .withType("ClusterIP")
                 .endSpec()
                 .build();
-        
-        // 序列化为 YAML
-        String deploymentYaml = Serialization.asYaml(deployment);
-        String serviceYaml = Serialization.asYaml(service);
-        
-        log.debug("Generated vLLM Deployment YAML:\n{}", deploymentYaml);
-        log.debug("Generated Service YAML:\n{}", serviceYaml);
-        
-        return "---\n" + deploymentYaml + "\n---\n" + serviceYaml;
+
+        return "---\n" + Serialization.asYaml(deployment) + "\n---\n" + Serialization.asYaml(service);
     }
 
-    /**
-     * 构建 vLLM Deployment + Service YAML（向后兼容版本）。
-     * @deprecated 使用新版本 buildVllmDeploymentAndService，支持 nodeSelector 和 tolerations
-     */
-    @Deprecated
-    public static String buildVllmDeploymentAndService(
-            String deploymentName,
-            String serviceName,
-            String namespace,
-            String image,
-            String modelIdOrPath,
-            Integer gpuPerReplica,
-            Integer gpumemMb,
-            Integer gpucores,
-            Integer replicas,
-            String hostModelPath) {
-        return buildVllmDeploymentAndService(
-                deploymentName, serviceName, namespace, image, modelIdOrPath,
-                gpuPerReplica, gpumemMb, gpucores, replicas, hostModelPath,
-                null, null);
-    }
+    // ─────────────────────────── VolcanoJob ───────────────────────────
 
     /**
-     * 构建 VolcanoJob（用于分布式训练）。
-     * 
-     * @param jobName Job 名称
-     * @param namespace 目标 namespace
-     * @param queueName Volcano Queue 名称
-     * @param replicas Pod 副本数
-     * @param image 训练镜像
-     * @param gpuPerPod 每个 Pod 的 GPU 数量
-     * @param gpuMemPerPod GPU 内存（可选）
-     * @param gpuCoresPerPod GPU 核心数（可选）
-     * @param command 执行命令（可选）
-     * @return VolcanoJob YAML 字符串
+     * 构建 VolcanoJob，注入规格驱动的资源键、nodeSelector、tolerations、platform.io 计量。
      */
     public static String buildVolcanoJob(
             String jobName,
@@ -236,133 +194,171 @@ public class K8sResourceBuilder {
             String queueName,
             Integer replicas,
             String image,
-            Integer gpuPerPod,
-            Integer gpuMemPerPod,
-            Integer gpuCoresPerPod,
-            List<String> command) {
-        
-        // 注意：fabric8 可能未提供原生的 VolcanoJob CRD Builder
-        // 在这种情况下，我们需要使用 Unstructured API 或回退到 YAML
-        // 下面是使用 Unstructured 的方式
-        
-        Map<String, Object> jobMap = new HashMap<>();
-        jobMap.put("apiVersion", "batch.volcano.sh/v1alpha1");
-        jobMap.put("kind", "VolcanoJob");
-        
-        Map<String, Object> metadata = new HashMap<>();
-        metadata.put("name", jobName);
-        metadata.put("namespace", namespace);
-        jobMap.put("metadata", metadata);
-        
-        Map<String, Object> spec = new HashMap<>();
-        spec.put("minAvailable", replicas);
-        spec.put("schedulerName", "volcano");
-        spec.put("queue", queueName);
-        
-        // 构建 tasks
+            ComputeSpec spec,
+            List<String> command,
+            String nodeSelector,
+            String tolerations) {
+
+        int gpuPerPod = spec.getDefaultGpuCount() != null ? spec.getDefaultGpuCount() : 1;
+        int cpuCores = spec.getDefaultCpuCores() != null ? spec.getDefaultCpuCores() : 4;
+        int memoryGib = spec.getDefaultMemoryGib() != null ? spec.getDefaultMemoryGib() : 16;
+
+        // 容器资源
+        Map<String, Quantity> limits = buildResourceMap(spec, 1, gpuPerPod, cpuCores, memoryGib);
+        // VolcanoJob 走 Unstructured；把 Quantity 转成字符串
+        Map<String, String> limitMap = new HashMap<>();
+        for (Map.Entry<String, Quantity> e : limits.entrySet()) {
+            limitMap.put(e.getKey(), e.getValue().toString());
+        }
+
+        Map<String, Object> resources = new HashMap<>();
+        resources.put("limits", limitMap);
+        resources.put("requests", new HashMap<>(limitMap));
+
+        Map<String, Object> container = new HashMap<>();
+        container.put("name", "worker");
+        container.put("image", image);
+        container.put("resources", resources);
+        if (command != null && !command.isEmpty()) container.put("command", command);
+
+        Map<String, Object> podSpec = new HashMap<>();
+        podSpec.put("restartPolicy", "Never");
+        podSpec.put("containers", List.of(container));
+
+        Map<String, String> ns = parseNodeSelector(nodeSelector);
+        if (!ns.isEmpty()) podSpec.put("nodeSelector", ns);
+
+        List<Toleration> tols = parseTolerations(tolerations);
+        if (!tols.isEmpty()) {
+            List<Map<String, Object>> tolList = new java.util.ArrayList<>();
+            for (Toleration t : tols) {
+                Map<String, Object> m = new HashMap<>();
+                if (t.getKey() != null) m.put("key", t.getKey());
+                if (t.getOperator() != null) m.put("operator", t.getOperator());
+                if (t.getValue() != null) m.put("value", t.getValue());
+                if (t.getEffect() != null) m.put("effect", t.getEffect());
+                tolList.add(m);
+            }
+            podSpec.put("tolerations", tolList);
+        }
+
+        Map<String, Object> template = new HashMap<>();
+        template.put("spec", podSpec);
+
         Map<String, Object> task = new HashMap<>();
         task.put("name", "worker");
         task.put("replicas", replicas);
         task.put("minAvailable", replicas);
-        
-        Map<String, Object> template = new HashMap<>();
-        Map<String, Object> podSpec = new HashMap<>();
-        podSpec.put("restartPolicy", "Never");
-        
-        // 强制添加 nodeSelector
-        Map<String, String> nodeSelector = new HashMap<>();
-        nodeSelector.put("gpu-node", "true");
-        podSpec.put("nodeSelector", nodeSelector);
-        
-        // 构建 Container
-        Map<String, Object> container = new HashMap<>();
-        container.put("name", "worker");
-        container.put("image", image);
-        
-        if (command != null && !command.isEmpty()) {
-            container.put("command", command);
-        }
-        
-        // 资源限制
-        Map<String, Object> resources = new HashMap<>();
-        Map<String, String> limitMap = new HashMap<>();
-        limitMap.put("nvidia.com/gpu", String.valueOf(gpuPerPod != null ? gpuPerPod : 1));
-        if (gpuMemPerPod != null && gpuMemPerPod > 0) {
-            limitMap.put("nvidia.com/gpumem", String.valueOf(gpuMemPerPod));
-        }
-        if (gpuCoresPerPod != null && gpuCoresPerPod > 0) {
-            limitMap.put("nvidia.com/gpucores", String.valueOf(gpuCoresPerPod));
-        }
-        resources.put("limits", limitMap);
-        
-        Map<String, String> requestMap = new HashMap<>();
-        requestMap.put("nvidia.com/gpu", String.valueOf(gpuPerPod != null ? gpuPerPod : 1));
-        resources.put("requests", requestMap);
-        
-        container.put("resources", resources);
-        
-        podSpec.put("containers", List.of(container));
-        template.put("spec", podSpec);
-        
         task.put("template", template);
-        
-        spec.put("tasks", List.of(task));
-        jobMap.put("spec", spec);
-        
-        // 序列化为 YAML
-        String yaml = Serialization.asYaml(jobMap);
-        log.debug("Generated VolcanoJob YAML:\n{}", yaml);
-        
-        return yaml;
+
+        Map<String, Object> spec_ = new HashMap<>();
+        spec_.put("minAvailable", replicas);
+        spec_.put("schedulerName", "volcano");
+        if (queueName != null) spec_.put("queue", queueName);
+        spec_.put("tasks", List.of(task));
+
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("name", jobName);
+        metadata.put("namespace", namespace);
+
+        Map<String, Object> jobMap = new HashMap<>();
+        jobMap.put("apiVersion", "batch.volcano.sh/v1alpha1");
+        jobMap.put("kind", "Job");
+        jobMap.put("metadata", metadata);
+        jobMap.put("spec", spec_);
+
+        return Serialization.asYaml(jobMap);
     }
 
+    // ─────────────────────────── Volcano Queue ───────────────────────────
+
     /**
-     * 构建 Volcano Queue YAML（集群级资源，用于资源池创建）。
-     * Volcano Queue 是自定义资源 (CRD)，用来配置训练任务的资源配额。
-     * 
-     * @param queueName Queue 名称（如：queue-dept-finance）
-     * @param gpuSlots GPU 配额数量
-     * @param cpuCores CPU 核心数
-     * @param memoryGiB 内存 GB 数
-     * @return Volcano Queue YAML 字符串
+     * 构建 Volcano Queue YAML（集群级资源）。
+     * capability 中放规格驱动的设备资源键，而不是固定 nvidia.com/gpu。
      */
     public static String buildVolcanoQueue(
             String queueName,
-            String gpuSlots,
-            String cpuCores,
-            String memoryGiB) {
-        
-        try {
-            // 使用 Unstructured API 构建 Volcano Queue（自定义 CRD）
-            Map<String, Object> metadata = new HashMap<>();
-            metadata.put("name", queueName);
-            
-            Map<String, Object> capability = new HashMap<>();
-            capability.put("nvidia.com/gpu", gpuSlots);
-            capability.put("cpu", cpuCores);
-            capability.put("memory", memoryGiB + "Gi");
-            
-            Map<String, Object> spec = new HashMap<>();
-            spec.put("capability", capability);
-            spec.put("weight", 1);
-            spec.put("reclaimable", true);
-            
-            Map<String, Object> queueMap = new HashMap<>();
-            queueMap.put("apiVersion", "scheduling.volcano.sh/v1beta1");
-            queueMap.put("kind", "Queue");
-            queueMap.put("metadata", metadata);
-            queueMap.put("spec", spec);
-            
-            // 序列化为 YAML
-            String yaml = Serialization.asYaml(queueMap);
-            log.debug("✓ 构建 Volcano Queue YAML 成功: {}", queueName);
-            log.debug("Generated Queue YAML:\n{}", yaml);
-            
-            return yaml;
-            
-        } catch (Exception e) {
-            log.error("✗ 构建 Volcano Queue YAML 失败: {}", e.getMessage(), e);
-            throw new RuntimeException("构建 Volcano Queue 失败: " + e.getMessage(), e);
+            Map<String, String> capability) {
+
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("name", queueName);
+
+        Map<String, Object> spec = new HashMap<>();
+        spec.put("capability", capability);
+        spec.put("weight", 1);
+        spec.put("reclaimable", true);
+
+        Map<String, Object> queueMap = new HashMap<>();
+        queueMap.put("apiVersion", "scheduling.volcano.sh/v1beta1");
+        queueMap.put("kind", "Queue");
+        queueMap.put("metadata", metadata);
+        queueMap.put("spec", spec);
+
+        return Serialization.asYaml(queueMap);
+    }
+
+    // ─────────────────────────── helpers ───────────────────────────
+
+    /**
+     * 构建资源 map：含 gpu/cpu/mem + （可选）gpumem/gpucores + platform.io/{spec}=units。
+     * units 用于 ResourceQuota 累计：单 Pod 占 1 单位，使整副本数等于 ResourceQuota.used。
+     */
+    private static Map<String, Quantity> buildResourceMap(
+            ComputeSpec spec, Integer units, int gpuPerReplica, int cpuCores, int memoryGib) {
+
+        Map<String, Quantity> map = new HashMap<>();
+
+        // GPU 设备资源（按品牌）
+        String gpuKey = gpuResourceKey(spec.getGpuBrand());
+        map.put(gpuKey, Quantity.parse(String.valueOf(gpuPerReplica)));
+
+        // HAMi vGPU 细粒度（仅 NVIDIA）
+        if (spec.getDefaultGpumemMb() != null && spec.getDefaultGpumemMb() > 0) {
+            String k = gpuMemKey(spec.getGpuBrand());
+            if (k != null) map.put(k, Quantity.parse(String.valueOf(spec.getDefaultGpumemMb())));
         }
+        if (spec.getDefaultGpucores() != null && spec.getDefaultGpucores() > 0) {
+            String k = gpuCoresKey(spec.getGpuBrand());
+            if (k != null) map.put(k, Quantity.parse(String.valueOf(spec.getDefaultGpucores())));
+        }
+
+        // CPU + Memory
+        map.put("cpu", Quantity.parse(String.valueOf(cpuCores)));
+        map.put("memory", Quantity.parse(memoryGib + "Gi"));
+
+        // platform.io/{spec} = 1（每副本计 1，K8s ResourceQuota.used 自动累加为副本数）
+        String rqKey = spec.getResourceQuotaKey(); // 默认 platform.io/{name}
+        if (rqKey != null && !rqKey.isEmpty()) {
+            map.put(rqKey, Quantity.parse("1"));
+        }
+        return map;
+    }
+
+    private static Map<String, String> parseNodeSelector(String json) {
+        Map<String, String> result = new HashMap<>();
+        if (json == null || json.isEmpty()) return result;
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, String> m = Serialization.jsonMapper().readValue(json, Map.class);
+            result.putAll(m);
+        } catch (Exception e) {
+            log.warn("解析 nodeSelector JSON 失败: {}", json, e);
+        }
+        return result;
+    }
+
+    private static List<Toleration> parseTolerations(String json) {
+        List<Toleration> result = new java.util.ArrayList<>();
+        if (json == null || json.isEmpty()) return result;
+        try {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> list = Serialization.jsonMapper().readValue(json, List.class);
+            for (Map<String, Object> t : list) {
+                result.add(Serialization.jsonMapper().convertValue(t, Toleration.class));
+            }
+        } catch (Exception e) {
+            log.warn("解析 tolerations JSON 失败: {}", json, e);
+        }
+        return result;
     }
 }

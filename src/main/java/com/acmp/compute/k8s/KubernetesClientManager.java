@@ -120,14 +120,16 @@ public class KubernetesClientManager {
     public void createResourceQuotaBySpec(String physicalClusterId, String namespace, String quotaName,
                                            Map<String, String> specLimits, int maxPods) {
         KubernetesClient client = getClient(physicalClusterId);
-        var specBuilder = new ResourceQuotaBuilder()
-                .withNewMetadata().withName(quotaName).withNamespace(namespace).endMetadata()
-                .withNewSpec();
-        for (var entry : specLimits.entrySet()) {
-            specBuilder.addToHard(entry.getKey(), Quantity.parse(entry.getValue()));
+        java.util.Map<String, Quantity> hard = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : specLimits.entrySet()) {
+            hard.put(entry.getKey(), Quantity.parse(entry.getValue()));
         }
-        specBuilder.addToHard("pods", Quantity.parse(String.valueOf(maxPods)));
-        client.resourceQuotas().inNamespace(namespace).resource(specBuilder.build()).serverSideApply();
+        hard.put("pods", Quantity.parse(String.valueOf(maxPods)));
+        ResourceQuota quota = new ResourceQuotaBuilder()
+                .withNewMetadata().withName(quotaName).withNamespace(namespace).endMetadata()
+                .withNewSpec().withHard(hard).endSpec()
+                .build();
+        client.resourceQuotas().inNamespace(namespace).resource(quota).serverSideApply();
         log.info("已创建按规格 ResourceQuota: {} @ ns={}, specs={}", quotaName, namespace, specLimits);
     }
 

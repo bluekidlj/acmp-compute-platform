@@ -11,19 +11,35 @@
         <result column="total_gpu_slots" property="totalGpuSlots"/>
         <result column="gpu_types" property="gpuTypes"/>
         <result column="location" property="location"/>
+        <result column="node_labels" property="nodeLabels"/>
+        <result column="taints" property="taints"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
 
     <insert id="insert">
-        INSERT INTO physical_cluster (id, name, description, kubeconfig_base64_encrypted, status, total_gpu_slots, gpu_types, created_at, updated_at)
-        VALUES (#{id}, #{name}, #{description}, #{kubeconfigBase64Encrypted}, #{status}, #{totalGpuSlots}, #{gpuTypes}, #{location}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO physical_cluster
+            (id, name, description, kubeconfig_base64_encrypted, status,
+             total_gpu_slots, gpu_types, location, node_labels, taints,
+             created_at, updated_at)
+        VALUES
+            (#{id}, #{name}, #{description}, #{kubeconfigBase64Encrypted}, #{status},
+             #{totalGpuSlots}, #{gpuTypes}, #{location}, #{nodeLabels}, #{taints},
+             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 
     <update id="update">
         UPDATE physical_cluster
-        SET name = #{name}, description = #{description}, kubeconfig_base64_encrypted = #{kubeconfigBase64Encrypted}, status = #{status},
-            total_gpu_slots = #{totalGpuSlots}, gpu_types = #{gpuTypes}, location = #{location}, updated_at = CURRENT_TIMESTAMP
+        SET name = #{name},
+            description = #{description},
+            kubeconfig_base64_encrypted = #{kubeconfigBase64Encrypted},
+            status = #{status},
+            total_gpu_slots = #{totalGpuSlots},
+            gpu_types = #{gpuTypes},
+            location = #{location},
+            node_labels = #{nodeLabels},
+            taints = #{taints},
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
     </update>
 

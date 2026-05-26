@@ -26,11 +26,12 @@ public interface ComputeSpecMapper {
                                           @Param("allocatedQuota") int allocated);
     List<java.util.Map<String, Object>> findSpecQuotasByResourcePoolId(@Param("resourcePoolId") String pid);
 
-    // ── 工作空间 ↔ 规格配额 ──
-    void insertWorkspaceSpecQuota(@Param("workspaceId") String wid, @Param("specId") String sid,
+    // ── 工作空间 × 逻辑池 × 规格配额（双层配额第二层）──
+    void insertWorkspaceSpecQuota(@Param("workspaceId") String wid, @Param("resourcePoolId") String pid,
+                                   @Param("specId") String sid,
                                    @Param("maxQuota") int max, @Param("usedQuota") int used);
-    void updateWorkspaceSpecUsed(@Param("workspaceId") String wid, @Param("specId") String sid,
-                                  @Param("usedQuota") int used);
+    void updateWorkspaceSpecUsed(@Param("workspaceId") String wid, @Param("resourcePoolId") String pid,
+                                  @Param("specId") String sid, @Param("usedQuota") int used);
     void deleteWorkspaceSpecQuotas(@Param("workspaceId") String wid);
     List<java.util.Map<String, Object>> findSpecQuotasByWorkspaceId(@Param("workspaceId") String wid);
 }

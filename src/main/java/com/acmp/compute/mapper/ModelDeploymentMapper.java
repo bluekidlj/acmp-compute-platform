@@ -11,11 +11,11 @@ import java.util.Optional;
 public interface ModelDeploymentMapper {
 
     int insert(ModelDeployment entity);
-
     int update(ModelDeployment entity);
 
     Optional<ModelDeployment> findById(@Param("id") String id);
 
+    List<ModelDeployment> findByWorkspaceId(@Param("workspaceId") String workspaceId);
     List<ModelDeployment> findByResourcePoolId(@Param("resourcePoolId") String resourcePoolId);
 
     int deleteById(@Param("id") String id);

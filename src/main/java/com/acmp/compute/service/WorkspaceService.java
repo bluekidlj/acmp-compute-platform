@@ -1,11 +1,11 @@
 package com.acmp.compute.service;
 
-import com.acmp.compute.dto.WorkspaceQuotaResponse;
 import com.acmp.compute.dto.WorkspaceRequest;
 import com.acmp.compute.dto.WorkspaceResponse;
+import com.acmp.compute.entity.ComputeSpec;
 import com.acmp.compute.entity.ResourcePool;
 import com.acmp.compute.entity.Workspace;
-import com.acmp.compute.entity.WorkspaceQuota;
+import com.acmp.compute.exception.BadRequestException;
 import com.acmp.compute.exception.ForbiddenException;
 import com.acmp.compute.exception.ResourceNotFoundException;
 import com.acmp.compute.k8s.K8sResourceBuilder;
@@ -13,7 +13,6 @@ import com.acmp.compute.k8s.KubernetesClientManager;
 import com.acmp.compute.mapper.ComputeSpecMapper;
 import com.acmp.compute.mapper.ResourcePoolMapper;
 import com.acmp.compute.mapper.WorkspaceMapper;
-import com.acmp.compute.mapper.WorkspaceQuotaMapper;
 import com.acmp.compute.security.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,15 +20,29 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * 工作空间 = K8s Namespace（100% 对应）。
- * 创建时完成: Namespace → ResourceQuota → SA → Role → RoleBinding → Volcano Queue → DB。
+ * 工作空间 = K8s Namespace。
+ *
+ * 创建流程（按规格驱动）：
+ *  ① 校验逻辑池存在
+ *  ② 加载并校验所有规格存在
+ *  ③ 校验 L1 配额：pool.allocated + req ≤ pool.total（每个规格）
+ *  ④ 按 spec.nodeSelector 选定一个目标物理集群（所有规格必须指向同一集群）
+ *  ⑤ K8s 创建 Namespace + ResourceQuota(platform.io/{spec}) + SA + Role + RoleBinding + Volcano Queue
+ *  ⑥ 双侧账本：
+ *      - resource_pool_spec_quota.allocated += req
+ *      - workspace_pool_spec_quota.max = req, used = 0
+ *  ⑦ 写 workspace 行 + workspace_resource_pool 绑定
  */
 @Slf4j
 @Service
@@ -37,10 +50,10 @@ import java.util.stream.Collectors;
 public class WorkspaceService {
 
     private final WorkspaceMapper workspaceMapper;
-    private final WorkspaceQuotaMapper quotaMapper;
     private final ResourcePoolMapper resourcePoolMapper;
     private final ComputeSpecMapper specMapper;
     private final KubernetesClientManager clientManager;
+    private final PoolMetadataService poolMetadataService;
 
     private UserPrincipal currentUser() {
         Object p = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
@@ -48,185 +61,187 @@ public class WorkspaceService {
         return (UserPrincipal) p;
     }
 
-    /** 创建工作空间 = 创建 K8s Namespace + ResourceQuota + RBAC + Volcano Queue */
     @Transactional(rollbackFor = Exception.class)
     public WorkspaceResponse create(WorkspaceRequest request) {
+        request.requireSpecQuotasForCreate();
         UserPrincipal user = currentUser();
+
+        // ① 逻辑池
         String poolId = request.getResourcePoolId();
         ResourcePool pool = resourcePoolMapper.findById(poolId)
                 .orElseThrow(() -> new ResourceNotFoundException("逻辑资源池不存在: " + poolId));
 
-        // 取父逻辑池的第一个物理集群作为 K8s 目标
-        List<String> clusterIds = resourcePoolMapper.findPhysicalClusterIds(poolId);
-        if (clusterIds.isEmpty()) throw new IllegalStateException("逻辑池未关联物理集群");
-        String clusterId = clusterIds.get(0);
+        // ② 规格存在性校验 + name→spec
+        Map<String, ComputeSpec> specByName = new LinkedHashMap<>();
+        for (WorkspaceRequest.SpecQuotaItem item : request.getSpecQuotas()) {
+            ComputeSpec spec = specMapper.findByName(item.getSpecName())
+                    .orElseThrow(() -> new BadRequestException("规格不存在: " + item.getSpecName()));
+            specByName.put(item.getSpecName(), spec);
+        }
 
-        // 生成 K8s 资源名
+        // ③ L1 配额校验（pool.allocated + req ≤ pool.total）
+        List<Map<String, Object>> poolQuotas = specMapper.findSpecQuotasByResourcePoolId(poolId);
+        Map<String, Map<String, Object>> poolQuotaBySpecId = new HashMap<>();
+        for (Map<String, Object> q : poolQuotas) {
+            poolQuotaBySpecId.put((String) q.get("spec_id"), q);
+        }
+        for (WorkspaceRequest.SpecQuotaItem item : request.getSpecQuotas()) {
+            ComputeSpec spec = specByName.get(item.getSpecName());
+            Map<String, Object> q = poolQuotaBySpecId.get(spec.getId());
+            if (q == null) {
+                throw new BadRequestException("逻辑池 " + poolId + " 未配置规格 " + item.getSpecName() + " 的配额");
+            }
+            int total = toInt(q.get("total_quota"));
+            int allocated = toInt(q.get("allocated_quota"));
+            if (allocated + item.getMaxQuota() > total) {
+                throw new BadRequestException(String.format(
+                        "L1 配额不足: 规格=%s, total=%d, allocated=%d, 申请=%d",
+                        item.getSpecName(), total, allocated, item.getMaxQuota()));
+            }
+        }
+
+        // ④ 选定目标物理集群（所有规格必须指向同一集群）
+        Set<String> targetClusterIds = new HashSet<>();
+        PoolMetadataService.TargetCluster target = null;
+        for (ComputeSpec spec : specByName.values()) {
+            PoolMetadataService.TargetCluster t = poolMetadataService.pickClusterForSpec(poolId, spec);
+            targetClusterIds.add(t.getClusterId());
+            target = t;
+        }
+        if (targetClusterIds.size() > 1) {
+            throw new BadRequestException(
+                    "工作空间所申请的规格分散在多个物理集群（" + targetClusterIds
+                            + "），请拆分为多个工作空间或调整规格选择");
+        }
+        String clusterId = target.getClusterId();
+
+        // ⑤ K8s 名生成
         String shortId = UUID.randomUUID().toString().substring(0, 8);
-        String ns = "ws-" + request.getName().toLowerCase().replaceAll("[^a-z0-9-]", "-");
-        if (ns.length() > 50) ns = ns.substring(0, 50);
-        ns = ns + "-" + shortId;
-        String sa = "sa-" + ns.substring(0, 45);
-        String roleName = "role-" + ns.substring(0, 45);
-        String rbName = "rb-" + ns.substring(0, 45);
-        String quotaName = "quota-" + ns.substring(0, 45);
-        String queueName = "queue-" + ns.substring(0, 45);
+        String ns = sanitize("ws-" + request.getName(), 40) + "-" + shortId;
+        String sa = "sa-" + ns;
+        String roleName = "role-" + ns;
+        String rbName = "rb-" + ns;
+        String quotaName = "quota-" + ns;
+        String queueName = "queue-" + ns;
 
         int maxPods = request.getMaxPods() != null ? request.getMaxPods() : 50;
-        int gpu = request.getGpuSlots(), cpu = request.getCpuCores(), mem = request.getMemoryGib();
 
-        // 创建 K8s 资源：Namespace + 按规格 ResourceQuota + RBAC
+        // ⑤a Namespace
         clientManager.createNamespace(clusterId, ns);
 
-        // 构建按规格的 ResourceQuota：读取逻辑池的 spec 配额
-        Map<String, String> specLimits = new HashMap<>();
-        List<Map<String, Object>> poolSpecs = specMapper.findSpecQuotasByResourcePoolId(poolId);
-        for (Map<String, Object> row : poolSpecs) {
-            String specName = (String) row.get("spec_name");
-            int total = toInt(row.get("total_quota"));
-            String rqKey = "platform.io/" + specName;
-            specLimits.put(rqKey, String.valueOf(total));
+        // ⑤b ResourceQuota：按 platform.io/{spec} 设置上限
+        Map<String, String> specLimits = new LinkedHashMap<>();
+        for (WorkspaceRequest.SpecQuotaItem item : request.getSpecQuotas()) {
+            ComputeSpec spec = specByName.get(item.getSpecName());
+            specLimits.put(spec.getResourceQuotaKey(), String.valueOf(item.getMaxQuota()));
         }
-        if (!specLimits.isEmpty()) {
-            clientManager.createResourceQuotaBySpec(clusterId, ns, quotaName, specLimits, maxPods);
-        } else {
-            clientManager.createResourceQuota(clusterId, ns, quotaName, gpu, cpu, mem, maxPods);
-        }
+        clientManager.createResourceQuotaBySpec(clusterId, ns, quotaName, specLimits, maxPods);
+
+        // ⑤c SA + Role + RoleBinding
         clientManager.createServiceAccount(clusterId, ns, sa);
         clientManager.createRole(clusterId, ns, roleName);
         clientManager.createRoleBinding(clusterId, ns, rbName, roleName, sa);
-        String queueYaml = K8sResourceBuilder.buildVolcanoQueue(queueName, String.valueOf(gpu), String.valueOf(cpu), String.valueOf(mem));
+
+        // ⑤d Volcano Queue：capability 也用 platform.io/{spec}，与 ResourceQuota 统一资源键
+        Map<String, String> queueCapability = new LinkedHashMap<>(specLimits);
+        String queueYaml = K8sResourceBuilder.buildVolcanoQueue(queueName, queueCapability);
         clientManager.applyClusterScopedYaml(clusterId, queueYaml);
 
-        // 校验父池配额 + 更新 allocated
-        int newAllocGpu = safeInt(pool.getAllocatedGpuSlots()) + gpu;
-        int newAllocCpu = safeInt(pool.getAllocatedCpuCores()) + cpu;
-        int newAllocMem = safeInt(pool.getAllocatedMemoryGib()) + mem;
-        if (newAllocGpu > pool.getGpuSlots()) throw new IllegalArgumentException("逻辑池 GPU 配额不足");
-        if (newAllocCpu > pool.getCpuCores()) throw new IllegalArgumentException("逻辑池 CPU 配额不足");
-        if (newAllocMem > pool.getMemoryGiB()) throw new IllegalArgumentException("逻辑池内存配额不足");
-        pool.setAllocatedGpuSlots(newAllocGpu);
-        pool.setAllocatedCpuCores(newAllocCpu);
-        pool.setAllocatedMemoryGib(newAllocMem);
-        resourcePoolMapper.updateAllocated(pool);
-
-        // 写入 DB
-        String id = UUID.randomUUID().toString();
-        Workspace ws = Workspace.builder()
-                .id(id).resourcePoolId(poolId).name(request.getName()).description(request.getDescription())
-                .namespace(ns).serviceAccountName(sa).volcanoQueueName(queueName).primaryClusterId(clusterId)
-                .gpuSlots(gpu).cpuCores(cpu).memoryGib(mem).maxPods(maxPods).nodeCount(1)
-                .hardwareType(pool.getHardwareType())
-                .gpuType(request.getGpuType() != null ? request.getGpuType() : pool.getGpuType())
-                .jobTypes(request.getJobTypes() != null ? request.getJobTypes() : pool.getJobTypes())
-                .createdBy(user.getId()).status("active").build();
-        workspaceMapper.insert(ws);
-
-        // 初始化 used 追踪配额
-        WorkspaceQuota quota = WorkspaceQuota.builder().id(UUID.randomUUID().toString()).workspaceId(id)
-                .maxGpuSlots(gpu).maxCpuCores(cpu).maxMemoryGib(mem).maxPods(maxPods).maxHours(1000)
-                .usedGpuSlots(0).usedCpuCores(0).usedMemoryGib(0).build();
-        quotaMapper.insert(quota);
-
-        // 初始化按规格的 workspace_spec_quota
-        for (Map<String, Object> row : poolSpecs) {
-            String specId = (String) row.get("spec_id");
-            int total = toInt(row.get("total_quota"));
-            specMapper.insertWorkspaceSpecQuota(id, specId, total, 0);
+        // ⑥ DB：更新 L1.allocated + 写 L2
+        String wsId = UUID.randomUUID().toString();
+        for (WorkspaceRequest.SpecQuotaItem item : request.getSpecQuotas()) {
+            ComputeSpec spec = specByName.get(item.getSpecName());
+            Map<String, Object> q = poolQuotaBySpecId.get(spec.getId());
+            int newAllocated = toInt(q.get("allocated_quota")) + item.getMaxQuota();
+            specMapper.updateResourcePoolSpecAllocated(poolId, spec.getId(), newAllocated);
+            specMapper.insertWorkspaceSpecQuota(wsId, poolId, spec.getId(), item.getMaxQuota(), 0);
         }
 
-        log.info("✓ 工作空间 {} 已创建 (K8s NS={}, cluster={})", request.getName(), ns, clusterId);
-        return buildResponse(ws, quota, pool.getName());
+        // ⑦ workspace 行
+        Workspace ws = Workspace.builder()
+                .id(wsId)
+                .resourcePoolId(poolId)
+                .name(request.getName())
+                .description(request.getDescription())
+                .namespace(ns)
+                .serviceAccountName(sa)
+                .volcanoQueueName(queueName)
+                .primaryClusterId(clusterId)
+                .maxPods(maxPods)
+                .nodeCount(1)
+                .createdBy(user.getId())
+                .status("active")
+                .build();
+        workspaceMapper.insert(ws);
+
+        log.info("✓ 工作空间 {} 已创建 (ns={}, cluster={}, specs={})",
+                request.getName(), ns, clusterId, specLimits.keySet());
+
+        return buildResponse(ws, pool.getName());
     }
 
     @Transactional(rollbackFor = Exception.class)
     public WorkspaceResponse update(String id, WorkspaceRequest request) {
-        Workspace ws = workspaceMapper.findById(id).orElseThrow(() -> new ResourceNotFoundException("工作空间不存在"));
+        Workspace ws = workspaceMapper.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("工作空间不存在"));
         ws.setName(request.getName());
         if (request.getDescription() != null) ws.setDescription(request.getDescription());
         workspaceMapper.update(ws);
-        WorkspaceQuota quota = quotaMapper.findByWorkspaceId(id).orElse(null);
         ResourcePool pool = resourcePoolMapper.findById(ws.getResourcePoolId()).orElse(null);
-        return buildResponse(ws, quota, pool != null ? pool.getName() : null);
+        return buildResponse(ws, pool != null ? pool.getName() : null);
     }
 
     @Transactional(rollbackFor = Exception.class)
     public void delete(String id) {
-        Workspace ws = workspaceMapper.findById(id).orElseThrow(() -> new ResourceNotFoundException("工作空间不存在"));
-        WorkspaceQuota quota = quotaMapper.findByWorkspaceId(id).orElse(null);
-        if (quota != null) {
-            ResourcePool pool = resourcePoolMapper.findById(ws.getResourcePoolId()).orElse(null);
-            if (pool != null) {
-                pool.setAllocatedGpuSlots(Math.max(0, safeInt(pool.getAllocatedGpuSlots()) - safeInt(quota.getMaxGpuSlots())));
-                pool.setAllocatedCpuCores(Math.max(0, safeInt(pool.getAllocatedCpuCores()) - safeInt(quota.getMaxCpuCores())));
-                pool.setAllocatedMemoryGib(Math.max(0, safeInt(pool.getAllocatedMemoryGib()) - safeInt(quota.getMaxMemoryGib())));
-                resourcePoolMapper.updateAllocated(pool);
+        Workspace ws = workspaceMapper.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("工作空间不存在"));
+
+        // 释放 L1.allocated（按 ws 当前持有的 max_quota 回退）
+        List<Map<String, Object>> wsQuotas = specMapper.findSpecQuotasByWorkspaceId(id);
+        for (Map<String, Object> q : wsQuotas) {
+            String specId = (String) q.get("spec_id");
+            String poolId = (String) q.get("resource_pool_id");
+            int max = toInt(q.get("max_quota"));
+            // L1.allocated -= max
+            List<Map<String, Object>> poolQs = specMapper.findSpecQuotasByResourcePoolId(poolId);
+            for (Map<String, Object> pq : poolQs) {
+                if (specId.equals(pq.get("spec_id"))) {
+                    int newAllocated = Math.max(0, toInt(pq.get("allocated_quota")) - max);
+                    specMapper.updateResourcePoolSpecAllocated(poolId, specId, newAllocated);
+                    break;
+                }
             }
-            quotaMapper.deleteByWorkspaceId(id);
         }
         specMapper.deleteWorkspaceSpecQuotas(id);
-        // 删除 K8s Namespace（级联删除内部所有资源）
+
+        // 删除 K8s Namespace（级联清空所有资源）
         if (ws.getPrimaryClusterId() != null && ws.getNamespace() != null) {
-            try { clientManager.deleteNamespace(ws.getPrimaryClusterId(), ws.getNamespace()); } catch (Exception ignored) {}
+            try {
+                clientManager.deleteNamespace(ws.getPrimaryClusterId(), ws.getNamespace());
+            } catch (Exception e) {
+                log.warn("删除 K8s Namespace 失败（继续删 DB）: {}", e.getMessage());
+            }
         }
+
         workspaceMapper.deleteById(id);
-        log.info("✓ 工作空间 {} 已删除 (K8s NS={})", id, ws.getNamespace());
+        log.info("✓ 工作空间 {} 已删除 (ns={})", id, ws.getNamespace());
     }
 
     public WorkspaceResponse getById(String id) {
-        Workspace ws = workspaceMapper.findById(id).orElseThrow(() -> new ResourceNotFoundException("工作空间不存在"));
-        WorkspaceQuota quota = quotaMapper.findByWorkspaceId(id).orElse(null);
+        Workspace ws = workspaceMapper.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("工作空间不存在"));
         ResourcePool pool = resourcePoolMapper.findById(ws.getResourcePoolId()).orElse(null);
-        return buildResponse(ws, quota, pool != null ? pool.getName() : null);
+        return buildResponse(ws, pool != null ? pool.getName() : null);
     }
 
     public List<WorkspaceResponse> list() {
         return workspaceMapper.findAll().stream().map(ws -> {
-            WorkspaceQuota quota = quotaMapper.findByWorkspaceId(ws.getId()).orElse(null);
             ResourcePool pool = resourcePoolMapper.findById(ws.getResourcePoolId()).orElse(null);
-            return buildResponse(ws, quota, pool != null ? pool.getName() : null);
+            return buildResponse(ws, pool != null ? pool.getName() : null);
         }).collect(Collectors.toList());
     }
 
-    public WorkspaceQuotaResponse setQuota(String workspaceId, Map<String, Integer> body) {
-        WorkspaceQuota quota = quotaMapper.findByWorkspaceId(workspaceId).orElse(null);
-        if (quota == null) {
-            quota = WorkspaceQuota.builder().id(UUID.randomUUID().toString()).workspaceId(workspaceId)
-                    .usedGpuSlots(0).usedCpuCores(0).usedMemoryGib(0).build();
-            applyQuotaBody(quota, body);
-            quotaMapper.insert(quota);
-        } else { applyQuotaBody(quota, body); quotaMapper.update(quota); }
-        return toQuotaResponse(quota);
-    }
-
-    public WorkspaceQuotaResponse getQuota(String workspaceId) {
-        return toQuotaResponse(quotaMapper.findByWorkspaceId(workspaceId).orElseThrow(() -> new ResourceNotFoundException("配额不存在")));
-    }
-
-    @Transactional
-    public void deductQuota(String workspaceId, int gpu, int cpu, int mem) {
-        WorkspaceQuota q = quotaMapper.findByWorkspaceId(workspaceId).orElseThrow(() -> new ResourceNotFoundException("配额不存在"));
-        if (safeInt(q.getUsedGpuSlots()) + gpu > safeInt(q.getMaxGpuSlots()))
-            throw new IllegalArgumentException("GPU 配额不足");
-        q.setUsedGpuSlots(safeInt(q.getUsedGpuSlots()) + gpu);
-        q.setUsedCpuCores(safeInt(q.getUsedCpuCores()) + cpu);
-        q.setUsedMemoryGib(safeInt(q.getUsedMemoryGib()) + mem);
-        quotaMapper.update(q);
-    }
-
-    @Transactional
-    public void restoreQuota(String workspaceId, int gpu, int cpu, int mem) {
-        WorkspaceQuota q = quotaMapper.findByWorkspaceId(workspaceId).orElseThrow(() -> new ResourceNotFoundException("配额不存在"));
-        q.setUsedGpuSlots(Math.max(0, safeInt(q.getUsedGpuSlots()) - gpu));
-        q.setUsedCpuCores(Math.max(0, safeInt(q.getUsedCpuCores()) - cpu));
-        q.setUsedMemoryGib(Math.max(0, safeInt(q.getUsedMemoryGib()) - mem));
-        quotaMapper.update(q);
-    }
-
-    private int safeInt(Integer v) { return v != null ? v : 0; }
-    private int toInt(Object v) { if (v instanceof Number) return ((Number) v).intValue(); return 0; }
-
-    // ── 成员管理：纯平台层 DB 记录，K8s 层使用工作空间唯一的 SA ──
+    // ── 成员管理 ──
 
     @Transactional
     public void addMember(String workspaceId, String userId) {
@@ -245,35 +260,51 @@ public class WorkspaceService {
     public List<String> listMembers(String workspaceId) {
         return workspaceMapper.findMemberIds(workspaceId);
     }
-    private void applyQuotaBody(WorkspaceQuota q, Map<String, Integer> body) {
-        if (body.containsKey("maxGpuSlots")) q.setMaxGpuSlots(body.get("maxGpuSlots"));
-        if (body.containsKey("maxCpuCores")) q.setMaxCpuCores(body.get("maxCpuCores"));
-        if (body.containsKey("maxMemoryGib")) q.setMaxMemoryGib(body.get("maxMemoryGib"));
-        if (body.containsKey("maxPods")) q.setMaxPods(body.get("maxPods"));
-        if (body.containsKey("maxHours")) q.setMaxHours(body.get("maxHours"));
+
+    // ── helpers ──
+
+    private String sanitize(String s, int maxLen) {
+        String x = s.toLowerCase().replaceAll("[^a-z0-9-]", "-");
+        if (x.length() > maxLen) x = x.substring(0, maxLen);
+        return x.replaceAll("-+$", "");
     }
 
-    private WorkspaceResponse buildResponse(Workspace ws, WorkspaceQuota quota, String poolName) {
+    private int toInt(Object v) {
+        if (v == null) return 0;
+        if (v instanceof Number) return ((Number) v).intValue();
+        try { return Integer.parseInt(v.toString()); } catch (Exception e) { return 0; }
+    }
+
+    private WorkspaceResponse buildResponse(Workspace ws, String poolName) {
+        List<Map<String, Object>> quotas = specMapper.findSpecQuotasByWorkspaceId(ws.getId());
+        List<WorkspaceResponse.SpecQuotaView> specViews = new ArrayList<>();
+        for (Map<String, Object> q : quotas) {
+            int max = toInt(q.get("max_quota"));
+            int used = toInt(q.get("used_quota"));
+            specViews.add(WorkspaceResponse.SpecQuotaView.builder()
+                    .specId((String) q.get("spec_id"))
+                    .specName((String) q.get("spec_name"))
+                    .maxQuota(max)
+                    .usedQuota(used)
+                    .availableQuota(max - used)
+                    .build());
+        }
+
         return WorkspaceResponse.builder()
-                .id(ws.getId()).name(ws.getName()).description(ws.getDescription())
-                .resourcePoolId(ws.getResourcePoolId()).resourcePoolName(poolName)
-                .namespace(ws.getNamespace()).volcanoQueueName(ws.getVolcanoQueueName())
+                .id(ws.getId())
+                .name(ws.getName())
+                .description(ws.getDescription())
+                .resourcePoolId(ws.getResourcePoolId())
+                .resourcePoolName(poolName)
+                .namespace(ws.getNamespace())
+                .volcanoQueueName(ws.getVolcanoQueueName())
                 .primaryClusterId(ws.getPrimaryClusterId())
-                .gpuSlots(ws.getGpuSlots()).cpuCores(ws.getCpuCores()).memoryGib(ws.getMemoryGib())
-                .maxPods(ws.getMaxPods()).hardwareType(ws.getHardwareType())
-                .gpuType(ws.getGpuType()).jobTypes(ws.getJobTypes())
-                .createdBy(ws.getCreatedBy()).status(ws.getStatus())
-                .quota(quota != null ? toQuotaResponse(quota) : null)
-                .createdAt(ws.getCreatedAt()).updatedAt(ws.getUpdatedAt()).build();
-    }
-
-    private WorkspaceQuotaResponse toQuotaResponse(WorkspaceQuota q) {
-        int maxG = safeInt(q.getMaxGpuSlots()), maxC = safeInt(q.getMaxCpuCores()), maxM = safeInt(q.getMaxMemoryGib());
-        int usedG = safeInt(q.getUsedGpuSlots()), usedC = safeInt(q.getUsedCpuCores()), usedM = safeInt(q.getUsedMemoryGib());
-        return WorkspaceQuotaResponse.builder().id(q.getId()).workspaceId(q.getWorkspaceId())
-                .maxGpuSlots(maxG).maxCpuCores(maxC).maxMemoryGib(maxM).maxPods(q.getMaxPods()).maxHours(q.getMaxHours())
-                .usedGpuSlots(usedG).usedCpuCores(usedC).usedMemoryGib(usedM)
-                .availableGpuSlots(maxG - usedG).availableCpuCores(maxC - usedC).availableMemoryGib(maxM - usedM).build();
+                .maxPods(ws.getMaxPods())
+                .createdBy(ws.getCreatedBy())
+                .status(ws.getStatus())
+                .specQuotas(specViews)
+                .createdAt(ws.getCreatedAt())
+                .updatedAt(ws.getUpdatedAt())
+                .build();
     }
 }
-

@@ -4,7 +4,9 @@
 
     <resultMap id="BaseResultMap" type="com.acmp.compute.entity.ModelDeployment">
         <id column="id" property="id"/>
+        <result column="workspace_id" property="workspaceId"/>
         <result column="resource_pool_id" property="resourcePoolId"/>
+        <result column="spec_id" property="specId"/>
         <result column="name" property="name"/>
         <result column="model_name" property="modelName"/>
         <result column="model_source" property="modelSource"/>
@@ -24,20 +26,32 @@
     </resultMap>
 
     <insert id="insert">
-        INSERT INTO model_deployment (id, resource_pool_id, name, model_name, model_source, model_id_or_path, vllm_image,
-            gpu_per_replica, gpumem_mb, gpucores, replicas, k8s_deployment_name, k8s_service_name, status, service_url, created_by, created_at, updated_at)
-        VALUES (#{id}, #{resourcePoolId}, #{name}, #{modelName}, #{modelSource}, #{modelIdOrPath}, #{vllmImage},
-            #{gpuPerReplica}, #{gpumemMb}, #{gpucores}, #{replicas}, #{k8sDeploymentName}, #{k8sServiceName}, #{status}, #{serviceUrl}, #{createdBy}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO model_deployment
+            (id, workspace_id, resource_pool_id, spec_id, name, model_name, model_source,
+             model_id_or_path, vllm_image, gpu_per_replica, gpumem_mb, gpucores, replicas,
+             k8s_deployment_name, k8s_service_name, status, service_url, created_by,
+             created_at, updated_at)
+        VALUES
+            (#{id}, #{workspaceId}, #{resourcePoolId}, #{specId}, #{name}, #{modelName}, #{modelSource},
+             #{modelIdOrPath}, #{vllmImage}, #{gpuPerReplica}, #{gpumemMb}, #{gpucores}, #{replicas},
+             #{k8sDeploymentName}, #{k8sServiceName}, #{status}, #{serviceUrl}, #{createdBy},
+             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 
     <update id="update">
         UPDATE model_deployment
-        SET status = #{status}, service_url = #{serviceUrl}, updated_at = CURRENT_TIMESTAMP
+        SET status = #{status},
+            service_url = #{serviceUrl},
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
     </update>
 
     <select id="findById" resultMap="BaseResultMap">
         SELECT * FROM model_deployment WHERE id = #{id}
+    </select>
+
+    <select id="findByWorkspaceId" resultMap="BaseResultMap">
+        SELECT * FROM model_deployment WHERE workspace_id = #{workspaceId} ORDER BY created_at DESC
     </select>
 
     <select id="findByResourcePoolId" resultMap="BaseResultMap">

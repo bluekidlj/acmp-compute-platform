@@ -9,7 +9,9 @@ import java.time.Instant;
 @Builder
 public class ModelDeploymentResponse {
     private String id;
+    private String workspaceId;
     private String resourcePoolId;
+    private String specId;
     private String name;
     private String modelName;
     private String modelSource;

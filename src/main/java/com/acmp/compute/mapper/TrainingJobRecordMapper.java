@@ -16,5 +16,5 @@ public interface TrainingJobRecordMapper {
 
     Optional<TrainingJobRecord> findById(@Param("id") String id);
 
-    List<TrainingJobRecord> findByResourcePoolId(@Param("resourcePoolId") String resourcePoolId);
+    List<TrainingJobRecord> findByWorkspaceId(@Param("workspaceId") String workspaceId);
 }

@@ -106,4 +106,17 @@ public class AdminController {
         IssueCredentialResponse resp = adminResourcePoolService.issueCredential(poolId, request);
         return ResponseEntity.ok(resp);
     }
+
+    /**
+     * 为指定工作空间的成员签发 kubeconfig。
+     * POST /api/v1/admin/workspaces/{workspaceId}/issue-credential
+     */
+    @PostMapping("/workspaces/{workspaceId}/issue-credential")
+    public ResponseEntity<IssueCredentialResponse> issueCredentialForWorkspace(
+            @PathVariable String workspaceId,
+            @Valid @RequestBody IssueCredentialRequest request) {
+        IssueCredentialResponse resp =
+                adminResourcePoolService.issueCredentialForWorkspace(workspaceId, request);
+        return ResponseEntity.ok(resp);
+    }
 }
