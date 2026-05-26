@@ -21,5 +21,8 @@ public interface ResourcePoolMapper {
                               @Param("physicalClusterId") String physicalClusterId);
     List<String> findPhysicalClusterIds(@Param("resourcePoolId") String resourcePoolId);
 
+    /** 【异构算力】从 workspace_pool_cluster 查工作空间关联的物理集群 */
+    List<String> findPhysicalClusterIdsByWorkspaceId(@Param("workspaceId") String workspaceId);
+
     int deleteById(@Param("id") String id);
 }

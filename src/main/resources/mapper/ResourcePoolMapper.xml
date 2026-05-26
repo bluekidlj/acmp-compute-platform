@@ -55,6 +55,13 @@
         SELECT physical_cluster_id FROM resource_pool_physical_cluster WHERE resource_pool_id = #{resourcePoolId}
     </select>
 
+    <!-- 【异构算力】从 workspace_pool_cluster 查工作空间关联的物理集群 -->
+    <select id="findPhysicalClusterIdsByWorkspaceId" resultType="java.lang.String">
+        SELECT wpc.physical_cluster_id
+        FROM workspace_pool_cluster wpc
+        WHERE wpc.workspace_id = #{workspaceId}
+    </select>
+
     <delete id="deleteById">
         DELETE FROM resource_pool WHERE id = #{id}
     </delete>

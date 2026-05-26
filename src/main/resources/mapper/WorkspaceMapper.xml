@@ -67,4 +67,16 @@
     <select id="findMemberIds" resultType="java.lang.String">
         SELECT user_id FROM workspace_member WHERE workspace_id = #{workspaceId}
     </select>
+
+    <!-- 【异构算力】workspace_pool_cluster 关联 -->
+    <insert id="insertCluster">
+        MERGE INTO workspace_pool_cluster (workspace_id, physical_cluster_id) KEY(workspace_id, physical_cluster_id)
+        VALUES (#{workspaceId}, #{physicalClusterId})
+    </insert>
+    <select id="findClusterIds" resultType="java.lang.String">
+        SELECT physical_cluster_id FROM workspace_pool_cluster WHERE workspace_id = #{workspaceId}
+    </select>
+    <delete id="deleteClusters">
+        DELETE FROM workspace_pool_cluster WHERE workspace_id = #{workspaceId}
+    </delete>
 </mapper>

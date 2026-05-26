@@ -24,6 +24,9 @@ import java.util.UUID;
 
 /**
  * 训练任务服务：提交 VolcanoJob，走完整的"规格 + 双层配额 + 池调度约束"路径。
+ *
+ * 【异构算力说明】同 ModelDeploymentService，部署时由 PoolMetadataService.pickClusterForSpec
+ * 根据请求的 spec 动态选定目标物理集群，而非使用 ws.primaryClusterId。
  */
 @Slf4j
 @Service
@@ -35,6 +38,8 @@ public class TrainingJobService {
     private final TrainingJobRecordMapper trainingJobRecordMapper;
     private final KubernetesClientManager clientManager;
     private final QuotaService quotaService;
+    /** 【异构算力】用于根据 spec 动态选定目标物理集群 */
+    private final PoolMetadataService poolMetadataService;
 
     private UserPrincipal currentUser() {
         Object p = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
@@ -65,6 +70,10 @@ public class TrainingJobService {
         quotaService.validateBothLevelQuotas(poolId, workspaceId, spec.getId(), replicas);
         quotaService.deductBothLevelQuotas(poolId, workspaceId, spec.getId(), replicas);
 
+        // 【异构算力】根据 spec 动态选定目标物理集群
+        PoolMetadataService.TargetCluster target = poolMetadataService.pickClusterForSpec(poolId, spec);
+        String clusterId = target.getClusterId();
+
         String recordId = UUID.randomUUID().toString();
         TrainingJobRecord record = TrainingJobRecord.builder()
                 .id(recordId)
@@ -91,7 +100,8 @@ public class TrainingJobService {
                     spec.getNodeSelector(),
                     spec.getTolerations());
 
-            clientManager.applyYamlInNamespace(ws.getPrimaryClusterId(), ws.getNamespace(), yaml);
+            // 【异构算力】使用动态选定的 clusterId，而非 ws.primaryClusterId
+            clientManager.applyYamlInNamespace(clusterId, ws.getNamespace(), yaml);
 
             log.info("✅ VolcanoJob {} 已提交 (ws={}, pool={}, spec={}, replicas={})",
                     request.getJobName(), workspaceId, poolId, spec.getName(), replicas);

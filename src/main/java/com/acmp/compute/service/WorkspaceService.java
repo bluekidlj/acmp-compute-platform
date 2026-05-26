@@ -37,12 +37,16 @@ import java.util.stream.Collectors;
  *  ① 校验逻辑池存在
  *  ② 加载并校验所有规格存在
  *  ③ 校验 L1 配额：pool.allocated + req ≤ pool.total（每个规格）
- *  ④ 按 spec.nodeSelector 选定一个目标物理集群（所有规格必须指向同一集群）
+ *  ④ 按 spec.nodeSelector 选定目标物理集群
+ *     【异构算力说明】允许多个规格分散在不同物理集群（NVIDIA/DCU 混部场景）。
+ *     工作空间通过 workspace_pool_cluster 关联表记录涉及的物理集群列表，
+ *     部署时由 PoolMetadataService.pickClusterForSpec 根据请求的 spec 动态选定目标集群，
+ *     而非在工作空间创建时就写死单一 primaryClusterId。
  *  ⑤ K8s 创建 Namespace + ResourceQuota(platform.io/{spec}) + SA + Role + RoleBinding + Volcano Queue
  *  ⑥ 双侧账本：
  *      - resource_pool_spec_quota.allocated += req
  *      - workspace_pool_spec_quota.max = req, used = 0
- *  ⑦ 写 workspace 行 + workspace_resource_pool 绑定
+ *  ⑦ 写 workspace 行 + workspace_resource_pool 绑定 + workspace_pool_cluster 关联
  */
 @Slf4j
 @Service
@@ -100,20 +104,17 @@ public class WorkspaceService {
             }
         }
 
-        // ④ 选定目标物理集群（所有规格必须指向同一集群）
+        // ④ 选定目标物理集群
+        // 【异构算力核心修改】移除"所有规格必须指向同一集群"的约束。
+        // 允许多个规格分散在不同物理集群（NVIDIA/DCU 混部场景）。
+        // 每个规格各自匹配目标集群，结果集用于后续创建跨集群 K8s 资源。
+        // 不再写死单一的 primaryClusterId，而是通过 workspace_pool_cluster 关联表记录。
         Set<String> targetClusterIds = new HashSet<>();
-        PoolMetadataService.TargetCluster target = null;
         for (ComputeSpec spec : specByName.values()) {
+            // 【异构算力】传 workspaceId（创建时为 null，wsId 还未生成），只用 poolId 查逻辑池关联的物理集群
             PoolMetadataService.TargetCluster t = poolMetadataService.pickClusterForSpec(poolId, spec);
             targetClusterIds.add(t.getClusterId());
-            target = t;
         }
-        if (targetClusterIds.size() > 1) {
-            throw new BadRequestException(
-                    "工作空间所申请的规格分散在多个物理集群（" + targetClusterIds
-                            + "），请拆分为多个工作空间或调整规格选择");
-        }
-        String clusterId = target.getClusterId();
 
         // ⑤ K8s 名生成
         String shortId = UUID.randomUUID().toString().substring(0, 8);
@@ -126,28 +127,44 @@ public class WorkspaceService {
 
         int maxPods = request.getMaxPods() != null ? request.getMaxPods() : 50;
 
-        // ⑤a Namespace
-        clientManager.createNamespace(clusterId, ns);
+        // ⑤ K8s 资源创建
+        // 【异构算力】遍历所有涉及的物理集群，在每个集群上创建 Namespace + ResourceQuota + SA + Role + RoleBinding
+        // Volcano Queue 为集群级资源，每个集群单独创建一份（Queue 名全局唯一，加 namespace 前缀区分）
+        // 注意：Namespace 在 K8s 中是集群级资源，同名 NS 在不同集群是独立的，不冲突
+        for (String clusterId : targetClusterIds) {
+            clientManager.createNamespace(clusterId, ns);
 
-        // ⑤b ResourceQuota：按 platform.io/{spec} 设置上限
-        Map<String, String> specLimits = new LinkedHashMap<>();
-        for (WorkspaceRequest.SpecQuotaItem item : request.getSpecQuotas()) {
-            ComputeSpec spec = specByName.get(item.getSpecName());
-            specLimits.put(spec.getResourceQuotaKey(), String.valueOf(item.getMaxQuota()));
+            // 仅给该集群上实际使用的规格创建 ResourceQuota（按 cluster+spec 过滤）
+            Map<String, String> specLimits = new LinkedHashMap<>();
+            for (ComputeSpec spec : specByName.values()) {
+                // 检查该规格的目标集群是否是当前 clusterId
+                PoolMetadataService.TargetCluster t = poolMetadataService.pickClusterForSpec(poolId, spec);
+                if (t.getClusterId().equals(clusterId)) {
+                    // 找到该规格在此池中的 maxQuota
+                    for (WorkspaceRequest.SpecQuotaItem item : request.getSpecQuotas()) {
+                        if (item.getSpecName().equals(spec.getName())) {
+                            specLimits.put(spec.getResourceQuotaKey(), String.valueOf(item.getMaxQuota()));
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!specLimits.isEmpty()) {
+                clientManager.createResourceQuotaBySpec(clusterId, ns, quotaName + "-" + clusterId, specLimits, maxPods);
+            }
+
+            // SA + Role + RoleBinding（所有集群用相同的 ns 名，但资源相互独立）
+            clientManager.createServiceAccount(clusterId, ns, sa);
+            clientManager.createRole(clusterId, ns, roleName);
+            clientManager.createRoleBinding(clusterId, ns, rbName, roleName, sa);
+
+            // Volcano Queue：每个集群单独创建一份（Queue 是集群级资源）
+            Map<String, String> queueCapability = new LinkedHashMap<>(specLimits);
+            String queueYaml = K8sResourceBuilder.buildVolcanoQueue(queueName + "-" + clusterId, queueCapability);
+            clientManager.applyClusterScopedYaml(clusterId, queueYaml);
         }
-        clientManager.createResourceQuotaBySpec(clusterId, ns, quotaName, specLimits, maxPods);
 
-        // ⑤c SA + Role + RoleBinding
-        clientManager.createServiceAccount(clusterId, ns, sa);
-        clientManager.createRole(clusterId, ns, roleName);
-        clientManager.createRoleBinding(clusterId, ns, rbName, roleName, sa);
-
-        // ⑤d Volcano Queue：capability 也用 platform.io/{spec}，与 ResourceQuota 统一资源键
-        Map<String, String> queueCapability = new LinkedHashMap<>(specLimits);
-        String queueYaml = K8sResourceBuilder.buildVolcanoQueue(queueName, queueCapability);
-        clientManager.applyClusterScopedYaml(clusterId, queueYaml);
-
-        // ⑥ DB：更新 L1.allocated + 写 L2
+        // ⑥ DB：更新 L1.allocated + 写 L2 + 写 workspace_pool_cluster
         String wsId = UUID.randomUUID().toString();
         for (WorkspaceRequest.SpecQuotaItem item : request.getSpecQuotas()) {
             ComputeSpec spec = specByName.get(item.getSpecName());
@@ -157,7 +174,7 @@ public class WorkspaceService {
             specMapper.insertWorkspaceSpecQuota(wsId, poolId, spec.getId(), item.getMaxQuota(), 0);
         }
 
-        // ⑦ workspace 行
+        // ⑦ workspace 行（primaryClusterId 已废弃，设为 null）
         Workspace ws = Workspace.builder()
                 .id(wsId)
                 .resourcePoolId(poolId)
@@ -166,7 +183,7 @@ public class WorkspaceService {
                 .namespace(ns)
                 .serviceAccountName(sa)
                 .volcanoQueueName(queueName)
-                .primaryClusterId(clusterId)
+                .primaryClusterId(null) // 【异构算力】不再写死单一集群
                 .maxPods(maxPods)
                 .nodeCount(1)
                 .createdBy(user.getId())
@@ -174,8 +191,13 @@ public class WorkspaceService {
                 .build();
         workspaceMapper.insert(ws);
 
-        log.info("✓ 工作空间 {} 已创建 (ns={}, cluster={}, specs={})",
-                request.getName(), ns, clusterId, specLimits.keySet());
+        // ⑧ 写 workspace_pool_cluster 关联（记录该工作空间涉及的所有物理集群）
+        for (String clusterId : targetClusterIds) {
+            workspaceMapper.insertCluster(wsId, clusterId);
+        }
+
+        log.info("✓ 工作空间 {} 已创建 (ns={}, clusters={}, specs={})",
+                request.getName(), ns, targetClusterIds, specByName.keySet());
 
         return buildResponse(ws, pool.getName());
     }
@@ -214,17 +236,23 @@ public class WorkspaceService {
         }
         specMapper.deleteWorkspaceSpecQuotas(id);
 
-        // 删除 K8s Namespace（级联清空所有资源）
-        if (ws.getPrimaryClusterId() != null && ws.getNamespace() != null) {
-            try {
-                clientManager.deleteNamespace(ws.getPrimaryClusterId(), ws.getNamespace());
-            } catch (Exception e) {
-                log.warn("删除 K8s Namespace 失败（继续删 DB）: {}", e.getMessage());
+        // 【异构算力】删除工作空间关联的所有物理集群上的 K8s Namespace（分别删除）
+        List<String> clusterIds = workspaceMapper.findClusterIds(id);
+        for (String clusterId : clusterIds) {
+            if (ws.getNamespace() != null) {
+                try {
+                    clientManager.deleteNamespace(clusterId, ws.getNamespace());
+                } catch (Exception e) {
+                    log.warn("删除 K8s Namespace 失败（继续删 DB）: {}", e.getMessage());
+                }
             }
         }
 
+        // 清理 workspace_pool_cluster 关联表
+        workspaceMapper.deleteClusters(id);
+
         workspaceMapper.deleteById(id);
-        log.info("✓ 工作空间 {} 已删除 (ns={})", id, ws.getNamespace());
+        log.info("✓ 工作空间 {} 已删除 (ns={}, clusters={})", id, ws.getNamespace(), clusterIds);
     }
 
     public WorkspaceResponse getById(String id) {

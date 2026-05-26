@@ -168,6 +168,19 @@ CREATE TABLE IF NOT EXISTS workspace_pool_spec_quota (
 );
 
 -- ============================================
+-- 【异构算力核心】工作空间 ↔ 物理集群 多对多关联
+-- 记录工作空间涉及的所有物理集群，供部署时动态选择目标集群。
+-- 不再依赖 workspace.primaryClusterId（已废弃）。
+-- ============================================
+CREATE TABLE IF NOT EXISTS workspace_pool_cluster (
+    workspace_id VARCHAR(36) NOT NULL,
+    physical_cluster_id VARCHAR(36) NOT NULL,
+    PRIMARY KEY (workspace_id, physical_cluster_id),
+    FOREIGN KEY (workspace_id) REFERENCES workspace(id),
+    FOREIGN KEY (physical_cluster_id) REFERENCES physical_cluster(id)
+);
+
+-- ============================================
 -- vLLM 模型服务部署记录
 -- ============================================
 CREATE TABLE IF NOT EXISTS model_deployment (

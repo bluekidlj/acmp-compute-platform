@@ -35,12 +35,29 @@ public class PoolMetadataService {
 
     /**
      * 加载逻辑池关联的所有物理集群。
+     *
+     * 【异构算力说明】优先使用 workspaceId 从 workspace_pool_cluster 查询工作空间实际涉及的集群；
+     * 若未传 workspaceId，则从 resource_pool_physical_cluster 查询（兼容旧行为）。
+     * 这样确保部署时只在工作空间关联的物理集群范围内选择。
+     *
+     * @param resourcePoolId 逻辑池 ID
+     * @param workspaceId 可选，工作空间 ID（用于限定集群范围）
      */
-    public List<PhysicalCluster> loadPhysicalClustersByPool(String resourcePoolId) {
-        resourcePoolMapper.findById(resourcePoolId)
-                .orElseThrow(() -> new ResourceNotFoundException("逻辑资源池不存在: " + resourcePoolId));
+    public List<PhysicalCluster> loadPhysicalClustersByPool(String resourcePoolId, String workspaceId) {
+        List<String> ids;
 
-        List<String> ids = resourcePoolMapper.findPhysicalClusterIds(resourcePoolId);
+        if (workspaceId != null && !workspaceId.isEmpty()) {
+            // 【异构算力】优先从 workspace_pool_cluster 查（限定该工作空间涉及的物理集群）
+            ids = resourcePoolMapper.findPhysicalClusterIdsByWorkspaceId(workspaceId);
+            if (ids.isEmpty()) {
+                // 兜底：从逻辑池关联的物理集群查
+                ids = resourcePoolMapper.findPhysicalClusterIds(resourcePoolId);
+            }
+        } else {
+            // 兼容旧行为：直接查逻辑池关联的物理集群
+            ids = resourcePoolMapper.findPhysicalClusterIds(resourcePoolId);
+        }
+
         if (ids.isEmpty()) {
             throw new BadRequestException("逻辑池 " + resourcePoolId + " 未关联任何物理集群");
         }
@@ -56,9 +73,65 @@ public class PoolMetadataService {
      * 匹配规则：spec.nodeSelector 中每个 (key,value) 必须出现在 cluster.nodeLabels 中。
      * 若 spec 未声明 nodeSelector，则取池关联的第一个集群（兼容旧行为）。
      * 命中多个时取第一个匹配的集群（命中即返回）。
+     *
+     * <h2>异构算力调度说明</h2>
+     * 在异构场景下（同一逻辑池关联多个物理集群，或同一物理集群含多种节点类型），
+     * spec.nodeSelector 如 {"pool":"nvidia-gpu"} 或 {"pool":"hygon-dcu"} 用于将
+     * 该规格的 Pod 精确路由到对应节点，不跨集群调度（跨集群需 Volcano/自研调度器）。
+     * 本方法不做多集群混合调度，只做"规格 → 集群"的最优匹配。
+     *
+     * @param resourcePoolId 逻辑池 ID
+     * @param spec           算力规格
+     * @return 匹配的物理集群信息（含 nodeLabelsJson/taintsJson 供 Pod 调度使用）
+     * @throws BadRequestException 没有任何集群满足规格的节点标签要求
      */
     public TargetCluster pickClusterForSpec(String resourcePoolId, ComputeSpec spec) {
-        List<PhysicalCluster> clusters = loadPhysicalClustersByPool(resourcePoolId);
+        return pickClusterForSpec(resourcePoolId, spec, null);
+    }
+
+    /**
+     * 按规格在逻辑池关联的物理集群中选定唯一目标集群（可限定工作空间范围）。
+     *
+     * 匹配规则：spec.nodeSelector 中每个 (key,value) 必须出现在 cluster.nodeLabels 中。
+     * 若 spec 未声明 nodeSelector，则取池关联的第一个集群（兼容旧行为）。
+     * 命中多个时取第一个匹配的集群（命中即返回）。
+     *
+     * <h2>异构算力调度说明</h2>
+     * 在异构场景下（同一逻辑池关联多个物理集群，或同一物理集群含多种节点类型），
+     * spec.nodeSelector 如 {"pool":"nvidia-gpu"} 或 {"pool":"hygon-dcu"} 用于将
+     * 该规格的 Pod 精确路由到对应节点，不跨集群调度（跨集群需 Volcano/自研调度器）。
+     * 本方法不做多集群混合调度，只做"规格 → 集群"的最优匹配。
+     *
+     * @param resourcePoolId 逻辑池 ID
+     * @param spec          算力规格
+     * @return 匹配的物理集群信息（含 nodeLabelsJson/taintsJson 供 Pod 调度使用）
+     * @throws BadRequestException 没有任何集群满足规格的节点标签要求
+     */
+    public TargetCluster pickClusterForSpec(String resourcePoolId, ComputeSpec spec) {
+        return pickClusterForSpec(resourcePoolId, spec, null);
+    }
+
+    /**
+     * 按规格在逻辑池关联的物理集群中选定唯一目标集群（可限定工作空间范围）。
+     *
+     * 匹配规则：spec.nodeSelector 中每个 (key,value) 必须出现在 cluster.nodeLabels 中。
+     * 若 spec 未声明 nodeSelector，则取池关联的第一个集群（兼容旧行为）。
+     * 命中多个时取第一个匹配的集群（命中即返回）。
+     *
+     * <h2>异构算力调度说明</h2>
+     * 在异构场景下（同一逻辑池关联多个物理集群，或同一物理集群含多种节点类型），
+     * spec.nodeSelector 如 {"pool":"nvidia-gpu"} 或 {"pool":"hygon-dcu"} 用于将
+     * 该规格的 Pod 精确路由到对应节点，不跨集群调度（跨集群需 Volcano/自研调度器）。
+     * 本方法不做多集群混合调度，只做"规格 → 集群"的最优匹配。
+     *
+     * @param resourcePoolId 逻辑池 ID
+     * @param workspaceId    可选，工作空间 ID（用于限定集群范围）
+     * @param spec           算力规格
+     * @return 匹配的物理集群信息（含 nodeLabelsJson/taintsJson 供 Pod 调度使用）
+     * @throws BadRequestException 没有任何集群满足规格的节点标签要求
+     */
+    public TargetCluster pickClusterForSpec(String resourcePoolId, ComputeSpec spec, String workspaceId) {
+        List<PhysicalCluster> clusters = loadPhysicalClustersByPool(resourcePoolId, workspaceId);
 
         Map<String, String> specLabels = parseJsonMap(spec.getNodeSelector());
 

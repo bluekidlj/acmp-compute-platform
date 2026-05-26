@@ -27,14 +27,19 @@ import java.util.stream.Collectors;
 /**
  * vLLM 模型服务部署。
  *
+ * 【异构算力说明】部署时由 PoolMetadataService.pickClusterForSpec 根据请求的 spec
+ * 动态选定目标物理集群，而非使用工作空间创建时写死的 primaryClusterId。
+ * 同一工作空间下，NVIDIA 规格的部署自动路由到 NVIDIA 节点，DCU 规格自动路由到 DCU 节点。
+ *
  * 流程：
  *  ① 校验 workspace 成员
  *  ② 加载 workspace + spec
  *  ③ 双层配额校验（L1: pool, L2: workspace）
- *  ④ 双层配额预扣
- *  ⑤ 构建 K8s Deployment + Service（注入 spec 资源键 + nodeSelector + tolerations + platform.io/{spec}）
- *  ⑥ 提交 K8s；失败回滚配额
- *  ⑦ 删除时同样回滚配额
+ *  ④ 根据 spec.nodeSelector 动态选定目标物理集群（PoolMetadataService）
+ *  ⑤ 双层配额预扣
+ *  ⑥ 构建 K8s Deployment + Service（注入 spec 资源键 + nodeSelector + tolerations + platform.io/{spec}）
+ *  ⑦ 提交到⑥中选定的目标物理集群；失败回滚配额
+ *  ⑧ 删除时同样回滚配额
  */
 @Slf4j
 @Service
@@ -46,6 +51,8 @@ public class ModelDeploymentService {
     private final ComputeSpecMapper computeSpecMapper;
     private final KubernetesClientManager clientManager;
     private final QuotaService quotaService;
+    /** 【异构算力】用于根据 spec 动态选定目标物理集群 */
+    private final PoolMetadataService poolMetadataService;
 
     private UserPrincipal currentUser() {
         Object p = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
@@ -83,7 +90,12 @@ public class ModelDeploymentService {
         // ③ 双层配额校验
         quotaService.validateBothLevelQuotas(poolId, workspaceId, spec.getId(), replicas);
 
-        // ④ 预扣配额
+        // ④ 【异构算力】根据 spec 动态选定目标物理集群，而非使用 ws.primaryClusterId
+        // 通过 spec.nodeSelector 匹配 cluster.nodeLabels，选出最适合的物理集群
+        PoolMetadataService.TargetCluster target = poolMetadataService.pickClusterForSpec(poolId, spec);
+        String clusterId = target.getClusterId();
+
+        // ⑤ 预扣配额
         quotaService.deductBothLevelQuotas(poolId, workspaceId, spec.getId(), replicas);
 
         // 生成 K8s 资源名
@@ -124,8 +136,8 @@ public class ModelDeploymentService {
                     spec, replicas, request.getHostModelPath(),
                     spec.getNodeSelector(), spec.getTolerations());
 
-            // ⑥ K8s 提交
-            clientManager.createVllmDeploymentAndService(ws.getPrimaryClusterId(), ws.getNamespace(), yaml);
+            // ⑥ 【异构算力】使用动态选定的 clusterId，而非 ws.primaryClusterId
+            clientManager.createVllmDeploymentAndService(clusterId, ws.getNamespace(), yaml);
 
             String serviceUrl = String.format("http://%s.%s.svc.cluster.local:8000",
                     serviceName, ws.getNamespace());
