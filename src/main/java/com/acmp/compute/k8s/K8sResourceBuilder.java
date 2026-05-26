@@ -18,7 +18,8 @@ import java.util.Map;
 public class K8sResourceBuilder {
 
     /**
-     * 构建 vLLM Deployment + Service YAML。
+     * 构建 vLLM Deployment + Service YAML（规范版本）。
+     * 自动注入调度约束、资源限制、容忍度。
      * 
      * @param deploymentName Deployment 名称
      * @param serviceName Service 名称
@@ -30,6 +31,8 @@ public class K8sResourceBuilder {
      * @param gpucores GPU 核心数
      * @param replicas 副本数
      * @param hostModelPath 宿主机模型路径（用于 hostPath 挂载，可选）
+     * @param nodeSelector 节点选择器（JSON 字符串或 null）
+     * @param tolerations 污点容忍（JSON 字符串或 null）
      * @return 完整的 vLLM Deployment + Service YAML 字符串
      */
     public static String buildVllmDeploymentAndService(
@@ -42,7 +45,9 @@ public class K8sResourceBuilder {
             Integer gpumemMb,
             Integer gpucores,
             Integer replicas,
-            String hostModelPath) {
+            String hostModelPath,
+            String nodeSelector,
+            String tolerations) {
         
         // 构建 Container
         ContainerBuilder containerBuilder = new ContainerBuilder()
@@ -94,9 +99,35 @@ public class K8sResourceBuilder {
         
         // 构建 Pod Template Spec
         PodSpecBuilder podSpecBuilder = new PodSpecBuilder()
-                .withContainers(containerBuilder.build())
-                // 强制将 Pod 调度到有 GPU 的节点
-                .withNodeSelector(Map.of("gpu-node", "true"));
+                .withContainers(containerBuilder.build());
+        
+        // 合并 nodeSelector：物理池约束 + 默认 GPU 节点标签
+        Map<String, String> finalNodeSelector = new HashMap<>();
+        finalNodeSelector.put("gpu-node", "true");
+        if (nodeSelector != null && !nodeSelector.isEmpty()) {
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, String> poolNodeSelector = Serialization.jsonMapper().readValue(nodeSelector, Map.class);
+                finalNodeSelector.putAll(poolNodeSelector);
+            } catch (Exception e) {
+                log.warn("Failed to parse nodeSelector JSON: {}", nodeSelector, e);
+            }
+        }
+        podSpecBuilder.withNodeSelector(finalNodeSelector);
+        
+        // 添加污点容忍（来自物理池约束）
+        if (tolerations != null && !tolerations.isEmpty()) {
+            try {
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> tolerationList = Serialization.jsonMapper().readValue(tolerations, List.class);
+                for (Map<String, Object> t : tolerationList) {
+                    Toleration tol = Serialization.jsonMapper().convertValue(t, Toleration.class);
+                    podSpecBuilder.addToTolerations(tol);
+                }
+            } catch (Exception e) {
+                log.warn("Failed to parse tolerations JSON: {}", tolerations, e);
+            }
+        }
         
         // 添加 Volume（如果使用 hostPath）
         if (hostModelPath != null && !hostModelPath.isEmpty()) {
@@ -161,6 +192,28 @@ public class K8sResourceBuilder {
         log.debug("Generated Service YAML:\n{}", serviceYaml);
         
         return "---\n" + deploymentYaml + "\n---\n" + serviceYaml;
+    }
+
+    /**
+     * 构建 vLLM Deployment + Service YAML（向后兼容版本）。
+     * @deprecated 使用新版本 buildVllmDeploymentAndService，支持 nodeSelector 和 tolerations
+     */
+    @Deprecated
+    public static String buildVllmDeploymentAndService(
+            String deploymentName,
+            String serviceName,
+            String namespace,
+            String image,
+            String modelIdOrPath,
+            Integer gpuPerReplica,
+            Integer gpumemMb,
+            Integer gpucores,
+            Integer replicas,
+            String hostModelPath) {
+        return buildVllmDeploymentAndService(
+                deploymentName, serviceName, namespace, image, modelIdOrPath,
+                gpuPerReplica, gpumemMb, gpucores, replicas, hostModelPath,
+                null, null);
     }
 
     /**

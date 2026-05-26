@@ -23,4 +23,6 @@ public class PhysicalClusterRegisterRequest {
     private String gpuTypes = GpuBrand.NVIDIA.name();
     /** 地域/机房，如 beijing, shanghai */
     private String location = "default";
+    private String nodeLabels;
+    private String taints;
 }

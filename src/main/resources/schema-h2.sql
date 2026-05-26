@@ -1,8 +1,7 @@
 -- AI Compute Platform - H2 数据库表结构
 
 -- ============================================
--- 物理集群（K8s 集群），按 GPU 类型/地域划分
--- ============================================
+-- 物理集群（K8s 集群），标签和污点唯一存储点
 CREATE TABLE IF NOT EXISTS physical_cluster (
     id VARCHAR(36) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -12,6 +11,9 @@ CREATE TABLE IF NOT EXISTS physical_cluster (
     total_gpu_slots INT,
     gpu_types VARCHAR(255) DEFAULT 'NVIDIA',
     location VARCHAR(64) DEFAULT 'default',
+    -- 调度属性（唯一存储点，逻辑池不存）
+    node_labels VARCHAR(1024),
+    taints VARCHAR(2048),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -25,28 +27,13 @@ CREATE TABLE IF NOT EXISTS organization (
 );
 
 -- ============================================
--- 逻辑资源池：纯 DB 逻辑分组（不直接对应 K8s 资源）
--- ============================================
+-- 逻辑资源池：纯 DB 聚合容器，不存标签/污点/调度规则
 CREATE TABLE IF NOT EXISTS resource_pool (
     id VARCHAR(36) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description VARCHAR(512),
     department_code VARCHAR(64) NOT NULL,
     department_name VARCHAR(255),
-    -- 总配额（平台管理员定义，分配给下属工作空间）
-    gpu_slots INT NOT NULL DEFAULT 0,
-    cpu_cores INT NOT NULL DEFAULT 0,
-    memory_gib INT NOT NULL DEFAULT 0,
-    max_pods INT DEFAULT 50,
-    node_count INT DEFAULT 1,
-    -- 已分配给工作空间的累计
-    allocated_gpu_slots INT DEFAULT 0,
-    allocated_cpu_cores INT DEFAULT 0,
-    allocated_memory_gib INT DEFAULT 0,
-    -- 划分维度
-    hardware_type VARCHAR(64) DEFAULT 'NVIDIA-GPU',
-    gpu_type VARCHAR(64) DEFAULT 'NVIDIA',
-    job_types VARCHAR(128) DEFAULT 'TRAINING,INFERENCE',
     status VARCHAR(32) NOT NULL DEFAULT 'active',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -227,8 +214,38 @@ CREATE TABLE IF NOT EXISTS physical_cluster_spec (
     FOREIGN KEY (spec_id) REFERENCES compute_spec(id)
 );
 
--- 逻辑资源池按规格的配额
+-- 逻辑池按规格的总配额（资源初次划分）
 CREATE TABLE IF NOT EXISTS resource_pool_spec_quota (
+    resource_pool_id VARCHAR(36) NOT NULL,
+    spec_id VARCHAR(36) NOT NULL,
+    total_quota DECIMAL(10,2) DEFAULT 0,
+    allocated_quota DECIMAL(10,2) DEFAULT 0,
+    PRIMARY KEY (resource_pool_id, spec_id),
+    FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id),
+    FOREIGN KEY (spec_id) REFERENCES compute_spec(id)
+);
+
+-- 工作空间 ↔ 逻辑资源池 绑定
+CREATE TABLE IF NOT EXISTS workspace_resource_pool (
+    workspace_id VARCHAR(36) NOT NULL,
+    resource_pool_id VARCHAR(36) NOT NULL,
+    PRIMARY KEY (workspace_id, resource_pool_id),
+    FOREIGN KEY (workspace_id) REFERENCES workspace(id),
+    FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id)
+);
+
+-- 工作空间在逻辑池中的按规格配额（资源二次分配）
+CREATE TABLE IF NOT EXISTS workspace_pool_spec_quota (
+    workspace_id VARCHAR(36) NOT NULL,
+    resource_pool_id VARCHAR(36) NOT NULL,
+    spec_id VARCHAR(36) NOT NULL,
+    max_quota DECIMAL(10,2) DEFAULT 0,
+    used_quota DECIMAL(10,2) DEFAULT 0,
+    PRIMARY KEY (workspace_id, resource_pool_id, spec_id),
+    FOREIGN KEY (workspace_id) REFERENCES workspace(id),
+    FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id),
+    FOREIGN KEY (spec_id) REFERENCES compute_spec(id)
+);
     resource_pool_id VARCHAR(36) NOT NULL,
     spec_id VARCHAR(36) NOT NULL,
     total_quota INT DEFAULT 0,

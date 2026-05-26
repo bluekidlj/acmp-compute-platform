@@ -1,129 +1,93 @@
-# 资源池设计文档
+# 资源池设计文档（v2.0）
 
-## 1. 两级资源模型
+## 一、核心维护原则
 
-```
-PhysicalCluster（物理集群）── M2M ──> ResourcePool（逻辑资源池）── 1:N ──> Workspace（工作空间）
-   真实 K8s 集群                      资源初次划分                      资源二次分配
-   按 GPU 类型/地域划分                按硬件/性能/安全/地域              按项目/团队
-```
+**"物理属性归物理池，标准定义归规格，逻辑池只存关联关系"**
 
-| 层级 | 管理者 | 划分维度 | 示例 |
-|------|--------|---------|------|
-| 物理集群 | 平台管理员 | GPU 类型、地域 | 北京 NVIDIA A100 集群 |
-| 逻辑资源池 | 平台管理员 | 硬件类型、性能、安全、地域 | A100-80G 训练池、V100 推理池 |
-| 工作空间 | 部门管理员 | 项目、团队 | 大模型训练项目、推荐算法项目 |
+| 数据 | 存储位置 | 说明 |
+|------|---------|------|
+| 节点标签、污点 | **物理集群唯一存储** | 物理固有属性，逻辑池不存 |
+| 规格（ResourceRequirements） | **全局规格库唯一存储** | 所有池引用同一份 |
+| 逻辑池 | **只存名称+部门+关联** | 聚合容器，不存调度规则 |
 
 ---
 
-## 2. 物理集群（PhysicalCluster）
+## 二、数据模型
 
-### 数据表
+### physical_cluster
+
+```
+id, name, kubeconfig, gpu_types, location
+node_labels:  {"pool":"nvidia-gpu-pool"}              ← 调度器筛选节点
+taints:       [{"key":"hami.io/gpu","value":"present","effect":"NoSchedule"}]
+```
+
+### resource_pool（纯聚合容器）
+
+```
+id, name, description, department_code, department_name, status
+  ├── resource_pool_physical_cluster   (M2M: 关联物理池)
+  ├── resource_pool_spec_quota         (按规格总配额)
+  ├── workspace_resource_pool          (工作空间绑定)
+  └── workspace_pool_spec_quota        (工作空间按规格配额)
+```
+
+### resource_pool_spec_quota
 
 | 字段 | 说明 |
 |------|------|
-| name | 集群名称 |
-| kubeconfig_base64_encrypted | AES 加密的 kubeconfig |
-| total_gpu_slots | 集群总 GPU 数 |
-| gpu_types | GPU 品牌：NVIDIA / HYGON / NVIDIA,HYGON |
-| **location** | 地域/机房：beijing / shanghai |
+| resource_pool_id + spec_id (PK) | |
+| total_quota | 池内该规格总配额 |
+| allocated_quota | 已分配给工作空间 |
 
-### API
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/v1/physical-clusters` | 注册（含 gpuTypes + location） |
-| GET | `/api/v1/physical-clusters` | 列表 |
-| GET | `/api/v1/physical-clusters/{id}/capacity` | 实时 GPU/CPU/Memory |
-| DELETE | `/api/v1/physical-clusters/{id}` | 删除 |
-
----
-
-## 3. 逻辑资源池（ResourcePool）
-
-### 设计要点
-
-- **可跨多个物理集群**：一个逻辑池可同时关联北京 NVIDIA 集群和上海 Hygon 集群
-- **总配额由管理员设置**：`gpuSlots`、`cpuCores`、`memoryGiB` 是平台管理员给这个逻辑池的总容量
-- **追踪工作空间分配**：`allocatedGpuSlots` 记录已分配给下属工作空间的累计值
-
-### 核心认知：配额 = K8s ResourceQuota
-
-**逻辑资源池的配额不是数据库里的一个数字，而是 K8s Namespace 中真实存在的 ResourceQuota 对象。**
-`resource_pool.gpu_slots/cpu_cores/memory_gib` 只是 K8s ResourceQuota 的 **DB 备份镜像**。
-
-### 数据表
-
-| 字段 | 来源 | 说明 |
-|------|------|------|
-| gpu_slots / cpu_cores / memory_gib | **K8s ResourceQuota** | DB 备份镜像 |
-| allocated_gpu_slots / cpu_cores / memory_gib | **平台层计算** | 分配给工作空间的累计（K8s 无此概念） |
-| hardware_type | | A100-80G / V100 / H100 / CPU-ONLY |
-| security_level | | NORMAL / CONFIDENTIAL |
-| gpu_type | | NVIDIA / HYGON |
-| job_types | | TRAINING / INFERENCE / TRAINING,INFERENCE |
-
-### M2M 关联表
+### workspace_resource_pool
 
 ```
-resource_pool_physical_cluster (resource_pool_id, physical_cluster_id)
+workspace_id + resource_pool_id (PK)  — 绑定关系
 ```
 
-### API
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/v1/resource-pools` | 创建（physicalClusterIds 列表） |
-| GET | `/api/v1/resource-pools` | 列表 |
-| GET | `/api/v1/resource-pools?physicalClusterId=xxx` | 按物理集群查逻辑池 |
-| GET | `/api/v1/resource-pools/{id}` | 详情（含 allocated + available） |
-| PATCH | `/api/v1/resource-pools/{id}/capacity` | **在线扩缩容**（同步更新 K8s） |
-
----
-
-## 4. 在线扩缩容
+### workspace_pool_spec_quota（双层配额核心）
 
 ```
-PATCH /api/v1/resource-pools/{id}/capacity { "gpuSlots": 200 }
-
-→ DB update gpu_slots=200
-→ serverSideApply ResourceQuota（不重启 Pod） ✅
-→ serverSideApply Volcano Queue
-→ 在运行作业不受影响 ✅
+workspace_id + resource_pool_id + spec_id (PK)
+  max_quota:  上限
+  used_quota: 已使用
 ```
 
 ---
 
-## 5. 典型流程
+## 三、部署全流程（10 步）
 
 ```
-1. 注册物理集群
-   POST /api/v1/physical-clusters
-   { "gpuTypes": "NVIDIA", "location": "beijing" }
+用户 POST /api/v1/resource-pools/pool-ai/model-deployments
+  { "specName":"nvidia-4090-24g", "replicas":1 }
 
-2. 创建逻辑池（跨 2 个物理集群）
-   POST /api/v1/resource-pools
-   { "physicalClusterIds": ["bj-nvidia", "sh-nvidia"],
-     "gpuSlots": 120, "hardwareType": "A100-80G" }
-
-3. 在线扩容
-   PATCH .../capacity { "gpuSlots": 200 }
-
-4. 查看逻辑池详情
-   GET .../{id} → allocatedGpuSlots: 30, availableGpuSlots: 170
+① 绑定校验 → workspace_resource_pool 确认 ws-llm ↔ pool-ai
+② 加载调度约束 → 查物理池 nodeLabels+taints
+③ 加载规格资源 → compute_spec { gpu:1, cpu:8, mem:32Gi }
+④ 双层配额硬校验:
+   第一层 pool: total=2, allocated=1, 剩余=1 ≥ 1 ✅
+   第二层 ws:   max=1, used=0, 剩余=1 ≥ 1 ✅
+⑤ 预扣配额
+⑥ 生成 Deployment YAML（自动注入 nodeSelector+tolerations+resources）
+⑦ 提交 K8s（workspace 的 SA）
+⑧ K8s 调度 → nodeSelector+taint 匹配节点
+⑨ Pod Running → 配额正式扣减 → 返回 serviceUrl
+⑩ 失败 → 5min 超时 → delete deployment → 回滚配额
 ```
+
+### 本质
+
+> **指定资源池部署 = 平台自动把该池关联的所有调度规则、配额限制、隔离策略注入 Deployment，提交到工作空间 Namespace。**
 
 ---
 
-## 6. 测试用例
+## 四、代码清单
 
-| 场景 | 实现 |
+| 文件 | 改动 |
 |------|------|
-| 物理池查询 | GET /api/v1/physical-clusters |
-| 多硬件规格 | gpuTypes / location |
-| 物理池→逻辑池 M2M | resource_pool_physical_cluster 表 |
-| 逻辑池跨多物理集群 | physicalClusterIds 列表 |
-| 作业类型控制 | jobTypes 字段 |
-| 划分维度 | hardwareType / securityLevel |
-| 在线扩缩容 | PATCH .../capacity → K8s serverSideApply |
-| 配额分配追踪 | allocatedGpuSlots 字段 |
+| `schema-h2.sql` | physical_cluster +nodeLabels/taints；resource_pool 精简；新增 workspace_resource_pool + workspace_pool_spec_quota |
+| `PhysicalCluster.java` | +nodeLabels, +taints |
+| `PhysicalClusterRegisterRequest.java` | +nodeLabels, +taints |
+| `ResourcePool.java` | 精简为 name+department+status |
+| `docs/RESOURCE-POOL-DESIGN.md` | 本文档 |

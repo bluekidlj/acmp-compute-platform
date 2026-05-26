@@ -29,6 +29,10 @@ public class PhysicalCluster {
     private String gpuTypes;
     /** 地域/机房，如 beijing, shanghai */
     private String location;
+    /** JSON: {"pool":"nvidia-gpu-pool"} — 节点标签 */
+    private String nodeLabels;
+    /** JSON: [{"key":"hami.io/gpu","value":"present","effect":"NoSchedule"}] — 节点污点 */
+    private String taints;
     private Instant createdAt;
     private Instant updatedAt;
 }

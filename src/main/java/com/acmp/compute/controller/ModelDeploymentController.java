@@ -13,40 +13,59 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * vLLM 模型服务部署：部署为最基础用户权限，拥有该 pool 即可部署。
+ * vLLM 模型服务部署（规范版本）。
+ * 
+ * 新版 API：POST /api/v1/resource-pools/{poolId}/workspaces/{workspaceId}/model-deployments
+ * 旧版 API：POST /api/v1/workspaces/{workspaceId}/model-deployments（向后兼容）
  */
 @RestController
-@RequestMapping("/api/v1/resource-pools/{poolId}/model-deployments")
 @RequiredArgsConstructor
 public class ModelDeploymentController {
 
     private final ModelDeploymentService modelDeploymentService;
 
-    @PostMapping
-    public ResponseEntity<ModelDeploymentResponse> deploy(
+    /**
+     * 新版 API：规范版本（使用规格名称部署）
+     * 
+     * POST /api/v1/resource-pools/{poolId}/workspaces/{workspaceId}/model-deployments
+     */
+    @PostMapping("/api/v1/resource-pools/{poolId}/workspaces/{workspaceId}/model-deployments")
+    public ResponseEntity<ModelDeploymentResponse> deployBySpec(
             @PathVariable String poolId,
+            @PathVariable String workspaceId,
             @Valid @RequestBody VllmDeployRequest request) {
-        ModelDeploymentResponse resp = modelDeploymentService.deploy(poolId, request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(resp);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(modelDeploymentService.deployBySpec(poolId, workspaceId, request));
     }
 
-    @GetMapping
-    public ResponseEntity<List<ModelDeploymentResponse>> list(@PathVariable String poolId) {
-        return ResponseEntity.ok(modelDeploymentService.listByPool(poolId));
+    /**
+     * 旧版 API：向后兼容
+     * 
+     * @deprecated 使用新版 API
+     */
+    @Deprecated
+    @PostMapping("/api/v1/workspaces/{workspaceId}/model-deployments")
+    public ResponseEntity<ModelDeploymentResponse> deploy(
+            @PathVariable String workspaceId,
+            @Valid @RequestBody VllmDeployRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(modelDeploymentService.deploy(workspaceId, request));
     }
 
-    @GetMapping("/{deploymentId}")
+    @GetMapping("/api/v1/workspaces/{workspaceId}/model-deployments")
+    public ResponseEntity<List<ModelDeploymentResponse>> list(@PathVariable String workspaceId) {
+        return ResponseEntity.ok(modelDeploymentService.listByWorkspace(workspaceId));
+    }
+
+    @GetMapping("/api/v1/workspaces/{workspaceId}/model-deployments/{deploymentId}")
     public ResponseEntity<ModelDeploymentResponse> getStatus(
-            @PathVariable String poolId,
-            @PathVariable String deploymentId) {
-        return ResponseEntity.ok(modelDeploymentService.getStatus(poolId, deploymentId));
+            @PathVariable String workspaceId, @PathVariable String deploymentId) {
+        return ResponseEntity.ok(modelDeploymentService.getStatus(workspaceId, deploymentId));
     }
 
-    @DeleteMapping("/{deploymentId}")
+    @DeleteMapping("/api/v1/workspaces/{workspaceId}/model-deployments/{deploymentId}")
     public ResponseEntity<Map<String, String>> delete(
-            @PathVariable String poolId,
-            @PathVariable String deploymentId) {
-        modelDeploymentService.delete(poolId, deploymentId);
+            @PathVariable String workspaceId, @PathVariable String deploymentId) {
+        modelDeploymentService.delete(workspaceId, deploymentId);
         return ResponseEntity.ok(Map.of("message", "已删除部署"));
     }
 }

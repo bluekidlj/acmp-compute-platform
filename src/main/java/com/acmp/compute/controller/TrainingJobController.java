@@ -10,7 +10,7 @@ import javax.validation.Valid;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/resource-pools/{poolId}/training-jobs")
+@RequestMapping("/api/v1/workspaces/{workspaceId}/training-jobs")
 @RequiredArgsConstructor
 public class TrainingJobController {
 
@@ -18,9 +18,9 @@ public class TrainingJobController {
 
     @PostMapping
     public ResponseEntity<Map<String, String>> submit(
-            @PathVariable String poolId,
+            @PathVariable String workspaceId,
             @Valid @RequestBody TrainingJobRequest request) {
-        String jobName = trainingJobService.submit(poolId, request);
+        String jobName = trainingJobService.submit(workspaceId, request);
         return ResponseEntity.status(201).body(Map.of("jobName", jobName, "message", "已提交"));
     }
 }
