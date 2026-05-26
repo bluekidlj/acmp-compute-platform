@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layout, Menu, Button, Dropdown, Space, Typography, theme } from 'antd';
+import { Layout, Menu, Button, Dropdown, Space, Typography, theme, Tag } from 'antd';
 import {
   DashboardOutlined,
   CloudServerOutlined,
@@ -10,10 +10,12 @@ import {
   RocketOutlined,
   UserOutlined,
   LogoutOutlined,
+  ExperimentOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ROLE_LABELS } from '../types';
+import { USE_MOCK } from '../mock';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -99,11 +101,16 @@ const AppLayout: React.FC = () => {
             background: themeToken.colorBgContainer,
             padding: '0 24px',
             display: 'flex',
-            justifyContent: 'flex-end',
+            justifyContent: 'space-between',
             alignItems: 'center',
             borderBottom: `1px solid ${themeToken.colorBorderSecondary}`,
           }}
         >
+          {USE_MOCK && (
+            <Tag icon={<ExperimentOutlined />} color="orange" style={{ marginRight: 'auto' }}>
+              Mock 模式 — 数据均为模拟
+            </Tag>
+          )}
           <Dropdown
             menu={{
               items: userMenuItems,

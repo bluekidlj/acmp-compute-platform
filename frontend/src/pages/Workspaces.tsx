@@ -10,7 +10,7 @@ import { specApi } from '../api/specs';
 import type { Workspace, WorkspaceCreateRequest, ResourcePool, ComputeSpec } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 const WorkspacesPage: React.FC = () => {
   const { isAdmin } = useAuth();

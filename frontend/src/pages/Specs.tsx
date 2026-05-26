@@ -85,8 +85,8 @@ const SpecsPage: React.FC = () => {
         expandable={{
           expandedRowRender: (record: ComputeSpec) => (
             <Descriptions size="small" column={2}>
-              {record.gpumemMb && <Descriptions.Item label="GPU 内存(MB)">{record.gpumemMb}</Descriptions.Item>}
-              {record.gpucores && <Descriptions.Item label="GPU 核心数">{record.gpucores}</Descriptions.Item>}
+              {record.defaultGpumemMb && <Descriptions.Item label="GPU 内存(MB)">{record.defaultGpumemMb}</Descriptions.Item>}
+              {record.defaultGpucores && <Descriptions.Item label="GPU 核心数">{record.defaultGpucores}</Descriptions.Item>}
               {record.description && <Descriptions.Item label="描述" span={2}>{record.description}</Descriptions.Item>}
               {record.nodeSelector && (
                 <Descriptions.Item label="nodeSelector" span={2}>

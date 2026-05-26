@@ -1,7 +1,9 @@
 import apiClient from './client';
 import type { ModelDeployment, VllmDeployRequest } from '../types';
+import { USE_MOCK } from '../mock';
+import { mockModelDeploymentApi } from '../mock/modelDeployments';
 
-export const modelDeploymentApi = {
+const realApi = {
   deploy: (poolId: string, workspaceId: string, data: VllmDeployRequest) =>
     apiClient.post<ModelDeployment>(
       `/resource-pools/${poolId}/workspaces/${workspaceId}/model-deployments`,
@@ -14,3 +16,5 @@ export const modelDeploymentApi = {
   delete: (workspaceId: string, id: string) =>
     apiClient.delete<{ message: string }>(`/workspaces/${workspaceId}/model-deployments/${id}`),
 };
+
+export const modelDeploymentApi = USE_MOCK ? mockModelDeploymentApi : realApi;
