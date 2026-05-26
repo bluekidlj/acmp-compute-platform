@@ -208,16 +208,12 @@ public class KubernetesClientManager {
     }
 
     /**
-     * 创建 ServiceAccount：用于部门用户访问对应 namespace 的凭证生成。
-     * ServiceAccount 绑定到 Role，通过 RoleBinding 实现权限隔离。
+     * 创建 ServiceAccount：用于工作空间自身的资源操作。
      */
     public void createServiceAccount(String physicalClusterId, String namespace, String saName) {
         KubernetesClient client = getClient(physicalClusterId);
         ServiceAccount sa = new ServiceAccountBuilder()
-                .withNewMetadata()
-                .withName(saName)
-                .withNamespace(namespace)
-                .endMetadata()
+                .withNewMetadata().withName(saName).withNamespace(namespace).endMetadata()
                 .build();
         client.serviceAccounts().inNamespace(namespace).resource(sa).serverSideApply();
         log.info("已创建 ServiceAccount: {} @ namespace {}", saName, namespace);

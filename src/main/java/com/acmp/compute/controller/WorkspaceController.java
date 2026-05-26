@@ -67,4 +67,27 @@ public class WorkspaceController {
     public ResponseEntity<WorkspaceQuotaResponse> getQuota(@PathVariable String id) {
         return ResponseEntity.ok(workspaceService.getQuota(id));
     }
+
+    // ── 成员管理 ──
+
+    @PostMapping("/{id}/members")
+    @PreAuthorize("hasRole('PLATFORM_ADMIN') or hasRole('ORG_ADMIN')")
+    public ResponseEntity<Map<String, String>> addMember(@PathVariable String id,
+                                                          @RequestBody Map<String, String> body) {
+        workspaceService.addMember(id, body.get("userId"));
+        return ResponseEntity.ok(Map.of("message", "已添加成员"));
+    }
+
+    @DeleteMapping("/{id}/members/{userId}")
+    @PreAuthorize("hasRole('PLATFORM_ADMIN') or hasRole('ORG_ADMIN')")
+    public ResponseEntity<Map<String, String>> removeMember(@PathVariable String id,
+                                                             @PathVariable String userId) {
+        workspaceService.removeMember(id, userId);
+        return ResponseEntity.ok(Map.of("message", "已移除成员"));
+    }
+
+    @GetMapping("/{id}/members")
+    public ResponseEntity<List<String>> listMembers(@PathVariable String id) {
+        return ResponseEntity.ok(workspaceService.listMembers(id));
+    }
 }

@@ -4,7 +4,6 @@ import com.acmp.compute.dto.WorkspaceQuotaResponse;
 import com.acmp.compute.dto.WorkspaceRequest;
 import com.acmp.compute.dto.WorkspaceResponse;
 import com.acmp.compute.entity.ResourcePool;
-import com.acmp.compute.entity.ComputeSpec;
 import com.acmp.compute.entity.Workspace;
 import com.acmp.compute.entity.WorkspaceQuota;
 import com.acmp.compute.exception.ForbiddenException;
@@ -226,6 +225,26 @@ public class WorkspaceService {
 
     private int safeInt(Integer v) { return v != null ? v : 0; }
     private int toInt(Object v) { if (v instanceof Number) return ((Number) v).intValue(); return 0; }
+
+    // ── 成员管理：纯平台层 DB 记录，K8s 层使用工作空间唯一的 SA ──
+
+    @Transactional
+    public void addMember(String workspaceId, String userId) {
+        if (workspaceMapper.findById(workspaceId).isEmpty())
+            throw new ResourceNotFoundException("工作空间不存在");
+        workspaceMapper.insertMember(workspaceId, userId);
+        log.info("✓ 用户 {} 已加入工作空间 {}", userId, workspaceId);
+    }
+
+    @Transactional
+    public void removeMember(String workspaceId, String userId) {
+        workspaceMapper.deleteMember(workspaceId, userId);
+        log.info("✓ 用户 {} 已移出工作空间 {}", userId, workspaceId);
+    }
+
+    public List<String> listMembers(String workspaceId) {
+        return workspaceMapper.findMemberIds(workspaceId);
+    }
     private void applyQuotaBody(WorkspaceQuota q, Map<String, Integer> body) {
         if (body.containsKey("maxGpuSlots")) q.setMaxGpuSlots(body.get("maxGpuSlots"));
         if (body.containsKey("maxCpuCores")) q.setMaxCpuCores(body.get("maxCpuCores"));
@@ -257,5 +276,4 @@ public class WorkspaceService {
                 .availableGpuSlots(maxG - usedG).availableCpuCores(maxC - usedC).availableMemoryGib(maxM - usedM).build();
     }
 }
-    }
-}
+

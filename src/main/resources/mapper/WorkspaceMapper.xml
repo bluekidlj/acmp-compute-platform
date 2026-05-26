@@ -60,4 +60,16 @@
     <delete id="deleteById">
         DELETE FROM workspace WHERE id = #{id}
     </delete>
+
+    <!-- 成员管理 -->
+    <insert id="insertMember">
+        MERGE INTO workspace_member (user_id, workspace_id) KEY(user_id, workspace_id)
+        VALUES (#{userId}, #{workspaceId})
+    </insert>
+    <delete id="deleteMember">
+        DELETE FROM workspace_member WHERE workspace_id = #{workspaceId} AND user_id = #{userId}
+    </delete>
+    <select id="findMemberIds" resultType="java.lang.String">
+        SELECT user_id FROM workspace_member WHERE workspace_id = #{workspaceId}
+    </select>
 </mapper>

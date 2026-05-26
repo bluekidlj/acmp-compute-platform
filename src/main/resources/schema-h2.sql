@@ -256,6 +256,18 @@ CREATE TABLE IF NOT EXISTS workspace_spec_quota (
     FOREIGN KEY (spec_id) REFERENCES compute_spec(id)
 );
 
+-- ============================================
+-- 权限：工作空间成员（平台层权限记录）
+-- 每个工作空间只有一个 SA，平台层代理校验用户-工作空间关系
+-- ============================================
+CREATE TABLE IF NOT EXISTS workspace_member (
+    user_id VARCHAR(36) NOT NULL,
+    workspace_id VARCHAR(36) NOT NULL,
+    PRIMARY KEY (user_id, workspace_id),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (workspace_id) REFERENCES workspace(id)
+);
+
 -- 初始规格数据
 MERGE INTO compute_spec (id, name, display_name, gpu_brand, memory_gb, architecture) KEY(id)
 VALUES ('spec-nvidia-a100-80g', 'nvidia-a100-80g', 'NVIDIA A100 80GB SXM', 'NVIDIA', 80, 'Ampere');
