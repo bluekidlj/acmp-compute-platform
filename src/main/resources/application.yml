@@ -7,7 +7,7 @@ spring:
     name: acmp-compute
   # H2 内存/文件数据库（demo 使用）
   datasource:
-    url: jdbc:h2:file:./data/acmp;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;AUTO_SERVER=TRUE
+    url: jdbc:h2:file:./data/acmp;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
     driver-class-name: org.h2.Driver
     username: sa
     password:
@@ -36,7 +36,7 @@ jwt:
 
 # AES 加密 kubeconfig（生产环境请用环境变量）
 encryption:
-  aes-key: ${AES_KEY:acmp32byteskey!!!!!!!!!!!!!!!!!}
+  aes-key: ${AES_KEY:acmp32byteskey!!!!!!!!!!!!!!!!!!}
 
 # 日志
 logging:

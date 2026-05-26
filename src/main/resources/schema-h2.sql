@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS resource_pool (
 );
 
 -- 用户
-CREATE TABLE IF NOT EXISTS user (
+CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(36) PRIMARY KEY,
     username VARCHAR(128) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS user_resource_pool (
     user_id VARCHAR(36) NOT NULL,
     resource_pool_id VARCHAR(36) NOT NULL,
     PRIMARY KEY (user_id, resource_pool_id),
-    FOREIGN KEY (user_id) REFERENCES user(id),
+    FOREIGN KEY (user_id) REFERENCES users(id),
     FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id)
 );
 
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS model_deployment (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id),
-    FOREIGN KEY (created_by) REFERENCES user(id)
+    FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
 -- 训练任务记录（可选，便于列表展示）
