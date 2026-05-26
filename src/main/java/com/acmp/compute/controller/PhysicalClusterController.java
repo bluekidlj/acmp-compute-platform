@@ -24,7 +24,10 @@ public class PhysicalClusterController {
     @PostMapping
     @PreAuthorize("hasRole('PLATFORM_ADMIN')")
     public ResponseEntity<PhysicalClusterResponse> register(@Valid @RequestBody PhysicalClusterRegisterRequest request) {
-        PhysicalClusterResponse resp = physicalClusterService.register(request.getName(), request.getKubeconfigBase64());
+        PhysicalClusterResponse resp = physicalClusterService.register(
+                request.getName(), request.getKubeconfigBase64(),
+                request.getGpuTypes() != null ? request.getGpuTypes() : "NVIDIA",
+                request.getLocation() != null ? request.getLocation() : "default");
         return ResponseEntity.status(HttpStatus.CREATED).body(resp);
     }
 

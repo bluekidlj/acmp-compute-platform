@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.acmp.compute.mapper.WorkspaceMapper">
+
+    <resultMap id="BaseResultMap" type="com.acmp.compute.entity.Workspace">
+        <id column="id" property="id"/>
+        <result column="resource_pool_id" property="resourcePoolId"/>
+        <result column="name" property="name"/>
+        <result column="description" property="description"/>
+        <result column="created_by" property="createdBy"/>
+        <result column="status" property="status"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO workspace (id, resource_pool_id, name, description, created_by, status, created_at, updated_at)
+        VALUES (#{id}, #{resourcePoolId}, #{name}, #{description}, #{createdBy}, #{status}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    </insert>
+
+    <update id="update">
+        UPDATE workspace
+        SET name = #{name}, description = #{description}, status = #{status}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <select id="findById" resultMap="BaseResultMap">
+        SELECT * FROM workspace WHERE id = #{id}
+    </select>
+
+    <select id="findAll" resultMap="BaseResultMap">
+        SELECT * FROM workspace ORDER BY created_at DESC
+    </select>
+
+    <select id="findByResourcePoolId" resultMap="BaseResultMap">
+        SELECT * FROM workspace WHERE resource_pool_id = #{resourcePoolId} ORDER BY created_at DESC
+    </select>
+
+    <delete id="deleteById">
+        DELETE FROM workspace WHERE id = #{id}
+    </delete>
+</mapper>

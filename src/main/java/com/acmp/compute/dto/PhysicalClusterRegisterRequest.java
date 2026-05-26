@@ -6,7 +6,7 @@ import javax.validation.constraints.NotBlank;
 
 /** 
  * 注册物理集群请求：管理员通过此接口注册新的 K8s 集群。
- * name + description + kubeconfig Base64 编码内容
+ * name + description + kubeconfig + GPU 硬件类型
  */
 @Data
 public class PhysicalClusterRegisterRequest {
@@ -19,4 +19,8 @@ public class PhysicalClusterRegisterRequest {
      */
     @NotBlank
     private String kubeconfigBase64;
+    /** GPU 硬件类型，逗号分隔，如 NVIDIA,HYGON */
+    private String gpuTypes = "NVIDIA";
+    /** 地域/机房，如 beijing, shanghai */
+    private String location = "default";
 }

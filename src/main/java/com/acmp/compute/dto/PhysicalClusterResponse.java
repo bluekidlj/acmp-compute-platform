@@ -13,6 +13,8 @@ public class PhysicalClusterResponse {
     private String description;
     private String status;
     private Integer totalGpuSlots;
+    private String gpuTypes;
+    private String location;
     private Instant createdAt;
     private Instant updatedAt;
 }

@@ -4,8 +4,8 @@
 
     <resultMap id="BaseResultMap" type="com.acmp.compute.entity.ResourcePool">
         <id column="id" property="id"/>
-        <result column="physical_cluster_id" property="physicalClusterId"/>
         <result column="name" property="name"/>
+        <result column="description" property="description"/>
         <result column="department_code" property="departmentCode"/>
         <result column="department_name" property="departmentName"/>
         <result column="namespace" property="namespace"/>
@@ -14,6 +14,14 @@
         <result column="cpu_cores" property="cpuCores"/>
         <result column="memory_gib" property="memoryGiB"/>
         <result column="max_pods" property="maxPods"/>
+        <result column="node_count" property="nodeCount"/>
+        <result column="allocated_gpu_slots" property="allocatedGpuSlots"/>
+        <result column="allocated_cpu_cores" property="allocatedCpuCores"/>
+        <result column="allocated_memory_gib" property="allocatedMemoryGib"/>
+        <result column="hardware_type" property="hardwareType"/>
+        <result column="security_level" property="securityLevel"/>
+        <result column="gpu_type" property="gpuType"/>
+        <result column="job_types" property="jobTypes"/>
         <result column="volcano_queue_name" property="volcanoQueueName"/>
         <result column="status" property="status"/>
         <result column="created_at" property="createdAt"/>
@@ -21,14 +29,32 @@
     </resultMap>
 
     <insert id="insert">
-        INSERT INTO resource_pool (id, physical_cluster_id, name, department_code, department_name, namespace, service_account_name, gpu_slots, cpu_cores, memory_gib, max_pods, volcano_queue_name, status, created_at, updated_at)
-        VALUES (#{id}, #{physicalClusterId}, #{name}, #{departmentCode}, #{departmentName}, #{namespace}, #{serviceAccountName}, #{gpuSlots}, #{cpuCores}, #{memoryGiB}, #{maxPods}, #{volcanoQueueName}, #{status}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO resource_pool (id, name, description, department_code, department_name, namespace, service_account_name,
+            gpu_slots, cpu_cores, memory_gib, max_pods, node_count,
+            allocated_gpu_slots, allocated_cpu_cores, allocated_memory_gib,
+            hardware_type, security_level, gpu_type, job_types, volcano_queue_name, status, created_at, updated_at)
+        VALUES (#{id}, #{name}, #{description}, #{departmentCode}, #{departmentName}, #{namespace}, #{serviceAccountName},
+            #{gpuSlots}, #{cpuCores}, #{memoryGiB}, #{maxPods}, #{nodeCount},
+            #{allocatedGpuSlots}, #{allocatedCpuCores}, #{allocatedMemoryGib},
+            #{hardwareType}, #{securityLevel}, #{gpuType}, #{jobTypes}, #{volcanoQueueName}, #{status}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 
     <update id="update">
         UPDATE resource_pool
-        SET name = #{name}, department_code = #{departmentCode}, department_name = #{departmentName}, gpu_slots = #{gpuSlots}, cpu_cores = #{cpuCores}, memory_gib = #{memoryGiB}, max_pods = #{maxPods},
+        SET name = #{name}, description = #{description}, department_code = #{departmentCode}, department_name = #{departmentName},
+            gpu_slots = #{gpuSlots}, cpu_cores = #{cpuCores}, memory_gib = #{memoryGiB}, max_pods = #{maxPods},
+            node_count = #{nodeCount},
+            allocated_gpu_slots = #{allocatedGpuSlots}, allocated_cpu_cores = #{allocatedCpuCores}, allocated_memory_gib = #{allocatedMemoryGib},
+            hardware_type = #{hardwareType}, security_level = #{securityLevel},
+            gpu_type = #{gpuType}, job_types = #{jobTypes},
             volcano_queue_name = #{volcanoQueueName}, status = #{status}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateAllocated">
+        UPDATE resource_pool
+        SET allocated_gpu_slots = #{allocatedGpuSlots}, allocated_cpu_cores = #{allocatedCpuCores},
+            allocated_memory_gib = #{allocatedMemoryGib}, updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
     </update>
 
@@ -41,7 +67,19 @@
     </select>
 
     <select id="findByPhysicalClusterId" resultMap="BaseResultMap">
-        SELECT * FROM resource_pool WHERE physical_cluster_id = #{physicalClusterId} ORDER BY created_at DESC
+        SELECT rp.* FROM resource_pool rp
+        JOIN resource_pool_physical_cluster rppc ON rp.id = rppc.resource_pool_id
+        WHERE rppc.physical_cluster_id = #{physicalClusterId}
+        ORDER BY rp.created_at DESC
+    </select>
+
+    <insert id="insertPhysicalCluster">
+        INSERT INTO resource_pool_physical_cluster (resource_pool_id, physical_cluster_id)
+        VALUES (#{resourcePoolId}, #{physicalClusterId})
+    </insert>
+
+    <select id="findPhysicalClusterIds" resultType="java.lang.String">
+        SELECT physical_cluster_id FROM resource_pool_physical_cluster WHERE resource_pool_id = #{resourcePoolId}
     </select>
 
     <delete id="deleteById">

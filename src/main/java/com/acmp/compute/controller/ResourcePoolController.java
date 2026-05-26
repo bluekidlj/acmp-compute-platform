@@ -29,7 +29,11 @@ public class ResourcePoolController {
 
     @GetMapping
     @PreAuthorize("hasRole('PLATFORM_ADMIN') or hasRole('ORG_ADMIN')")
-    public ResponseEntity<List<ResourcePoolResponse>> list() {
+    public ResponseEntity<List<ResourcePoolResponse>> list(
+            @RequestParam(required = false) String physicalClusterId) {
+        if (physicalClusterId != null && !physicalClusterId.isEmpty()) {
+            return ResponseEntity.ok(resourcePoolService.listByPhysicalCluster(physicalClusterId));
+        }
         return ResponseEntity.ok(resourcePoolService.list());
     }
 

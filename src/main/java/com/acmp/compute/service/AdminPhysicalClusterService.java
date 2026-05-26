@@ -59,9 +59,11 @@ public class AdminPhysicalClusterService {
                 .id(id)
                 .name(request.getName())
                 .description(request.getDescription())
+                .gpuTypes(request.getGpuTypes() != null ? request.getGpuTypes() : "NVIDIA")
+                .location(request.getLocation() != null ? request.getLocation() : "default")
                 .kubeconfigBase64Encrypted(encryptedKubeconfig)
                 .status("active")
-                .totalGpuSlots(0)  // 初始值，可通过其他接口更新
+                .totalGpuSlots(0)
                 .build();
         
         physicalClusterMapper.insert(cluster);
@@ -78,6 +80,8 @@ public class AdminPhysicalClusterService {
                 .description(cluster.getDescription())
                 .status(cluster.getStatus())
                 .totalGpuSlots(cluster.getTotalGpuSlots())
+                .gpuTypes(cluster.getGpuTypes())
+                .location(cluster.getLocation())
                 .createdAt(cluster.getCreatedAt())
                 .build();
     }

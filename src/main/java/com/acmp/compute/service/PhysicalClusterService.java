@@ -38,6 +38,16 @@ public class PhysicalClusterService {
      */
     @Transactional(rollbackFor = Exception.class)
     public PhysicalClusterResponse register(String name, String kubeconfigBase64) {
+        return register(name, kubeconfigBase64, "NVIDIA", "default");
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public PhysicalClusterResponse register(String name, String kubeconfigBase64, String gpuTypes) {
+        return register(name, kubeconfigBase64, gpuTypes, "default");
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public PhysicalClusterResponse register(String name, String kubeconfigBase64, String gpuTypes, String location) {
         // 若前端传的是 Base64 编码的 kubeconfig 字符串，需先解码得到原始内容再校验
         String plainKubeconfig = kubeconfigBase64;
         if (!plainKubeconfig.contains("apiVersion") && !plainKubeconfig.contains("clusters:")) {
@@ -55,6 +65,8 @@ public class PhysicalClusterService {
         PhysicalCluster cluster = PhysicalCluster.builder()
                 .id(id)
                 .name(name)
+                .gpuTypes(gpuTypes)
+                .location(location)
                 .kubeconfigBase64Encrypted(encrypted)
                 .status("active")
                 .build();
@@ -114,8 +126,11 @@ public class PhysicalClusterService {
         return PhysicalClusterResponse.builder()
                 .id(c.getId())
                 .name(c.getName())
+                .description(c.getDescription())
                 .status(c.getStatus())
                 .totalGpuSlots(c.getTotalGpuSlots())
+                .gpuTypes(c.getGpuTypes())
+                .location(c.getLocation())
                 .createdAt(c.getCreatedAt())
                 .updatedAt(c.getUpdatedAt())
                 .build();

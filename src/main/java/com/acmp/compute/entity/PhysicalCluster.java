@@ -9,7 +9,7 @@ import java.time.Instant;
 
 /**
  * 物理集群实体：代表一个完整的 K8s 集群，通过 kubeconfig 连接。
- * 支持多个物理集群的注册与管理，每个集群用独立 kubeconfig 连接。
+ * 支持多种 GPU 硬件规格和地域划分。
  */
 @Data
 @Builder
@@ -23,8 +23,12 @@ public class PhysicalCluster {
     private String kubeconfigBase64Encrypted;
     /** active / degraded / offline */
     private String status;
-    /** 可选缓存：集群总 GPU 槽数 */
+    /** 集群总 GPU 槽数（实时从 K8s 节点汇总） */
     private Integer totalGpuSlots;
+    /** 支持的 GPU 硬件类型，逗号分隔，如 NVIDIA,HYGON */
+    private String gpuTypes;
+    /** 地域/机房，如 beijing, shanghai */
+    private String location;
     private Instant createdAt;
     private Instant updatedAt;
 }

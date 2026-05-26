@@ -1,6 +1,8 @@
--- AI Compute Platform - H2 数据库表结构（Demo 使用）
+-- AI Compute Platform - H2 数据库表结构
 
--- 物理集群（K8s 集群）
+-- ============================================
+-- 物理集群（K8s 集群），按 GPU 类型/地域划分
+-- ============================================
 CREATE TABLE IF NOT EXISTS physical_cluster (
     id VARCHAR(36) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -8,6 +10,8 @@ CREATE TABLE IF NOT EXISTS physical_cluster (
     kubeconfig_base64_encrypted CLOB NOT NULL,
     status VARCHAR(32) NOT NULL DEFAULT 'active',
     total_gpu_slots INT,
+    gpu_types VARCHAR(255) DEFAULT 'NVIDIA',
+    location VARCHAR(64) DEFAULT 'default',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -20,23 +24,46 @@ CREATE TABLE IF NOT EXISTS organization (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 逻辑资源池（Namespace + ResourceQuota + RBAC + Volcano Queue）
+-- ============================================
+-- 逻辑资源池：资源的初次划分（按硬件/性能/安全/地域）
+-- 可跨多个物理集群（M2M via resource_pool_physical_cluster）
+-- ============================================
 CREATE TABLE IF NOT EXISTS resource_pool (
     id VARCHAR(36) PRIMARY KEY,
-    physical_cluster_id VARCHAR(36) NOT NULL,
     name VARCHAR(255) NOT NULL,
+    description VARCHAR(512),
     department_code VARCHAR(64) NOT NULL,
     department_name VARCHAR(255),
     namespace VARCHAR(255) NOT NULL UNIQUE,
     service_account_name VARCHAR(255),
+    -- 总配额（平台管理员设置）
     gpu_slots INT NOT NULL,
     cpu_cores INT NOT NULL,
     memory_gib INT NOT NULL,
     max_pods INT DEFAULT 50,
+    node_count INT DEFAULT 1,
+    -- 已分配给各工作空间的累计值
+    allocated_gpu_slots INT DEFAULT 0,
+    allocated_cpu_cores INT DEFAULT 0,
+    allocated_memory_gib INT DEFAULT 0,
+    -- 划分维度
+    hardware_type VARCHAR(64) DEFAULT 'NVIDIA-GPU',
+    security_level VARCHAR(32) DEFAULT 'NORMAL',
+    -- 作业类型控制
+    gpu_type VARCHAR(64) DEFAULT 'NVIDIA',
+    job_types VARCHAR(128) DEFAULT 'TRAINING,INFERENCE',
     volcano_queue_name VARCHAR(255) NOT NULL,
     status VARCHAR(32) NOT NULL DEFAULT 'active',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 逻辑资源池 ↔ 物理集群 多对多
+CREATE TABLE IF NOT EXISTS resource_pool_physical_cluster (
+    resource_pool_id VARCHAR(36) NOT NULL,
+    physical_cluster_id VARCHAR(36) NOT NULL,
+    PRIMARY KEY (resource_pool_id, physical_cluster_id),
+    FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id),
     FOREIGN KEY (physical_cluster_id) REFERENCES physical_cluster(id)
 );
 
@@ -85,7 +112,7 @@ CREATE TABLE IF NOT EXISTS model_deployment (
     FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
--- 训练任务记录（可选，便于列表展示）
+-- 训练任务记录
 CREATE TABLE IF NOT EXISTS training_job_record (
     id VARCHAR(36) PRIMARY KEY,
     resource_pool_id VARCHAR(36) NOT NULL,
@@ -98,7 +125,7 @@ CREATE TABLE IF NOT EXISTS training_job_record (
     FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id)
 );
 
--- 资源池凭证（为部门用户发放的 K8s 访问凭证）
+-- 资源池凭证
 CREATE TABLE IF NOT EXISTS resource_pool_credential (
     id VARCHAR(36) PRIMARY KEY,
     resource_pool_id VARCHAR(36) NOT NULL,
@@ -110,9 +137,49 @@ CREATE TABLE IF NOT EXISTS resource_pool_credential (
     FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id)
 );
 
--- 索引：加速查询
+-- ============================================
+-- 工作空间：资源的二次分配（按项目/团队/用户）
+-- 每个工作空间属于一个逻辑资源池（N:1）
+-- ============================================
+CREATE TABLE IF NOT EXISTS workspace (
+    id VARCHAR(36) PRIMARY KEY,
+    resource_pool_id VARCHAR(36) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    description VARCHAR(512),
+    created_by VARCHAR(36),
+    status VARCHAR(32) NOT NULL DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id),
+    FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+-- 工作空间配额：从所属逻辑池分配的资源上限
+CREATE TABLE IF NOT EXISTS workspace_quota (
+    id VARCHAR(36) PRIMARY KEY,
+    workspace_id VARCHAR(36) NOT NULL UNIQUE,
+    max_gpu_slots INT DEFAULT 0,
+    max_cpu_cores INT DEFAULT 0,
+    max_memory_gib INT DEFAULT 0,
+    max_pods INT DEFAULT 10,
+    max_hours INT DEFAULT 100,
+    -- 当前已使用量（任务运行时扣减/恢复）
+    used_gpu_slots INT DEFAULT 0,
+    used_cpu_cores INT DEFAULT 0,
+    used_memory_gib INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (workspace_id) REFERENCES workspace(id)
+);
+
+-- 索引
 CREATE INDEX IF NOT EXISTS idx_resource_pool_dept ON resource_pool(department_code);
-CREATE INDEX IF NOT EXISTS idx_resource_pool_cluster ON resource_pool(physical_cluster_id);
+CREATE INDEX IF NOT EXISTS idx_resource_pool_hw ON resource_pool(hardware_type);
 CREATE INDEX IF NOT EXISTS idx_credential_pool ON resource_pool_credential(resource_pool_id);
 CREATE INDEX IF NOT EXISTS idx_user_resource_pool_user ON user_resource_pool(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_resource_pool_pool ON user_resource_pool(resource_pool_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_status ON workspace(status);
+CREATE INDEX IF NOT EXISTS idx_workspace_pool ON workspace(resource_pool_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_quota_ws ON workspace_quota(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_rp_pc_pool ON resource_pool_physical_cluster(resource_pool_id);
+CREATE INDEX IF NOT EXISTS idx_rp_pc_cluster ON resource_pool_physical_cluster(physical_cluster_id);
