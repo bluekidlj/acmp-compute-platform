@@ -86,9 +86,15 @@ public class KubernetesClientManager {
         log.info("已创建 Namespace: {} @ cluster {}", namespaceName, physicalClusterId);
     }
 
+    /** 删除 Namespace（级联删除内部所有资源） */
+    public void deleteNamespace(String physicalClusterId, String namespaceName) {
+        KubernetesClient client = getClient(physicalClusterId);
+        client.namespaces().withName(namespaceName).delete();
+        log.info("已删除 Namespace: {} @ cluster {}", namespaceName, physicalClusterId);
+    }
+
     /**
-     * 在指定 namespace 下创建 ResourceQuota，限制 GPU/CPU/Memory/Pods。
-     * 与逻辑资源池容量一致，便于池化隔离。
+     * 在指定 namespace 下创建 ResourceQuota（通用 GPU/CPU/Memory）。
      */
     public void createResourceQuota(String physicalClusterId, String namespace, String quotaName,
                                     int gpuSlots, int cpuCores, int memoryGiB, int maxPods) {
@@ -105,6 +111,24 @@ public class KubernetesClientManager {
         client.resourceQuotas().inNamespace(namespace).resource(quota).serverSideApply();
         log.info("已创建 ResourceQuota: {} @ namespace {} (gpu={}, cpu={}, mem={}Gi, pods={})", 
                 quotaName, namespace, gpuSlots, cpuCores, memoryGiB, maxPods);
+    }
+
+    /**
+     * 按规格创建 ResourceQuota：键为 platform.io/{specName}。
+     * @param specLimits Map<specResourceKey, count> 如 {"platform.io/nvidia-rtx4090-24g": "1"}
+     */
+    public void createResourceQuotaBySpec(String physicalClusterId, String namespace, String quotaName,
+                                           Map<String, String> specLimits, int maxPods) {
+        KubernetesClient client = getClient(physicalClusterId);
+        var specBuilder = new ResourceQuotaBuilder()
+                .withNewMetadata().withName(quotaName).withNamespace(namespace).endMetadata()
+                .withNewSpec();
+        for (var entry : specLimits.entrySet()) {
+            specBuilder.addToHard(entry.getKey(), Quantity.parse(entry.getValue()));
+        }
+        specBuilder.addToHard("pods", Quantity.parse(String.valueOf(maxPods)));
+        client.resourceQuotas().inNamespace(namespace).resource(specBuilder.build()).serverSideApply();
+        log.info("已创建按规格 ResourceQuota: {} @ ns={}, specs={}", quotaName, namespace, specLimits);
     }
 
     /**
@@ -324,5 +348,38 @@ public class KubernetesClientManager {
         String caCrt = secret.getData().get("ca.crt");
         
         return Map.of("token", token, "ca-crt", caCrt);
+    }
+
+    /**
+     * 查询 K8s Namespace 下 ResourceQuota 的实际用量。
+     * @return Map 包含 hard 上限和 used 已用量，key 为 "hardGpu"/"hardCpu"/"hardMem"/"usedGpu"/"usedCpu"/"usedMem"
+     */
+    public Map<String, Long> getResourceQuotaStatus(String physicalClusterId, String namespace, String quotaName) {
+        KubernetesClient client = getClient(physicalClusterId);
+        ResourceQuota rq = client.resourceQuotas().inNamespace(namespace).withName(quotaName).get();
+        Map<String, Long> result = new java.util.LinkedHashMap<>();
+        if (rq != null && rq.getStatus() != null) {
+            Map<String, Quantity> hard = rq.getStatus().getHard();
+            Map<String, Quantity> used = rq.getStatus().getUsed();
+            result.put("hardGpu", parseQuantity(hard != null ? hard.get("nvidia.com/gpu") : null));
+            result.put("hardCpu", parseQuantity(hard != null ? hard.get("cpu") : null));
+            result.put("hardMem", parseQuantity(hard != null ? hard.get("memory") : null) / (1024 * 1024 * 1024));
+            result.put("usedGpu", parseQuantity(used != null ? used.get("nvidia.com/gpu") : null));
+            result.put("usedCpu", parseQuantity(used != null ? used.get("cpu") : null));
+            result.put("usedMem", parseQuantity(used != null ? used.get("memory") : null) / (1024 * 1024 * 1024));
+        }
+        return result;
+    }
+
+    private long parseQuantity(Quantity q) {
+        if (q == null) return 0L;
+        try {
+            Object amount = q.getAmount();
+            if (amount instanceof Number) return ((Number) amount).longValue();
+        } catch (Exception ignored) {}
+        try {
+            return Quantity.getAmountInBytes(q).longValue();
+        } catch (Exception ignored) {}
+        return 0L;
     }
 }

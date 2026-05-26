@@ -8,8 +8,8 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 /**
- * 工作空间：资源的二次分配（按项目/团队/用户）。
- * 每个工作空间属于一个逻辑资源池（N:1），配额从该池分配。
+ * 工作空间 = K8s Namespace（100% 对应），用户唯一可见的资源边界。
+ * 所有任务、数据、权限都在这一个 Namespace 内。
  */
 @Data
 @Builder
@@ -17,12 +17,27 @@ import java.time.Instant;
 @AllArgsConstructor
 public class Workspace {
     private String id;
-    /** 所属逻辑资源池 ID（N:1） */
     private String resourcePoolId;
     private String name;
     private String description;
+    // ── K8s 资源 ──
+    private String namespace;
+    private String serviceAccountName;
+    private String volcanoQueueName;
+    private String primaryClusterId;
+    // ── 配额（DB 备份 K8s ResourceQuota）──
+    private Integer gpuSlots;
+    private Integer cpuCores;
+    private Integer memoryGib;
+    private Integer maxPods;
+    private Integer nodeCount;
+    // ── 维度 ──
+    private String hardwareType;
+    private String securityLevel;
+    private String gpuType;
+    private String jobTypes;
+    // ──
     private String createdBy;
-    /** active / archived */
     private String status;
     private Instant createdAt;
     private Instant updatedAt;

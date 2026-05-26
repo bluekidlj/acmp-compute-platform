@@ -8,8 +8,6 @@
         <result column="description" property="description"/>
         <result column="department_code" property="departmentCode"/>
         <result column="department_name" property="departmentName"/>
-        <result column="namespace" property="namespace"/>
-        <result column="service_account_name" property="serviceAccountName"/>
         <result column="gpu_slots" property="gpuSlots"/>
         <result column="cpu_cores" property="cpuCores"/>
         <result column="memory_gib" property="memoryGiB"/>
@@ -22,21 +20,20 @@
         <result column="security_level" property="securityLevel"/>
         <result column="gpu_type" property="gpuType"/>
         <result column="job_types" property="jobTypes"/>
-        <result column="volcano_queue_name" property="volcanoQueueName"/>
         <result column="status" property="status"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
 
     <insert id="insert">
-        INSERT INTO resource_pool (id, name, description, department_code, department_name, namespace, service_account_name,
+        INSERT INTO resource_pool (id, name, description, department_code, department_name,
             gpu_slots, cpu_cores, memory_gib, max_pods, node_count,
             allocated_gpu_slots, allocated_cpu_cores, allocated_memory_gib,
-            hardware_type, security_level, gpu_type, job_types, volcano_queue_name, status, created_at, updated_at)
-        VALUES (#{id}, #{name}, #{description}, #{departmentCode}, #{departmentName}, #{namespace}, #{serviceAccountName},
+            hardware_type, security_level, gpu_type, job_types, status, created_at, updated_at)
+        VALUES (#{id}, #{name}, #{description}, #{departmentCode}, #{departmentName},
             #{gpuSlots}, #{cpuCores}, #{memoryGiB}, #{maxPods}, #{nodeCount},
             #{allocatedGpuSlots}, #{allocatedCpuCores}, #{allocatedMemoryGib},
-            #{hardwareType}, #{securityLevel}, #{gpuType}, #{jobTypes}, #{volcanoQueueName}, #{status}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            #{hardwareType}, #{securityLevel}, #{gpuType}, #{jobTypes}, #{status}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 
     <update id="update">
@@ -44,10 +41,9 @@
         SET name = #{name}, description = #{description}, department_code = #{departmentCode}, department_name = #{departmentName},
             gpu_slots = #{gpuSlots}, cpu_cores = #{cpuCores}, memory_gib = #{memoryGiB}, max_pods = #{maxPods},
             node_count = #{nodeCount},
-            allocated_gpu_slots = #{allocatedGpuSlots}, allocated_cpu_cores = #{allocatedCpuCores}, allocated_memory_gib = #{allocatedMemoryGib},
             hardware_type = #{hardwareType}, security_level = #{securityLevel},
             gpu_type = #{gpuType}, job_types = #{jobTypes},
-            volcano_queue_name = #{volcanoQueueName}, status = #{status}, updated_at = CURRENT_TIMESTAMP
+            status = #{status}, updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
     </update>
 

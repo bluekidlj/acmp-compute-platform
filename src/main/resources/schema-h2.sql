@@ -25,8 +25,7 @@ CREATE TABLE IF NOT EXISTS organization (
 );
 
 -- ============================================
--- 逻辑资源池：资源的初次划分（按硬件/性能/安全/地域）
--- 可跨多个物理集群（M2M via resource_pool_physical_cluster）
+-- 逻辑资源池：纯 DB 逻辑分组（不直接对应 K8s 资源）
 -- ============================================
 CREATE TABLE IF NOT EXISTS resource_pool (
     id VARCHAR(36) PRIMARY KEY,
@@ -34,25 +33,21 @@ CREATE TABLE IF NOT EXISTS resource_pool (
     description VARCHAR(512),
     department_code VARCHAR(64) NOT NULL,
     department_name VARCHAR(255),
-    namespace VARCHAR(255) NOT NULL UNIQUE,
-    service_account_name VARCHAR(255),
-    -- 总配额（平台管理员设置）
-    gpu_slots INT NOT NULL,
-    cpu_cores INT NOT NULL,
-    memory_gib INT NOT NULL,
+    -- 总配额（平台管理员定义，分配给下属工作空间）
+    gpu_slots INT NOT NULL DEFAULT 0,
+    cpu_cores INT NOT NULL DEFAULT 0,
+    memory_gib INT NOT NULL DEFAULT 0,
     max_pods INT DEFAULT 50,
     node_count INT DEFAULT 1,
-    -- 已分配给各工作空间的累计值
+    -- 已分配给工作空间的累计
     allocated_gpu_slots INT DEFAULT 0,
     allocated_cpu_cores INT DEFAULT 0,
     allocated_memory_gib INT DEFAULT 0,
     -- 划分维度
     hardware_type VARCHAR(64) DEFAULT 'NVIDIA-GPU',
     security_level VARCHAR(32) DEFAULT 'NORMAL',
-    -- 作业类型控制
     gpu_type VARCHAR(64) DEFAULT 'NVIDIA',
     job_types VARCHAR(128) DEFAULT 'TRAINING,INFERENCE',
-    volcano_queue_name VARCHAR(255) NOT NULL,
     status VARCHAR(32) NOT NULL DEFAULT 'active',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -138,12 +133,28 @@ CREATE TABLE IF NOT EXISTS resource_pool_credential (
 );
 
 -- ============================================
--- 工作空间：资源的二次分配（按项目/团队/用户）
--- 每个工作空间属于一个逻辑资源池（N:1）
+-- 工作空间 = K8s Namespace（100% 对应，用户唯一可见的资源边界）
 -- ============================================
 CREATE TABLE IF NOT EXISTS workspace (
     id VARCHAR(36) PRIMARY KEY,
     resource_pool_id VARCHAR(36) NOT NULL,
+    -- K8s 资源名
+    namespace VARCHAR(255) NOT NULL UNIQUE,
+    service_account_name VARCHAR(255),
+    volcano_queue_name VARCHAR(255),
+    primary_cluster_id VARCHAR(36),
+    -- 配额（DB 备份 K8s ResourceQuota）
+    gpu_slots INT NOT NULL DEFAULT 0,
+    cpu_cores INT NOT NULL DEFAULT 0,
+    memory_gib INT NOT NULL DEFAULT 0,
+    max_pods INT DEFAULT 50,
+    node_count INT DEFAULT 1,
+    -- 划分维度（从父逻辑池继承）
+    hardware_type VARCHAR(64) DEFAULT 'NVIDIA-GPU',
+    security_level VARCHAR(32) DEFAULT 'NORMAL',
+    gpu_type VARCHAR(64) DEFAULT 'NVIDIA',
+    job_types VARCHAR(128) DEFAULT 'TRAINING,INFERENCE',
+    -- 描述
     name VARCHAR(255) NOT NULL,
     description VARCHAR(512),
     created_by VARCHAR(36),
@@ -183,3 +194,74 @@ CREATE INDEX IF NOT EXISTS idx_workspace_pool ON workspace(resource_pool_id);
 CREATE INDEX IF NOT EXISTS idx_workspace_quota_ws ON workspace_quota(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_rp_pc_pool ON resource_pool_physical_cluster(resource_pool_id);
 CREATE INDEX IF NOT EXISTS idx_rp_pc_cluster ON resource_pool_physical_cluster(physical_cluster_id);
+
+-- ============================================
+-- 算力规格：预设的 K8s ResourceRequirements 模板，含 nodeSelector 和 tolerations
+CREATE TABLE IF NOT EXISTS compute_spec (
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(128) NOT NULL UNIQUE,
+    display_name VARCHAR(255),
+    gpu_brand VARCHAR(64) DEFAULT 'NVIDIA',
+    -- 预设 ResourceRequirements
+    default_gpu_count INT DEFAULT 1,
+    default_gpumem_mb INT,
+    default_gpucores INT,
+    default_cpu_cores INT DEFAULT 4,
+    default_memory_gib INT DEFAULT 16,
+    -- 节点选择器 + 污点容忍（JSON）
+    node_selector VARCHAR(512),
+    tolerations VARCHAR(1024),
+    -- ResourceQuota 中的资源键
+    resource_quota_key VARCHAR(255),
+    -- 元信息
+    memory_gb INT,
+    architecture VARCHAR(64),
+    description VARCHAR(512),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 物理集群拥有的规格及数量
+CREATE TABLE IF NOT EXISTS physical_cluster_spec (
+    physical_cluster_id VARCHAR(36) NOT NULL,
+    spec_id VARCHAR(36) NOT NULL,
+    total_count INT DEFAULT 0,
+    PRIMARY KEY (physical_cluster_id, spec_id),
+    FOREIGN KEY (physical_cluster_id) REFERENCES physical_cluster(id),
+    FOREIGN KEY (spec_id) REFERENCES compute_spec(id)
+);
+
+-- 逻辑资源池按规格的配额
+CREATE TABLE IF NOT EXISTS resource_pool_spec_quota (
+    resource_pool_id VARCHAR(36) NOT NULL,
+    spec_id VARCHAR(36) NOT NULL,
+    total_quota INT DEFAULT 0,
+    allocated_quota INT DEFAULT 0,
+    PRIMARY KEY (resource_pool_id, spec_id),
+    FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id),
+    FOREIGN KEY (spec_id) REFERENCES compute_spec(id)
+);
+
+-- 工作空间按规格的配额（已废弃：工作空间不按规格，直接绑定逻辑池即可）
+-- 规格仅用于划分逻辑子池，与工作空间无关
+
+-- 工作空间按规格的配额（平台层追踪，备份 K8s ResourceQuota 计数）
+CREATE TABLE IF NOT EXISTS workspace_spec_quota (
+    workspace_id VARCHAR(36) NOT NULL,
+    spec_id VARCHAR(36) NOT NULL,
+    max_quota INT DEFAULT 0,
+    used_quota INT DEFAULT 0,
+    PRIMARY KEY (workspace_id, spec_id),
+    FOREIGN KEY (workspace_id) REFERENCES workspace(id),
+    FOREIGN KEY (spec_id) REFERENCES compute_spec(id)
+);
+
+-- 初始规格数据
+MERGE INTO compute_spec (id, name, display_name, gpu_brand, memory_gb, architecture) KEY(id)
+VALUES ('spec-nvidia-a100-80g', 'nvidia-a100-80g', 'NVIDIA A100 80GB SXM', 'NVIDIA', 80, 'Ampere');
+MERGE INTO compute_spec (id, name, display_name, gpu_brand, memory_gb, architecture) KEY(id)
+VALUES ('spec-nvidia-a100-40g', 'nvidia-a100-40g', 'NVIDIA A100 40GB PCIe', 'NVIDIA', 40, 'Ampere');
+MERGE INTO compute_spec (id, name, display_name, gpu_brand, memory_gb, architecture) KEY(id)
+VALUES ('spec-nvidia-rtx4090-24g', 'nvidia-rtx4090-24g', 'NVIDIA RTX 4090 24GB', 'NVIDIA', 24, 'Ada Lovelace');
+MERGE INTO compute_spec (id, name, display_name, gpu_brand, memory_gb, architecture) KEY(id)
+VALUES ('spec-hygon-dcu-32g', 'hygon-dcu-32g', 'Hygon DCU 32GB', 'HYGON', 32, 'DCU');

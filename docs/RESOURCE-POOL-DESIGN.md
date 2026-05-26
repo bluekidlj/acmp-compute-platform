@@ -47,17 +47,21 @@ PhysicalCluster（物理集群）── M2M ──> ResourcePool（逻辑资源�
 - **总配额由管理员设置**：`gpuSlots`、`cpuCores`、`memoryGiB` 是平台管理员给这个逻辑池的总容量
 - **追踪工作空间分配**：`allocatedGpuSlots` 记录已分配给下属工作空间的累计值
 
+### 核心认知：配额 = K8s ResourceQuota
+
+**逻辑资源池的配额不是数据库里的一个数字，而是 K8s Namespace 中真实存在的 ResourceQuota 对象。**
+`resource_pool.gpu_slots/cpu_cores/memory_gib` 只是 K8s ResourceQuota 的 **DB 备份镜像**。
+
 ### 数据表
 
-| 字段 | 说明 |
-|------|------|
-| name | 池名称 |
-| gpu_slots / cpu_cores / memory_gib | **总配额**（平台管理员设置） |
-| allocated_gpu_slots / cpu_cores / memory_gib | **已分配给工作空间**的累计 |
-| hardware_type | A100-80G / V100 / H100 / CPU-ONLY |
-| security_level | NORMAL / CONFIDENTIAL |
-| gpu_type | NVIDIA / HYGON |
-| job_types | TRAINING / INFERENCE / TRAINING,INFERENCE |
+| 字段 | 来源 | 说明 |
+|------|------|------|
+| gpu_slots / cpu_cores / memory_gib | **K8s ResourceQuota** | DB 备份镜像 |
+| allocated_gpu_slots / cpu_cores / memory_gib | **平台层计算** | 分配给工作空间的累计（K8s 无此概念） |
+| hardware_type | | A100-80G / V100 / H100 / CPU-ONLY |
+| security_level | | NORMAL / CONFIDENTIAL |
+| gpu_type | | NVIDIA / HYGON |
+| job_types | | TRAINING / INFERENCE / TRAINING,INFERENCE |
 
 ### M2M 关联表
 

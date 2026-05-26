@@ -14,13 +14,23 @@ public class WorkspaceResponse {
     private String id;
     private String name;
     private String description;
+    private String resourcePoolId;
+    private String resourcePoolName;
+    // ── K8s 资源 ──
+    private String namespace;
+    private String volcanoQueueName;
+    private String primaryClusterId;
+    // ── 配额 ──
+    private Integer gpuSlots;
+    private Integer cpuCores;
+    private Integer memoryGib;
+    private Integer maxPods;
+    private String hardwareType;
+    private String gpuType;
+    private String jobTypes;
+    // ──
     private String createdBy;
     private String status;
-    /** 所属逻辑资源池 ID */
-    private String resourcePoolId;
-    /** 所属逻辑资源池名称 */
-    private String resourcePoolName;
-    /** 配额信息（含已用量） */
     private WorkspaceQuotaResponse quota;
     private Instant createdAt;
     private Instant updatedAt;

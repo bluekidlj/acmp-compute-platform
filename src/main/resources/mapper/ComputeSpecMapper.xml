@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.acmp.compute.mapper.ComputeSpecMapper">
+
+    <resultMap id="BaseResultMap" type="com.acmp.compute.entity.ComputeSpec">
+        <id column="id" property="id"/>
+        <result column="name" property="name"/>
+        <result column="display_name" property="displayName"/>
+        <result column="gpu_brand" property="gpuBrand"/>
+        <result column="default_gpu_count" property="defaultGpuCount"/>
+        <result column="default_gpumem_mb" property="defaultGpumemMb"/>
+        <result column="default_gpucores" property="defaultGpucores"/>
+        <result column="default_cpu_cores" property="defaultCpuCores"/>
+        <result column="default_memory_gib" property="defaultMemoryGib"/>
+        <result column="node_selector" property="nodeSelector"/>
+        <result column="tolerations" property="tolerations"/>
+        <result column="resource_quota_key" property="resourceQuotaKey"/>
+        <result column="memory_gb" property="memoryGb"/>
+        <result column="architecture" property="architecture"/>
+        <result column="description" property="description"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO compute_spec (id, name, display_name, gpu_brand,
+            default_gpu_count, default_gpumem_mb, default_gpucores, default_cpu_cores, default_memory_gib,
+            node_selector, tolerations, resource_quota_key,
+            memory_gb, architecture, description, created_at, updated_at)
+        VALUES (#{id}, #{name}, #{displayName}, #{gpuBrand},
+            #{defaultGpuCount}, #{defaultGpumemMb}, #{defaultGpucores}, #{defaultCpuCores}, #{defaultMemoryGib},
+            #{nodeSelector}, #{tolerations}, #{resourceQuotaKey},
+            #{memoryGb}, #{architecture}, #{description}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    </insert>
+
+    <select id="findById" resultMap="BaseResultMap">
+        SELECT * FROM compute_spec WHERE id = #{id}
+    </select>
+
+    <select id="findByName" resultMap="BaseResultMap">
+        SELECT * FROM compute_spec WHERE name = #{name}
+    </select>
+
+    <select id="findAll" resultMap="BaseResultMap">
+        SELECT * FROM compute_spec ORDER BY gpu_brand, memory_gb DESC
+    </select>
+
+    <delete id="deleteById">
+        DELETE FROM compute_spec WHERE id = #{id}
+    </delete>
+
+    <!-- 物理集群 ↔ 规格 -->
+    <insert id="insertPhysicalClusterSpec">
+        MERGE INTO physical_cluster_spec (physical_cluster_id, spec_id, total_count)
+        KEY(physical_cluster_id, spec_id) VALUES (#{physicalClusterId}, #{specId}, #{totalCount})
+    </insert>
+
+    <select id="findByPhysicalClusterId" resultMap="BaseResultMap">
+        SELECT cs.* FROM compute_spec cs
+        JOIN physical_cluster_spec pcs ON cs.id = pcs.spec_id
+        WHERE pcs.physical_cluster_id = #{physicalClusterId}
+    </select>
+
+    <!-- 逻辑池 ↔ 规格配额（规格是划分逻辑子池的模板） -->
+    <insert id="insertResourcePoolSpecQuota">
+        MERGE INTO resource_pool_spec_quota (resource_pool_id, spec_id, total_quota, allocated_quota)
+        KEY(resource_pool_id, spec_id) VALUES (#{resourcePoolId}, #{specId}, #{totalQuota}, #{allocatedQuota})
+    </insert>
+
+    <update id="updateResourcePoolSpecAllocated">
+        UPDATE resource_pool_spec_quota SET allocated_quota = #{allocatedQuota}
+        WHERE resource_pool_id = #{resourcePoolId} AND spec_id = #{specId}
+    </update>
+
+    <select id="findSpecQuotasByResourcePoolId" resultType="java.util.HashMap">
+        SELECT cs.name as spec_name, cs.id as spec_id,
+               rpsq.total_quota, rpsq.allocated_quota,
+               (rpsq.total_quota - rpsq.allocated_quota) as available
+        FROM resource_pool_spec_quota rpsq
+        JOIN compute_spec cs ON cs.id = rpsq.spec_id
+        WHERE rpsq.resource_pool_id = #{resourcePoolId}
+    </select>
+
+    <!-- 工作空间 ↔ 规格配额 -->
+    <insert id="insertWorkspaceSpecQuota">
+        MERGE INTO workspace_spec_quota (workspace_id, spec_id, max_quota, used_quota)
+        KEY(workspace_id, spec_id) VALUES (#{workspaceId}, #{specId}, #{maxQuota}, #{usedQuota})
+    </insert>
+    <update id="updateWorkspaceSpecUsed">
+        UPDATE workspace_spec_quota SET used_quota = #{usedQuota}
+        WHERE workspace_id = #{workspaceId} AND spec_id = #{specId}
+    </update>
+    <delete id="deleteWorkspaceSpecQuotas">
+        DELETE FROM workspace_spec_quota WHERE workspace_id = #{workspaceId}
+    </delete>
+    <select id="findSpecQuotasByWorkspaceId" resultType="java.util.HashMap">
+        SELECT cs.name as spec_name, cs.id as spec_id, wsq.max_quota, wsq.used_quota,
+               (wsq.max_quota - wsq.used_quota) as available
+        FROM workspace_spec_quota wsq JOIN compute_spec cs ON cs.id = wsq.spec_id
+        WHERE wsq.workspace_id = #{workspaceId}
+    </select>
+</mapper>
