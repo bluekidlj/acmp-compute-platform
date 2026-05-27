@@ -14,8 +14,8 @@ import java.util.Objects;
 
 /**
  * 双层配额服务：
- *  L1 - 逻辑池规格配额 (resource_pool_spec_quota.allocated_quota)
- *  L2 - 工作空间规格配额 (workspace_pool_spec_quota.used_quota)
+ *  L1 - 逻辑池规格配额 (resource_pool_spec_quota.allocated_nodes)
+ *  L2 - 工作空间规格配额 (workspace_pool_spec_quota.used_nodes)
  *
  * 部署/训练流程：
  *  ① validateBothLevelQuotas
@@ -34,8 +34,8 @@ public class QuotaService {
 
     public void validatePoolLevelQuota(String resourcePoolId, String specId, int requestedUnits) {
         Map<String, Object> quota = findPoolSpecQuotaRow(resourcePoolId, specId);
-        int total = toInt(quota.get("total_quota"));
-        int allocated = toInt(quota.get("allocated_quota"));
+        int total = toInt(quota.get("total_nodes"));
+        int allocated = toInt(quota.get("allocated_nodes"));
         int available = total - allocated;
         if (available < requestedUnits) {
             throw new BadRequestException(String.format(
@@ -49,7 +49,7 @@ public class QuotaService {
     @Transactional(rollbackFor = Exception.class)
     public void deductPoolLevelQuota(String resourcePoolId, String specId, int units) {
         Map<String, Object> quota = findPoolSpecQuotaRow(resourcePoolId, specId);
-        int newAllocated = toInt(quota.get("allocated_quota")) + units;
+        int newAllocated = toInt(quota.get("allocated_nodes")) + units;
         computeSpecMapper.updateResourcePoolSpecAllocated(resourcePoolId, specId, newAllocated);
         log.debug("→ L1 配额已扣减: 池={}, 规格={}, units={}, allocated={}",
                 resourcePoolId, specId, units, newAllocated);
@@ -58,7 +58,7 @@ public class QuotaService {
     @Transactional(rollbackFor = Exception.class)
     public void rollbackPoolLevelQuota(String resourcePoolId, String specId, int units) {
         Map<String, Object> quota = findPoolSpecQuotaRow(resourcePoolId, specId);
-        int newAllocated = Math.max(0, toInt(quota.get("allocated_quota")) - units);
+        int newAllocated = Math.max(0, toInt(quota.get("allocated_nodes")) - units);
         computeSpecMapper.updateResourcePoolSpecAllocated(resourcePoolId, specId, newAllocated);
         log.debug("← L1 配额已回滚: 池={}, 规格={}, units={}, allocated={}",
                 resourcePoolId, specId, units, newAllocated);
@@ -68,8 +68,8 @@ public class QuotaService {
 
     public void validateWorkspaceLevelQuota(String workspaceId, String resourcePoolId, String specId, int requestedUnits) {
         Map<String, Object> quota = findWorkspaceSpecQuotaRow(workspaceId, resourcePoolId, specId);
-        int max = toInt(quota.get("max_quota"));
-        int used = toInt(quota.get("used_quota"));
+        int max = toInt(quota.get("max_nodes"));
+        int used = toInt(quota.get("used_nodes"));
         int available = max - used;
         if (available < requestedUnits) {
             throw new BadRequestException(String.format(
@@ -83,7 +83,7 @@ public class QuotaService {
     @Transactional(rollbackFor = Exception.class)
     public void deductWorkspaceLevelQuota(String workspaceId, String resourcePoolId, String specId, int units) {
         Map<String, Object> quota = findWorkspaceSpecQuotaRow(workspaceId, resourcePoolId, specId);
-        int newUsed = toInt(quota.get("used_quota")) + units;
+        int newUsed = toInt(quota.get("used_nodes")) + units;
         computeSpecMapper.updateWorkspaceSpecUsed(workspaceId, resourcePoolId, specId, newUsed);
         log.debug("→ L2 配额已扣减: ws={}, 规格={}, units={}, used={}",
                 workspaceId, specId, units, newUsed);
@@ -92,7 +92,7 @@ public class QuotaService {
     @Transactional(rollbackFor = Exception.class)
     public void rollbackWorkspaceLevelQuota(String workspaceId, String resourcePoolId, String specId, int units) {
         Map<String, Object> quota = findWorkspaceSpecQuotaRow(workspaceId, resourcePoolId, specId);
-        int newUsed = Math.max(0, toInt(quota.get("used_quota")) - units);
+        int newUsed = Math.max(0, toInt(quota.get("used_nodes")) - units);
         computeSpecMapper.updateWorkspaceSpecUsed(workspaceId, resourcePoolId, specId, newUsed);
         log.debug("← L2 配额已回滚: ws={}, 规格={}, units={}, used={}",
                 workspaceId, specId, units, newUsed);

@@ -137,14 +137,20 @@ public class PhysicalClusterService {
 
         List<NodeInfoResponse> nodeInfos = nodes.stream().map(this::toNodeInfo).collect(Collectors.toList());
 
-        // 汇总集群中所有不重复的 poolLabel
+        // 汇总集群中所有不重复的 poolLabel（支持逗号分隔多规格）
         Set<String> poolLabels = new HashSet<>();
         for (Node n : nodes) {
             var labels = n.getMetadata().getLabels();
             if (labels != null) {
                 String pl = labels.get("pool");
                 if (pl != null && !pl.isEmpty()) {
-                    poolLabels.add(pl);
+                    // 支持逗号分隔多规格：pool=nvidia-a100-80g-1/2,nvidia-a100-80g-1/4
+                    for (String spec : pl.split(",")) {
+                        spec = spec.trim();
+                        if (!spec.isEmpty()) {
+                            poolLabels.add(spec);
+                        }
+                    }
                 }
             }
         }
@@ -156,21 +162,32 @@ public class PhysicalClusterService {
     }
 
     /**
-     * 注意：poolLabel 与 GPU type 的对应关系需外部保证。
-     * poolLabels 枚举只反映节点上有哪些 pool 标签值，
+     * 注意：poolLabels 与 GPU type 的对应关系需外部保证。
+     * poolLabels 只反映节点上有哪些 pool 标签值，
      * 不包含这些标签值属于哪个 GPU 型号（HAMI/AMD）。前端需根据节点列表推断。
      */
     private NodeInfoResponse toNodeInfo(Node node) {
         var labels = node.getMetadata().getLabels();
         var allocatable = node.getStatus() != null ? node.getStatus().getAllocatable() : null;
 
-        String poolLabel = labels != null ? labels.get("pool") : null;
+        // 支持逗号分隔多规格：pool=nvidia-a100-80g-1/2,nvidia-a100-80g-1/4
+        Set<String> poolLabels = new HashSet<>();
+        String poolLabelStr = labels != null ? labels.get("pool") : null;
+        if (poolLabelStr != null && !poolLabelStr.isEmpty()) {
+            for (String spec : poolLabelStr.split(",")) {
+                spec = spec.trim();
+                if (!spec.isEmpty()) {
+                    poolLabels.add(spec);
+                }
+            }
+        }
+
         String gpuType = labels != null ? labels.get("nvidia.com/gpu-family") : null;
         if (gpuType == null) gpuType = labels != null ? labels.get("amd.com/dcu-family") : null;
 
-        int gpuCount = allocatable != null ? parseInt(allocatable.get("nvidia.com/gpu")) : 0;
-        int gpuMemMb = allocatable != null ? parseInt(allocatable.get("nvidia.com/gpumem")) : 0;
-        int gpuCores = allocatable != null ? parseInt(allocatable.get("nvidia.com/gpucores")) : 0;
+        int nodeCount = allocatable != null ? parseInt(allocatable.get("nvidia.com/gpu")) : 0;
+        int nodeMemMb = allocatable != null ? parseInt(allocatable.get("nvidia.com/gpumem")) : 0;
+        int nodeCores = allocatable != null ? parseInt(allocatable.get("nvidia.com/gpucores")) : 0;
         int cpuCores = allocatable != null ? parseInt(allocatable.get("cpu")) : 0;
         int memoryGiB = allocatable != null ? parseMemoryAsGiB(allocatable.get("memory")) : 0;
 
@@ -178,12 +195,12 @@ public class PhysicalClusterService {
                 .name(node.getMetadata().getName())
                 .status(node.getStatus() != null ? node.getStatus().getPhase() : "Unknown")
                 .gpuType(gpuType)
-                .gpuCount(gpuCount)
-                .gpuMemMb(gpuMemMb)
-                .gpuCores(gpuCores)
+                .nodeCount(nodeCount)
+                .nodeMemMb(nodeMemMb)
+                .nodeCores(nodeCores)
                 .cpuCores(cpuCores)
                 .memoryGiB(memoryGiB)
-                .poolLabel(poolLabel)
+                .poolLabels(poolLabels)
                 .labelsJson(labels != null ? safeWriteValueAsString(labels) : "{}")
                 .build();
     }

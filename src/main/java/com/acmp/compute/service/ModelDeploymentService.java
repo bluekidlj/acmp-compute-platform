@@ -1,9 +1,12 @@
 package com.acmp.compute.service;
 
+import com.acmp.compute.dto.ModelDeploymentRequest;
 import com.acmp.compute.dto.ModelDeploymentResponse;
-import com.acmp.compute.dto.VllmDeployRequest;
 import com.acmp.compute.entity.ComputeSpec;
+import com.acmp.compute.entity.GpuSplitSpec;
+import com.acmp.compute.entity.GpuBrand;
 import com.acmp.compute.entity.ModelDeployment;
+import com.acmp.compute.entity.PhysicalCluster;
 import com.acmp.compute.entity.Workspace;
 import com.acmp.compute.exception.BadRequestException;
 import com.acmp.compute.exception.ForbiddenException;
@@ -25,21 +28,18 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * vLLM 模型服务部署。
- *
- * 【异构算力说明】部署时由 PoolMetadataService.pickClusterForSpec 根据请求的 spec
- * 动态选定目标物理集群，而非使用工作空间创建时写死的 primaryClusterId。
- * 同一工作空间下，NVIDIA 规格的部署自动路由到 NVIDIA 节点，DCU 规格自动路由到 DCU 节点。
+ * 模型服务部署。
  *
  * 流程：
  *  ① 校验 workspace 成员
- *  ② 加载 workspace + spec
- *  ③ 双层配额校验（L1: pool, L2: workspace）
- *  ④ 根据 spec.nodeSelector 动态选定目标物理集群（PoolMetadataService）
- *  ⑤ 双层配额预扣
- *  ⑥ 构建 K8s Deployment + Service（注入 spec 资源键 + nodeSelector + tolerations + platform.io/{spec}）
- *  ⑦ 提交到⑥中选定的目标物理集群；失败回滚配额
- *  ⑧ 删除时同样回滚配额
+ *  ② 部署预检验（PoolScheduler.validateDeployment）：gpuType 是否在池支持范围内
+ *  ③ 自动匹配/创建 ComputeSpec（根据 gpuType + 资源参数）
+ *  ④ 双层配额校验（L1: pool, L2: workspace）
+ *  ⑤ 根据 poolMode 动态选定目标物理集群（PoolMetadataService）
+ *  ⑥ 双层配额预扣
+ *  ⑦ 构建 K8s Deployment + Service（注入 spec 资源键 + nodeSelector + tolerations + platform.io/{spec}）
+ *  ⑧ 提交到⑤中选定的目标物理集群；失败回滚配额
+ *  ⑨ 删除时同样回滚配额
  */
 @Slf4j
 @Service
@@ -67,35 +67,32 @@ public class ModelDeploymentService {
     }
 
     /**
-     * 部署到指定工作空间。
-     * 池 ID 由 workspace.resourcePoolId 推导，规格由 request.specName 指定。
+     * 部署推理服务（完全自定义每副本资源）。
+     * 用户直接指定 gpuCount/cpuCores/memoryGib/gpuType，平台自动匹配或创建 ComputeSpec。
      */
     @Transactional(rollbackFor = Exception.class)
-    public ModelDeploymentResponse deploy(String workspaceId, VllmDeployRequest request) {
+    public ModelDeploymentResponse deploy(String workspaceId, ModelDeploymentRequest request) {
         ensureCanAccessWorkspace(workspaceId);
 
-        // ② workspace + spec
         Workspace ws = workspaceMapper.findById(workspaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("工作空间不存在: " + workspaceId));
         String poolId = ws.getResourcePoolId();
 
-        if (request.getSpecName() == null || request.getSpecName().isBlank()) {
-            throw new BadRequestException("必须指定 specName");
-        }
-        ComputeSpec spec = computeSpecMapper.findByName(request.getSpecName())
-                .orElseThrow(() -> new ResourceNotFoundException("规格不存在: " + request.getSpecName()));
+        // ② 部署预检验：gpuType 是否在该池支持范围内
+        poolMetadataService.validateDeployment(poolId, request);
+
+        // ③ 自动匹配/创建 ComputeSpec
+        ComputeSpec spec = ensureComputeSpec(request);
 
         int replicas = request.getReplicas() != null ? request.getReplicas() : 1;
 
-        // ③ 双层配额校验
+        // ④ 双层配额校验
         quotaService.validateBothLevelQuotas(poolId, workspaceId, spec.getId(), replicas);
 
-        // ④ 【异构算力】根据 spec 动态选定目标物理集群，而非使用 ws.primaryClusterId
-        // 通过 spec.nodeSelector 匹配 cluster.nodeLabels，选出最适合的物理集群
-        PoolMetadataService.TargetCluster target = poolMetadataService.pickClusterForSpec(poolId, spec);
-        String clusterId = target.getClusterId();
+        // ⑤ 根据 poolMode 选定目标物理集群
+        PhysicalCluster cluster = poolMetadataService.pickClusterForSpec(poolId, spec);
 
-        // ⑤ 预扣配额
+        // ⑥ 预扣配额
         quotaService.deductBothLevelQuotas(poolId, workspaceId, spec.getId(), replicas);
 
         // 生成 K8s 资源名
@@ -104,7 +101,7 @@ public class ModelDeploymentService {
         String serviceName = trim(deploymentName + "-svc", 50);
 
         String modelPath = request.getModelIdOrPath() != null ? request.getModelIdOrPath() : "/models";
-        String vllmImage = request.getVllmImage() != null ? request.getVllmImage() : "vllm/vllm-openai:latest";
+        String image = request.getImage() != null ? request.getImage() : "vllm/vllm-openai:latest";
 
         String id = UUID.randomUUID().toString();
         ModelDeployment record = ModelDeployment.builder()
@@ -116,8 +113,8 @@ public class ModelDeploymentService {
                 .modelName(request.getModelName())
                 .modelSource(request.getModelSource())
                 .modelIdOrPath(modelPath)
-                .vllmImage(vllmImage)
-                .gpuPerReplica(spec.getDefaultGpuCount())
+                .vllmImage(image)
+                .gpuPerReplica(request.getGpuCount())
                 .gpumemMb(spec.getDefaultGpumemMb())
                 .gpucores(spec.getDefaultGpucores())
                 .replicas(replicas)
@@ -129,15 +126,16 @@ public class ModelDeploymentService {
         modelDeploymentMapper.insert(record);
 
         try {
-            // ⑤ 构建 YAML（spec 驱动）
+            // 构建 YAML（spec 驱动，支持 envVars/command）
             String yaml = K8sResourceBuilder.buildVllmDeploymentAndService(
                     deploymentName, serviceName, ws.getNamespace(),
-                    vllmImage, modelPath,
-                    spec, replicas, request.getHostModelPath(),
-                    spec.getNodeSelector(), spec.getTolerations());
+                    image, modelPath,
+                    spec, replicas, null,
+                    spec.getNodeSelector(), spec.getTolerations(),
+                    request.getEnvVars(), request.getCommand(), request.getArgs());
 
-            // ⑥ 【异构算力】使用动态选定的 clusterId，而非 ws.primaryClusterId
-            clientManager.createVllmDeploymentAndService(clusterId, ws.getNamespace(), yaml);
+            // 使用选定的 cluster
+            clientManager.createVllmDeploymentAndService(cluster.getId(), ws.getNamespace(), yaml);
 
             String serviceUrl = String.format("http://%s.%s.svc.cluster.local:8000",
                     serviceName, ws.getNamespace());
@@ -164,17 +162,73 @@ public class ModelDeploymentService {
     }
 
     /**
-     * 新版接口：显式指定 pool + workspace。
-     * 校验 workspace 确实属于该 pool。
+     * 部署推理服务（显式指定 pool + workspace）。
      */
     @Transactional(rollbackFor = Exception.class)
-    public ModelDeploymentResponse deployBySpec(String poolId, String workspaceId, VllmDeployRequest request) {
+    public ModelDeploymentResponse deployBySpec(String poolId, String workspaceId, ModelDeploymentRequest request) {
         Workspace ws = workspaceMapper.findById(workspaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("工作空间不存在: " + workspaceId));
         if (!poolId.equals(ws.getResourcePoolId())) {
             throw new BadRequestException("工作空间 " + workspaceId + " 不属于池 " + poolId);
         }
         return deploy(workspaceId, request);
+    }
+
+    /**
+     * 根据请求参数自动匹配或创建 ComputeSpec。
+     * gpuType 对应 poolLabel（如 nvidia-a100-80g-1/4），用于 nodeSelector 匹配。
+     */
+    private ComputeSpec ensureComputeSpec(ModelDeploymentRequest request) {
+        String gpuType = request.getGpuType();
+        int gpuCount = request.getGpuCount() != null ? request.getGpuCount() : 1;
+        int cpuCores = request.getCpuCores() != null ? request.getCpuCores() : 4;
+        int memoryGib = request.getMemoryGib() != null ? request.getMemoryGib() : 16;
+
+        // 生成 spec 名称
+        String specName = "auto-" + gpuType + "-" + gpuCount + "g-" + cpuCores + "c-" + memoryGib + "g";
+
+        // 查找是否已存在
+        ComputeSpec existing = computeSpecMapper.findByName(specName).orElse(null);
+        if (existing != null) {
+            log.info("复用已有 ComputeSpec: {}", specName);
+            return existing;
+        }
+
+        // 创建新的 ComputeSpec
+        GpuSplitSpec splitSpec = GpuSplitSpec.fromSpecName(gpuType);
+        int gpumemMb = 16384;  // 默认
+        int gpucores = 50;     // 默认
+        String gpuBrand = "NVIDIA";
+        String displaySuffix = gpuType;
+
+        if (splitSpec != null) {
+            gpumemMb = splitSpec.getGpumemMb();
+            gpucores = splitSpec.getGpucores();
+            gpuBrand = splitSpec.getGpuBrand();
+            displaySuffix = GpuSplitSpec.parseSplitType(gpuType);
+        }
+
+        String id = UUID.randomUUID().toString();
+        ComputeSpec spec = ComputeSpec.builder()
+                .id(id)
+                .name(specName)
+                .displayName(displaySuffix)
+                .gpuBrand(GpuBrand.valueOf(gpuBrand))
+                .defaultGpuCount(gpuCount)
+                .defaultGpumemMb(gpumemMb)
+                .defaultGpucores(gpucores)
+                .defaultCpuCores(cpuCores)
+                .defaultMemoryGib(memoryGib)
+                .nodeSelector("{\"pool\":\"" + gpuType + "\"}")
+                .tolerations("[{\"key\":\"nvidia.com/gpu\",\"operator\":\"Exists\",\"effect\":\"NoSchedule\"}]")
+                .resourceQuotaKey("platform.io/" + specName)
+                .specType(ComputeSpec.SpecType.VIRTUAL)
+                .memoryGb(gpumemMb / 1024)
+                .build();
+        computeSpecMapper.insert(spec);
+
+        log.info("✓ 自动创建 ComputeSpec: {}", specName);
+        return spec;
     }
 
     public List<ModelDeploymentResponse> listByWorkspace(String workspaceId) {

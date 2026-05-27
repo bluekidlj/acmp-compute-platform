@@ -40,6 +40,10 @@ public class PhysicalCluster {
     private String taints;
     /** 【HAMi vGPU】是否启用 HAMi vGPU 支持 */
     private Boolean hamiEnabled;
+    /** 单节点最大 CPU 核数（用于部署预检验） */
+    private Integer maxCpuCores;
+    /** 单节点最大内存 GiB（用于部署预检验） */
+    private Integer maxMemoryGib;
     private Instant createdAt;
     private Instant updatedAt;
 }

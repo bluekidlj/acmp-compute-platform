@@ -1,0 +1,47 @@
+# ResourceQuota 示例（namespace 级资源）
+# 由 KubernetesClientManager.createResourceQuotaBySpec() 生成
+# 注意：hard 中放置的是平台计量键 platform.io/{spec}，而非真实 GPU 资源键
+# platform.io/{spec} 在 Pod limits 中每副本设为 "1"，ResourceQuota.used 自动累加
+
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-ws-ai-demo-ab12cd34
+  namespace: ws-ai-demo-ab12cd34
+spec:
+  hard:
+    platform.io/nvidia-a100-80g-1/4: "20"   # 该 namespace 最多 20 个该规格 Pod
+    pods: "50"                               # 总 Pod 数限制
+
+---
+# 对比：正确配置 vs 常见错误
+
+# 【正确】Pod spec 中 limits 设置 platform.io/{spec}=1：
+#   limits:
+#     nvidia.com/gpu: "1"
+#     nvidia.com/gpumem: 20480Mi
+#     platform.io/nvidia-a100-80g-1/4: "1"
+#
+# ResourceQuota.used.platform.io/nvidia-a100-80g-1/4 会自动累加
+# → used=1 时表示有 1 个 Pod 在运行
+
+# 【错误 1】platform.io 键名不一致（常见！）
+#   ComputeSpec.resourceQuotaKey = "platform.io/nvidia-a100-80g-1/4"
+#   但 Pod limits 中写成 "platform.io/a100-80g-1/4" 或 "platform.io/a100"
+#   → ResourceQuota 无法计量，配额失效
+
+# 【错误 2】nodeSelector.pool 与节点标签不匹配
+#   Pod nodeSelector: {pool: "nvidia-a100-80g-1/4"}
+#   但节点标签是 pool: "nvidia-a100-80g-1/2" 或 pool: "a100-1/4"
+#   → Pod 调度不到任何节点，一直 Pending
+
+# 【错误 3】HAMi 环境但未设置 nvidia.com/gpumem
+#   Pod limits 中只有 nvidia.com/gpu: "1"
+#   但没有 nvidia.com/gpumem: "20Gi"
+#   → HAMi 不知道要分配多大的 vGPU，可能分配整卡或分配失败
+
+# 【错误 4】跨集群 workspace 但所有 Pod 用了同一个 clusterId
+#   workspace_pool_cluster 关联了 2 个集群（NVIDIA + DCU）
+#   但 ModelDeploymentService 使用 poolMetadataService.pickClusterForSpec
+#   时只返回了一个 clusterId
+#   → 另一个集群的 Pod 永远不会部署到这里

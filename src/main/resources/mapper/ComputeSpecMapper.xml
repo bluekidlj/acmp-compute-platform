@@ -85,19 +85,19 @@
 
     <!-- 逻辑池 ↔ 规格配额（规格是划分逻辑子池的模板） -->
     <insert id="insertResourcePoolSpecQuota">
-        MERGE INTO resource_pool_spec_quota (resource_pool_id, spec_id, total_quota, allocated_quota)
+        MERGE INTO resource_pool_spec_quota (resource_pool_id, spec_id, total_nodes, allocated_nodes)
         KEY(resource_pool_id, spec_id) VALUES (#{resourcePoolId}, #{specId}, #{totalQuota}, #{allocatedQuota})
     </insert>
 
     <update id="updateResourcePoolSpecAllocated">
-        UPDATE resource_pool_spec_quota SET allocated_quota = #{allocatedQuota}
+        UPDATE resource_pool_spec_quota SET allocated_nodes = #{allocatedQuota}
         WHERE resource_pool_id = #{resourcePoolId} AND spec_id = #{specId}
     </update>
 
     <select id="findSpecQuotasByResourcePoolId" resultType="java.util.HashMap">
         SELECT cs.name as spec_name, cs.id as spec_id,
-               rpsq.total_quota, rpsq.allocated_quota,
-               (rpsq.total_quota - rpsq.allocated_quota) as available
+               rpsq.total_nodes, rpsq.allocated_nodes,
+               (rpsq.total_nodes - rpsq.allocated_nodes) as available
         FROM resource_pool_spec_quota rpsq
         JOIN compute_spec cs ON cs.id = rpsq.spec_id
         WHERE rpsq.resource_pool_id = #{resourcePoolId}
@@ -105,12 +105,12 @@
 
     <!-- 工作空间 × 逻辑池 × 规格配额（双层配额第二层） -->
     <insert id="insertWorkspaceSpecQuota">
-        MERGE INTO workspace_pool_spec_quota (workspace_id, resource_pool_id, spec_id, max_quota, used_quota)
+        MERGE INTO workspace_pool_spec_quota (workspace_id, resource_pool_id, spec_id, max_nodes, used_nodes)
         KEY(workspace_id, resource_pool_id, spec_id)
         VALUES (#{workspaceId}, #{resourcePoolId}, #{specId}, #{maxQuota}, #{usedQuota})
     </insert>
     <update id="updateWorkspaceSpecUsed">
-        UPDATE workspace_pool_spec_quota SET used_quota = #{usedQuota}
+        UPDATE workspace_pool_spec_quota SET used_nodes = #{usedQuota}
         WHERE workspace_id = #{workspaceId}
           AND resource_pool_id = #{resourcePoolId}
           AND spec_id = #{specId}
@@ -120,8 +120,8 @@
     </delete>
     <select id="findSpecQuotasByWorkspaceId" resultType="java.util.HashMap">
         SELECT cs.name as spec_name, cs.id as spec_id,
-               wpsq.resource_pool_id, wpsq.max_quota, wpsq.used_quota,
-               (wpsq.max_quota - wpsq.used_quota) as available
+               wpsq.resource_pool_id, wpsq.max_nodes, wpsq.used_nodes,
+               (wpsq.max_nodes - wpsq.used_nodes) as available
         FROM workspace_pool_spec_quota wpsq
         JOIN compute_spec cs ON cs.id = wpsq.spec_id
         WHERE wpsq.workspace_id = #{workspaceId}

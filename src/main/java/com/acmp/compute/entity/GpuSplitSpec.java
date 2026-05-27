@@ -16,10 +16,10 @@ public enum GpuSplitSpec {
     NVIDIA_A100_80GB_1_4("nvidia-a100-80g-1/4", "NVIDIA", "A100-80GB-SXM", 20480, 25),   // 1/4 卡
     NVIDIA_A100_80GB_1_8("nvidia-a100-80g-1/8", "NVIDIA", "A100-80GB-SXM", 10240, 12),   // 1/8 卡
 
-    // NVIDIA RTX 4090 24GB
-    NVIDIA_RTX4090_24G_1_2("nvidia-rtx4090-24g-1/2", "NVIDIA", "RTX4090-24GB", 12288, 50),
-    NVIDIA_RTX4090_24G_1_4("nvidia-rtx4090-24g-1/4", "NVIDIA", "RTX4090-24GB", 6144, 25),
-    NVIDIA_RTX4090_24G_1_8("nvidia-rtx4090-24g-1/8", "NVIDIA", "RTX4090-24GB", 3072, 12),
+    // NVIDIA H100 80GB SXM
+    NVIDIA_H100_80GB_1_2("nvidia-h100-80g-1/2", "NVIDIA", "H100-SXM-80GB", 40960, 50),   // 1/2 卡
+    NVIDIA_H100_80GB_1_4("nvidia-h100-80g-1/4", "NVIDIA", "H100-SXM-80GB", 20480, 25),   // 1/4 卡
+    NVIDIA_H100_80GB_1_8("nvidia-h100-80g-1/8", "NVIDIA", "H100-SXM-80GB", 10240, 12),   // 1/8 卡
 
     // Hygon DCU 32GB
     HYGON_DCU_32G_1_2("hygon-dcu-32g-1/2", "HYGON", "Hygon-DCU-32GB", 16384, 50),
@@ -80,8 +80,8 @@ public enum GpuSplitSpec {
     }
 
     private static String guessPrefix(String gpuType) {
+        if (gpuType.contains("H100")) return "nvidia-h100-80g";
         if (gpuType.contains("A100-80GB")) return "nvidia-a100-80g";
-        if (gpuType.contains("RTX4090")) return "nvidia-rtx4090-24g";
         if (gpuType.contains("DCU")) return "hygon-dcu-32g";
         return gpuType.toLowerCase().replaceAll("[^a-z0-9]", "-");
     }

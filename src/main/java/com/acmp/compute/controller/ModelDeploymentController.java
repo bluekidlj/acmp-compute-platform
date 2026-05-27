@@ -1,7 +1,7 @@
 package com.acmp.compute.controller;
 
+import com.acmp.compute.dto.ModelDeploymentRequest;
 import com.acmp.compute.dto.ModelDeploymentResponse;
-import com.acmp.compute.dto.VllmDeployRequest;
 import com.acmp.compute.service.ModelDeploymentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -13,10 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * vLLM 模型服务部署（规范版本）。
- * 
- * 新版 API：POST /api/v1/resource-pools/{poolId}/workspaces/{workspaceId}/model-deployments
- * 旧版 API：POST /api/v1/workspaces/{workspaceId}/model-deployments（向后兼容）
+ * 模型服务部署。
  */
 @RestController
 @RequiredArgsConstructor
@@ -25,30 +22,15 @@ public class ModelDeploymentController {
     private final ModelDeploymentService modelDeploymentService;
 
     /**
-     * 新版 API：规范版本（使用规格名称部署）
-     * 
-     * POST /api/v1/resource-pools/{poolId}/workspaces/{workspaceId}/model-deployments
+     * 部署推理服务（新版，完全自定义每副本资源）。
      */
     @PostMapping("/api/v1/resource-pools/{poolId}/workspaces/{workspaceId}/model-deployments")
-    public ResponseEntity<ModelDeploymentResponse> deployBySpec(
+    public ResponseEntity<ModelDeploymentResponse> deploy(
             @PathVariable String poolId,
             @PathVariable String workspaceId,
-            @Valid @RequestBody VllmDeployRequest request) {
+            @Valid @RequestBody ModelDeploymentRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(modelDeploymentService.deployBySpec(poolId, workspaceId, request));
-    }
-
-    /**
-     * 旧版 API：向后兼容
-     * 
-     * @deprecated 使用新版 API
-     */
-    @Deprecated
-    @PostMapping("/api/v1/workspaces/{workspaceId}/model-deployments")
-    public ResponseEntity<ModelDeploymentResponse> deploy(
-            @PathVariable String workspaceId,
-            @Valid @RequestBody VllmDeployRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(modelDeploymentService.deploy(workspaceId, request));
     }
 
     @GetMapping("/api/v1/workspaces/{workspaceId}/model-deployments")

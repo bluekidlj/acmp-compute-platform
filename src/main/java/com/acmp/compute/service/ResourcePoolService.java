@@ -99,6 +99,9 @@ public class ResourcePoolService {
      */
     private ResourcePoolResponse createWithGpuSplit(ResourcePoolCreateRequest request, List<String> clusterIds) {
         String poolLabel = request.getPoolLabel();
+        if (poolLabel == null || poolLabel.isEmpty()) {
+            throw new BadRequestException("poolLabel 不能为空");
+        }
 
         // 尝试从 GpuSplitSpec 枚举获取详细参数
         GpuSplitSpec splitSpec = GpuSplitSpec.fromSpecName(poolLabel);
@@ -216,8 +219,8 @@ public class ResourcePoolService {
         List<Map<String, Object>> quotas = computeSpecMapper.findSpecQuotasByResourcePoolId(p.getId());
         List<ResourcePoolResponse.SpecQuotaView> specViews = new ArrayList<>();
         for (Map<String, Object> q : quotas) {
-            int total = toInt(q.get("total_quota"));
-            int allocated = toInt(q.get("allocated_quota"));
+            int total = toInt(q.get("total_nodes"));
+            int allocated = toInt(q.get("allocated_nodes"));
             specViews.add(ResourcePoolResponse.SpecQuotaView.builder()
                     .specId((String) q.get("spec_id"))
                     .specName((String) q.get("spec_name"))

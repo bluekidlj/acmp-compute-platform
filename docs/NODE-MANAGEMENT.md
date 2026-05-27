@@ -15,55 +15,61 @@ GET /api/v1/physical-clusters/{clusterId}/nodes
 **响应示例**：
 
 ```json
-[
-  {
-    "name": "gpu-node-1",
-    "status": "Ready",
-    "gpuType": "A100-80GB-SXM",
-    "gpuCount": 6,
-    "gpuMemMb": 81920,
-    "gpuCores": 100,
-    "cpuCores": 64,
-    "memoryGiB": 256,
-    "poolLabel": "nvidia-a100-80g-1/4",
-    "labelsJson": "{\"pool\":\"nvidia-a100-80g-1/4\",\"nvidia.com/gpu-family\":\"A100-80GB-SXM\"}"
-  },
-  {
-    "name": "dcu-node-1",
-    "status": "Ready",
-    "gpuType": "Hygon-DCU-32GB",
-    "gpuCount": 4,
-    "gpuMemMb": 32768,
-    "gpuCores": 100,
-    "cpuCores": 64,
-    "memoryGiB": 256,
-    "poolLabel": "hygon-dcu-32g-1/4",
-    "labelsJson": "{\"pool\":\"hygon-dcu-32g-1/4\",\"amd.com/dcu-family\":\"Hygon-DCU-32GB\"}"
-  }
-]
+{
+  "nodes": [
+    {
+      "name": "gpu-node-1",
+      "status": "Ready",
+      "gpuType": "A100-80GB-SXM",
+      "nodeCount": 6,
+      "nodeMemMb": 81920,
+      "nodeCores": 100,
+      "cpuCores": 64,
+      "memoryGiB": 256,
+      "poolLabels": ["nvidia-a100-80g-1/4", "nvidia-a100-80g-1/8"],
+      "labelsJson": "{\"pool\":\"nvidia-a100-80g-1/4,nvidia-a100-80g-1/8\",\"nvidia.com/gpu-family\":\"A100-80GB-SXM\"}"
+    },
+    {
+      "name": "dcu-node-1",
+      "status": "Ready",
+      "gpuType": "Hygon-DCU-32GB",
+      "nodeCount": 4,
+      "nodeMemMb": 32768,
+      "nodeCores": 100,
+      "cpuCores": 64,
+      "memoryGiB": 256,
+      "poolLabels": ["hygon-dcu-32g-1/4"],
+      "labelsJson": "{\"pool\":\"hygon-dcu-32g-1/4\",\"amd.com/dcu-family\":\"Hygon-DCU-32GB\"}"
+    }
+  ],
+  "poolLabels": ["nvidia-a100-80g-1/4", "nvidia-a100-80g-1/8", "hygon-dcu-32g-1/4"]
+}
 ```
 
 **字段说明**：
 
 | 字段 | 说明 |
 |------|------|
-| name | 节点名称 |
-| status | 节点状态（Ready/NotReady） |
-| gpuType | GPU 型号（从 nvidia.com/gpu-family 或 amd.com/dcu-family 获取） |
-| gpuCount | GPU 卡数（nvidia.com/gpu allocatable） |
-| gpuMemMb | GPU 显存 MB（HAMi 切分后） |
-| gpuCores | GPU 算力百分比（HAMi 切分后） |
-| cpuCores | CPU 核数 |
-| memoryGiB | 内存 GiB |
-| poolLabel | 节点标签 pool 的值 |
-| labelsJson | 节点全部标签 JSON |
+| nodes | 节点列表 |
+| nodes[].name | 节点名称 |
+| nodes[].status | 节点状态（Ready/NotReady） |
+| nodes[].gpuType | GPU 型号（从 nvidia.com/gpu-family 或 amd.com/dcu-family 获取） |
+| nodes[].nodeCount | 可用节点数（vGPU 实例数，HAMi 切分后） |
+| nodes[].nodeMemMb | 每节点显存 MB（HAMi 切分后） |
+| nodes[].nodeCores | 每节点算力百分比（HAMi 切分后） |
+| nodes[].cpuCores | CPU 核数 |
+| nodes[].memoryGiB | 内存 GiB |
+| nodes[].poolLabels | 节点支持的切分规格标签集（逗号分隔多规格） |
+| nodes[].labelsJson | 节点全部标签 JSON |
+| poolLabels | 集群中所有不重复的 pool 标签枚举（用于资源池创建时选择切分规格） |
 
 ## 3. 使用流程
 
 ```
 1. 前端调用 GET /api/v1/physical-clusters/{clusterId}/nodes
-2. 展示所有节点算力信息
-3. 用户选择节点进行纳管（关联到资源池）
+2. 展示所有节点算力信息（nodeCount, poolLabels 等）
+3. 用户选择 poolLabels 中的某种规格创建资源池
+4. 平台自动生成 ComputeSpec（nodeSelector 匹配 poolLabel）
 ```
 
 ## 4. 相关文件

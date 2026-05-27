@@ -16,8 +16,13 @@ import java.util.Set;
 @NoArgsConstructor
 @AllArgsConstructor
 public class NodeScanResponse {
-    /** 集群节点列表 */
+    /**
+     * 集群节点列表
+     */
     private List<NodeInfoResponse> nodes;
-    /** 集群中所有不重复的 pool 标签值（用于资源池创建时选择切分规格） */
+    /**
+     * 集群中所有不重复的 pool 标签值（用于资源池创建时选择切分规格）。
+     * 节点标签支持逗号分隔多规格，因此这里聚合的是所有规格的并集。
+     */
     private Set<String> poolLabels;
 }

@@ -37,8 +37,8 @@ id, name, description, department_code, department_name, status
 | 字段 | 说明 |
 |------|------|
 | resource_pool_id + spec_id (PK) | |
-| total_quota | 池内该规格总配额 |
-| allocated_quota | 已分配给工作空间 |
+| total_nodes | 池内该规格总节点数 |
+| allocated_nodes | 已分配给工作空间 |
 
 ### workspace_resource_pool
 
@@ -50,8 +50,8 @@ workspace_id + resource_pool_id (PK)  — 绑定关系
 
 ```
 workspace_id + resource_pool_id + spec_id (PK)
-  max_quota:  上限
-  used_quota: 已使用
+  max_nodes:  上限
+  used_nodes: 已使用
 ```
 
 ---

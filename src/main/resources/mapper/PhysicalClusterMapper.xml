@@ -14,6 +14,8 @@
         <result column="node_labels" property="nodeLabels"/>
         <result column="taints" property="taints"/>
         <result column="hami_enabled" property="hamiEnabled"/>
+        <result column="max_cpu_cores" property="maxCpuCores"/>
+        <result column="max_memory_gib" property="maxMemoryGib"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
@@ -22,10 +24,12 @@
         INSERT INTO physical_cluster
             (id, name, description, kubeconfig_base64_encrypted, status,
              total_gpu_slots, gpu_types, location, node_labels, taints, hami_enabled,
+             max_cpu_cores, max_memory_gib,
              created_at, updated_at)
         VALUES
             (#{id}, #{name}, #{description}, #{kubeconfigBase64Encrypted}, #{status},
              #{totalGpuSlots}, #{gpuTypes}, #{location}, #{nodeLabels}, #{taints}, #{hamiEnabled},
+             #{maxCpuCores}, #{maxMemoryGib},
              CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 
@@ -41,6 +45,8 @@
             node_labels = #{nodeLabels},
             taints = #{taints},
             hami_enabled = #{hamiEnabled},
+            max_cpu_cores = #{maxCpuCores},
+            max_memory_gib = #{maxMemoryGib},
             updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
     </update>

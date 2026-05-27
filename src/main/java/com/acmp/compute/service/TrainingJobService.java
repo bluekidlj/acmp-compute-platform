@@ -2,6 +2,7 @@ package com.acmp.compute.service;
 
 import com.acmp.compute.dto.TrainingJobRequest;
 import com.acmp.compute.entity.ComputeSpec;
+import com.acmp.compute.entity.PhysicalCluster;
 import com.acmp.compute.entity.TrainingJobRecord;
 import com.acmp.compute.entity.Workspace;
 import com.acmp.compute.exception.BadRequestException;
@@ -70,9 +71,8 @@ public class TrainingJobService {
         quotaService.validateBothLevelQuotas(poolId, workspaceId, spec.getId(), replicas);
         quotaService.deductBothLevelQuotas(poolId, workspaceId, spec.getId(), replicas);
 
-        // 【异构算力】根据 spec 动态选定目标物理集群
-        PoolMetadataService.TargetCluster target = poolMetadataService.pickClusterForSpec(poolId, spec);
-        String clusterId = target.getClusterId();
+        // 根据 poolMode 选定目标物理集群
+        PhysicalCluster cluster = poolMetadataService.pickClusterForSpec(poolId, spec);
 
         String recordId = UUID.randomUUID().toString();
         TrainingJobRecord record = TrainingJobRecord.builder()
@@ -100,8 +100,8 @@ public class TrainingJobService {
                     spec.getNodeSelector(),
                     spec.getTolerations());
 
-            // 【异构算力】使用动态选定的 clusterId，而非 ws.primaryClusterId
-            clientManager.applyYamlInNamespace(clusterId, ws.getNamespace(), yaml);
+            // 使用选定的 cluster
+            clientManager.applyYamlInNamespace(cluster.getId(), ws.getNamespace(), yaml);
 
             log.info("✅ VolcanoJob {} 已提交 (ws={}, pool={}, spec={}, replicas={})",
                     request.getJobName(), workspaceId, poolId, spec.getName(), replicas);

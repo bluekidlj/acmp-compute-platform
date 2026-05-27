@@ -95,8 +95,8 @@ public class WorkspaceService {
             if (q == null) {
                 throw new BadRequestException("逻辑池 " + poolId + " 未配置规格 " + item.getSpecName() + " 的配额");
             }
-            int total = toInt(q.get("total_quota"));
-            int allocated = toInt(q.get("allocated_quota"));
+            int total = toInt(q.get("total_nodes"));
+            int allocated = toInt(q.get("allocated_nodes"));
             if (allocated + item.getMaxQuota() > total) {
                 throw new BadRequestException(String.format(
                         "L1 配额不足: 规格=%s, total=%d, allocated=%d, 申请=%d",
@@ -111,9 +111,7 @@ public class WorkspaceService {
         // 不再写死单一的 primaryClusterId，而是通过 workspace_pool_cluster 关联表记录。
         Set<String> targetClusterIds = new HashSet<>();
         for (ComputeSpec spec : specByName.values()) {
-            // 【异构算力】传 workspaceId（创建时为 null，wsId 还未生成），只用 poolId 查逻辑池关联的物理集群
-            PoolMetadataService.TargetCluster t = poolMetadataService.pickClusterForSpec(poolId, spec);
-            targetClusterIds.add(t.getClusterId());
+            targetClusterIds.add(poolMetadataService.pickClusterForSpec(poolId, spec).getId());
         }
 
         // ⑤ K8s 名生成
@@ -138,8 +136,7 @@ public class WorkspaceService {
             Map<String, String> specLimits = new LinkedHashMap<>();
             for (ComputeSpec spec : specByName.values()) {
                 // 检查该规格的目标集群是否是当前 clusterId
-                PoolMetadataService.TargetCluster t = poolMetadataService.pickClusterForSpec(poolId, spec);
-                if (t.getClusterId().equals(clusterId)) {
+                if (poolMetadataService.pickClusterForSpec(poolId, spec).getId().equals(clusterId)) {
                     // 找到该规格在此池中的 maxQuota
                     for (WorkspaceRequest.SpecQuotaItem item : request.getSpecQuotas()) {
                         if (item.getSpecName().equals(spec.getName())) {
@@ -169,7 +166,7 @@ public class WorkspaceService {
         for (WorkspaceRequest.SpecQuotaItem item : request.getSpecQuotas()) {
             ComputeSpec spec = specByName.get(item.getSpecName());
             Map<String, Object> q = poolQuotaBySpecId.get(spec.getId());
-            int newAllocated = toInt(q.get("allocated_quota")) + item.getMaxQuota();
+            int newAllocated = toInt(q.get("allocated_nodes")) + item.getMaxQuota();
             specMapper.updateResourcePoolSpecAllocated(poolId, spec.getId(), newAllocated);
             specMapper.insertWorkspaceSpecQuota(wsId, poolId, spec.getId(), item.getMaxQuota(), 0);
         }
@@ -218,17 +215,17 @@ public class WorkspaceService {
         Workspace ws = workspaceMapper.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("工作空间不存在"));
 
-        // 释放 L1.allocated（按 ws 当前持有的 max_quota 回退）
+        // 释放 L1.allocated（按 ws 当前持有的 max_nodes 回退）
         List<Map<String, Object>> wsQuotas = specMapper.findSpecQuotasByWorkspaceId(id);
         for (Map<String, Object> q : wsQuotas) {
             String specId = (String) q.get("spec_id");
             String poolId = (String) q.get("resource_pool_id");
-            int max = toInt(q.get("max_quota"));
+            int max = toInt(q.get("max_nodes"));
             // L1.allocated -= max
             List<Map<String, Object>> poolQs = specMapper.findSpecQuotasByResourcePoolId(poolId);
             for (Map<String, Object> pq : poolQs) {
                 if (specId.equals(pq.get("spec_id"))) {
-                    int newAllocated = Math.max(0, toInt(pq.get("allocated_quota")) - max);
+                    int newAllocated = Math.max(0, toInt(pq.get("allocated_nodes")) - max);
                     specMapper.updateResourcePoolSpecAllocated(poolId, specId, newAllocated);
                     break;
                 }
@@ -307,8 +304,8 @@ public class WorkspaceService {
         List<Map<String, Object>> quotas = specMapper.findSpecQuotasByWorkspaceId(ws.getId());
         List<WorkspaceResponse.SpecQuotaView> specViews = new ArrayList<>();
         for (Map<String, Object> q : quotas) {
-            int max = toInt(q.get("max_quota"));
-            int used = toInt(q.get("used_quota"));
+            int max = toInt(q.get("max_nodes"));
+            int used = toInt(q.get("used_nodes"));
             specViews.add(WorkspaceResponse.SpecQuotaView.builder()
                     .specId((String) q.get("spec_id"))
                     .specName((String) q.get("spec_name"))

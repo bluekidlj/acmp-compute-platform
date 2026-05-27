@@ -75,10 +75,10 @@ HAMi 在节点上找到满足条件的 vGPU 单元
 
 ```
 L1（逻辑池层）:
-  resource_pool_spec_quota.total_quota - allocated = 可用
+  resource_pool_spec_quota.total_nodes - allocated_nodes = 可用
 
 L2（工作空间层）:
-  workspace_pool_spec_quota.max_quota - used = 可用
+  workspace_pool_spec_quota.max_nodes - used_nodes = 可用
 ```
 
 部署时两层配额同时校验，都通过才允许调度。

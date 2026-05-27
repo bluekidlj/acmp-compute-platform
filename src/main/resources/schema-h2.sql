@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS physical_cluster (
     taints VARCHAR(2048),
     -- 【HAMi vGPU】是否启用 HAMi vGPU 支持
     hami_enabled BOOLEAN DEFAULT FALSE,
+    -- 单节点资源上限（用于部署预检验）
+    max_cpu_cores INT,
+    max_memory_gib INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -34,6 +37,7 @@ CREATE TABLE IF NOT EXISTS organization (
 
 -- ============================================
 -- 逻辑资源池：纯 DB 聚合容器，不存标签/污点/调度规则
+-- pool_mode: HOMOGENEOUS（单物理集群）/ HETEROGENEOUS（多物理集群）
 -- ============================================
 CREATE TABLE IF NOT EXISTS resource_pool (
     id VARCHAR(36) PRIMARY KEY,
@@ -41,6 +45,7 @@ CREATE TABLE IF NOT EXISTS resource_pool (
     description VARCHAR(512),
     department_code VARCHAR(64) NOT NULL,
     department_name VARCHAR(255),
+    pool_mode VARCHAR(32) DEFAULT 'HOMOGENEOUS',
     status VARCHAR(32) NOT NULL DEFAULT 'active',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -149,12 +154,12 @@ CREATE TABLE IF NOT EXISTS hami_vgpu_unit (
     FOREIGN KEY (hami_gpu_config_id) REFERENCES hami_gpu_config(id)
 );
 
--- 逻辑池按规格的总配额（资源初次划分）
+-- 逻辑池按规格的总节点数（节点初次划分）
 CREATE TABLE IF NOT EXISTS resource_pool_spec_quota (
     resource_pool_id VARCHAR(36) NOT NULL,
     spec_id VARCHAR(36) NOT NULL,
-    total_quota INT DEFAULT 0,
-    allocated_quota INT DEFAULT 0,
+    total_nodes INT DEFAULT 0,
+    allocated_nodes INT DEFAULT 0,
     PRIMARY KEY (resource_pool_id, spec_id),
     FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id),
     FOREIGN KEY (spec_id) REFERENCES compute_spec(id)
@@ -194,13 +199,13 @@ CREATE TABLE IF NOT EXISTS workspace_resource_pool (
     FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id)
 );
 
--- 工作空间在逻辑池中的按规格配额（资源二次分配，双层配额核心）
+-- 工作空间在逻辑池中的按规格节点配额（资源二次分配，双层配额核心）
 CREATE TABLE IF NOT EXISTS workspace_pool_spec_quota (
     workspace_id VARCHAR(36) NOT NULL,
     resource_pool_id VARCHAR(36) NOT NULL,
     spec_id VARCHAR(36) NOT NULL,
-    max_quota INT DEFAULT 0,
-    used_quota INT DEFAULT 0,
+    max_nodes INT DEFAULT 0,
+    used_nodes INT DEFAULT 0,
     PRIMARY KEY (workspace_id, resource_pool_id, spec_id),
     FOREIGN KEY (workspace_id) REFERENCES workspace(id),
     FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id),

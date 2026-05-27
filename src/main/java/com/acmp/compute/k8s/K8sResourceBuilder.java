@@ -58,17 +58,6 @@ public class K8sResourceBuilder {
 
     /**
      * 构建 vLLM Deployment + Service YAML（规范版本）。
-     *
-     * @param deploymentName Deployment 名
-     * @param serviceName    Service 名
-     * @param namespace      目标 namespace
-     * @param image          vLLM 镜像
-     * @param modelIdOrPath  容器内模型路径
-     * @param spec           算力规格（决定资源键、cpu/mem 默认值）
-     * @param replicas       副本数
-     * @param hostModelPath  宿主机模型目录（hostPath 挂载，可选）
-     * @param nodeSelector   nodeSelector JSON 字符串（可选，通常来自 spec）
-     * @param tolerations    tolerations JSON 字符串（可选，通常来自 spec）
      */
     public static String buildVllmDeploymentAndService(
             String deploymentName,
@@ -81,6 +70,27 @@ public class K8sResourceBuilder {
             String hostModelPath,
             String nodeSelector,
             String tolerations) {
+        return buildVllmDeploymentAndService(deploymentName, serviceName, namespace, image, modelIdOrPath,
+                spec, replicas, hostModelPath, nodeSelector, tolerations, null, null, null);
+    }
+
+    /**
+     * 构建 vLLM Deployment + Service YAML（支持 envVars/command/args）。
+     */
+    public static String buildVllmDeploymentAndService(
+            String deploymentName,
+            String serviceName,
+            String namespace,
+            String image,
+            String modelIdOrPath,
+            ComputeSpec spec,
+            Integer replicas,
+            String hostModelPath,
+            String nodeSelector,
+            String tolerations,
+            Map<String, String> envVars,
+            String command,
+            String args) {
 
         int gpuPerReplica = spec.getDefaultGpuCount() != null ? spec.getDefaultGpuCount() : 1;
         int cpuCores = spec.getDefaultCpuCores() != null ? spec.getDefaultCpuCores() : 4;
@@ -103,6 +113,27 @@ public class K8sResourceBuilder {
                         .withPeriodSeconds(10)
                         .build()
                 );
+
+        // 添加用户指定的 envVars
+        if (envVars != null && !envVars.isEmpty()) {
+            for (Map.Entry<String, String> entry : envVars.entrySet()) {
+                containerBuilder.addToEnv(new EnvVarBuilder()
+                        .withName(entry.getKey())
+                        .withValue(entry.getValue())
+                        .build());
+            }
+        }
+
+        // 添加用户指定的启动命令
+        if (command != null && !command.isEmpty()) {
+            List<String> cmdList = parseCommand(command);
+            containerBuilder.withCommand(cmdList);
+        }
+
+        // 添加用户指定的启动参数
+        if (args != null && !args.isEmpty()) {
+            containerBuilder.withArgs(args);
+        }
 
         Map<String, Quantity> limits = buildResourceMap(spec, replicas, gpuPerReplica, cpuCores, memoryGib);
         Map<String, Quantity> requests = new HashMap<>(limits);
@@ -333,6 +364,30 @@ public class K8sResourceBuilder {
             map.put(rqKey, Quantity.parse("1"));
         }
         return map;
+    }
+
+    /**
+     * 解析命令字符串为 List。
+     * 支持格式：["python", "serve.py"] 或 "python,serve.py" 或 "python serve.py"
+     */
+    private static List<String> parseCommand(String command) {
+        if (command == null || command.isEmpty()) return null;
+        // JSON 数组格式
+        if (command.startsWith("[")) {
+            try {
+                @SuppressWarnings("unchecked")
+                List<String> list = Serialization.jsonMapper().readValue(command, List.class);
+                return list;
+            } catch (Exception e) {
+                log.warn("解析 command JSON 失败: {}", command, e);
+            }
+        }
+        // 逗号分隔
+        if (command.contains(",")) {
+            return java.util.Arrays.asList(command.split(","));
+        }
+        // 空格分隔
+        return java.util.Arrays.asList(command.split("\\s+"));
     }
 
     private static Map<String, String> parseNodeSelector(String json) {

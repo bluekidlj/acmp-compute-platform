@@ -65,13 +65,17 @@ kubectl get nodes -o custom-columns=NAME:.metadata.name,GPU:.status.allocatable.
 
 ```bash
 # 为 GPU 节点打标签（pool 值对应 ACMP 平台预置的切分规格名）
+# 支持逗号分隔多规格：同时支持多种切分
 kubectl label node <node-name> pool=nvidia-a100-80g-1/4 --overwrite
+
+# 多规格同时标记（1/2、1/4、1/8 共存）
+kubectl label node <node-name> --overwrite pool=nvidia-a100-80g-1/2,nvidia-a100-80g-1/4,nvidia-a100-80g-1/8
 
 # 查看标签
 kubectl get nodes --show-labels | grep pool
 ```
 
-**pool 值格式**：`nvidia-a100-80g-1/4`、`hygon-dcu-32g-1/8` 等
+**pool 值格式**：`nvidia-a100-80g-1/4`、`hygon-dcu-32g-1/8` 等，支持逗号分隔多值。
 
 ACMP 平台通过 `ComputeSpec.nodeSelector` 匹配 `PhysicalCluster.nodeLabels` 中的 `pool` 键。
 
@@ -147,26 +151,27 @@ for i in 0 1 2 3 4 5; do
   kubectl annotate node ${NODE_NAME} --overwrite "nvidia.com/vgpu-group-${i}=${i},13670,16"
 done
 
-# 打标签（对应 ACMP 平台的切分规格名）
-kubectl label node ${NODE_NAME} --overwrite pool=nvidia-a100-80g-1/4
+# 打标签（支持逗号分隔多规格，同时支持 1/2、1/4、1/8 切分）
+kubectl label node ${NODE_NAME} --overwrite pool=nvidia-a100-80g-1/2,nvidia-a100-80g-1/4,nvidia-a100-80g-1/8
 ```
 
-### 5.2 NVIDIA RTX 4090 24GB（切 4 份）
+### 5.2 NVIDIA H100 80GB SXM（切 6 份）
 
 ```bash
-# 显存：24576MiB / 4 ≈ 6144MiB， 算力：100% / 4 ≈ 25%
+# 显存：81920MiB / 6 ≈ 13670MiB， 算力：100% / 6 ≈ 16%
 kubectl annotate node ${NODE_NAME} --overwrite \
-  nvidia.com/gpu-family="RTX4090-24GB" \
-  nvidia.com/gpu-memory="24576Mi" \
-  nvidia.com/virtualization-group-count="4" \
-  nvidia.com/default-vgpu-mem="6144" \
-  nvidia.com/default-vgpu-cores="25"
+  nvidia.com/gpu-family="H100-SXM-80GB" \
+  nvidia.com/gpu-memory="81920Mi" \
+  nvidia.com/virtualization-group-count="6" \
+  nvidia.com/default-vgpu-mem="13670" \
+  nvidia.com/default-vgpu-cores="16"
 
-for i in 0 1 2 3; do
-  kubectl annotate node ${NODE_NAME} --overwrite "nvidia.com/vgpu-group-${i}=${i},6144,25"
+for i in 0 1 2 3 4 5; do
+  kubectl annotate node ${NODE_NAME} --overwrite "nvidia.com/vgpu-group-${i}=${i},13670,16"
 done
 
-kubectl label node ${NODE_NAME} --overwrite pool=nvidia-rtx4090-24g-1/4
+# 打标签（支持逗号分隔多规格，同时支持 1/2、1/4、1/8 切分）
+kubectl label node ${NODE_NAME} --overwrite pool=nvidia-h100-80g-1/2,nvidia-h100-80g-1/4,nvidia-h100-80g-1/8
 ```
 
 ### 5.3 Hygon DCU 32GB（切 4 份）
@@ -184,7 +189,8 @@ for i in 0 1 2 3; do
   kubectl annotate node ${NODE_NAME} --overwrite "nvidia.com/vgpu-group-${i}=${i},8192,25"
 done
 
-kubectl label node ${NODE_NAME} --overwrite pool=hygon-dcu-32g-1/4
+# 打标签（支持逗号分隔多规格）
+kubectl label node ${NODE_NAME} --overwrite pool=hygon-dcu-32g-1/2,hygon-dcu-32g-1/4,hygon-dcu-32g-1/8
 ```
 
 ---
@@ -219,9 +225,10 @@ curl -X POST http://localhost:8080/api/v1/physical-clusters \
   }'
 ```
 
-### 6.3 在 ACMP 平台创建资源池（启用切分）
+### 6.3 在 ACMP 平台创建资源池（启用切分，支持多规格）
 
 ```bash
+# 单规格创建
 curl -X POST http://localhost:8080/api/v1/resource-pools \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
@@ -229,8 +236,7 @@ curl -X POST http://localhost:8080/api/v1/resource-pools \
     "departmentCode": "AI",
     "departmentName": "AI部门",
     "physicalClusterIds": ["<cluster-id>"],
-    "splitType": "1/4",
-    "gpuType": "A100-80GB-SXM",
+    "poolLabel": "nvidia-a100-80g-1/4",
     "specQuotas": [{"specName": "nvidia-a100-80g-1/4", "totalQuota": 20}]
   }'
 ```
@@ -240,6 +246,8 @@ curl -X POST http://localhost:8080/api/v1/resource-pools \
 - `nodeSelector`: `{"pool":"nvidia-a100-80g-1/4"}`
 - `defaultGpumemMb`: 20480
 - `defaultGpucores`: 25
+
+### 6.4 使用切分规格部署
 
 ### 6.4 使用切分规格部署
 

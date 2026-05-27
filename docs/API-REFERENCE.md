@@ -599,7 +599,7 @@ Content-Type: application/json
 - K8s `kubectl get ns | grep ws-llm-training` 应能看到新 namespace
 - `kubectl get resourcequota -n <ns>` 看到 `platform.io/nvidia-rtx4090-24g: 1`
 - `kubectl get sa -n <ns>` 看到 `sa-ws-llm-training-...`
-- DB `resource_pool_spec_quota.allocated_quota` 从 0 变 1
+- DB `resource_pool_spec_quota.allocated_nodes` 从 0 变 1
 
 #### B-4. 添加成员
 
@@ -823,9 +823,9 @@ kubectl describe resourcequota -n ws-llm-training-a1b2c3d4
 | 7 | Pod nodeSelector / tolerations 与 spec 一致 | `kubectl get pod -o yaml` |
 | 8 | DCU 任务的 Pod limits 是 `amd.com/dcu` 不是 `nvidia.com/gpu` | 同上 |
 | 9 | 配额超额时部署返回 400 + 含可读 message | curl 后看响应 |
-| 10 | 删除部署后 ResourceQuota.used 归零、DB used_quota 归零 | `kubectl describe rq` + `GET /workspaces/{id}` |
+| 10 | 删除部署后 ResourceQuota.used 归零、DB used_nodes 归零 | `kubectl describe rq` + `GET /workspaces/{id}` |
 | 11 | 工作空间删除后 Namespace 级联删除 | `kubectl get ns` |
-| 12 | 训练任务也走双层配额（不绕过） | 提交后看 `workspace_pool_spec_quota.used_quota` |
+| 12 | 训练任务也走双层配额（不绕过） | 提交后看 `workspace_pool_spec_quota.used_nodes` |
 
 ---
 

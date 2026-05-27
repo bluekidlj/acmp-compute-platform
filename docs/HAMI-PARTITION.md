@@ -2,64 +2,108 @@
 
 ## 1. 设计原则
 
-**平台预设切分规格，用户选择切分类型，平台自动生成 ComputeSpec。**
+**规格来源于平台预设 GpuSplitSpec 枚举，K8s 节点标签由管理员手动维护，扫描结果用于校验/展示。**
 
 ```
-K8s 集群侧（HAMi 配置）
-    ├── HAMi ConfigMap: customSpecs 定义切分规格（1/2, 1/4, 1/8）
-    └── 节点 Labels: pool=xxx ← ACMP 平台通过这个识别
+平台侧（GpuSplitSpec 枚举）
+    ├── 预置所有切分规格（nvidia-a100-80g-1/4, hygon-dcu-32g-1/8 等）
+    └── 创建资源池时，根据 poolLabel 查找枚举参数
 
-ACMP 平台侧
-    ├── GpuSplitSpec 枚举：预置所有切分规格
-    ├── 资源池创建时选择 splitType → 自动生成 ComputeSpec
-    └── 部署时通过 nodeSelector 路由到正确节点
+K8s 集群侧（管理员手动配置）
+    └── 节点 Labels: pool=nvidia-a100-80g-1/4,nvidia-a100-80g-1/8
+                      ↑ 逗号分隔多规格
+
+扫描返回
+    ├── nodes[].poolLabels：节点支持的所有规格（展示给用户）
+    └── poolLabels：集群所有规格枚举（用户选择）
 ```
+
+**关键约束：**
+- 平台规格为来源，K8s 标签为校验
+- 创建资源池时，用户只选择**一种**规格
+- **一个资源池 = 一种切分规格**
 
 ---
 
-## 2. 预置切分规格（GpuSplitSpec 枚举）
+## 2. 规格定义（GpuSplitSpec 枚举）
 
-| GPU 型号 | 1/2 切分 | 1/4 切分 | 1/8 切分 |
-|----------|---------|---------|---------|
-| NVIDIA A100 80GB | nvidia-a100-80g-1/2 (40GB, 50%) | nvidia-a100-80g-1/4 (20GB, 25%) | nvidia-a100-80g-1/8 (10GB, 12%) |
-| NVIDIA RTX 4090 24GB | nvidia-rtx4090-24g-1/2 (12GB, 50%) | nvidia-rtx4090-24g-1/4 (6GB, 25%) | nvidia-rtx4090-24g-1/8 (3GB, 12%) |
-| Hygon DCU 32GB | hygon-dcu-32g-1/2 (16GB, 50%) | hygon-dcu-32g-1/4 (8GB, 25%) | hygon-dcu-32g-1/8 (4GB, 12%) |
+| 规格名 | GPU 型号 | 显存 | 算力 |
+|--------|----------|------|------|
+| nvidia-a100-80g-1/2 | NVIDIA A100 80GB | 40GB | 50% |
+| nvidia-a100-80g-1/4 | NVIDIA A100 80GB | 20GB | 25% |
+| nvidia-a100-80g-1/8 | NVIDIA A100 80GB | 10GB | 12% |
+| nvidia-h100-80g-1/2 | NVIDIA H100 80GB | 40GB | 50% |
+| nvidia-h100-80g-1/4 | NVIDIA H100 80GB | 20GB | 25% |
+| nvidia-h100-80g-1/8 | NVIDIA H100 80GB | 10GB | 12% |
+| hygon-dcu-32g-1/2 | Hygon DCU 32GB | 16GB | 50% |
+| hygon-dcu-32g-1/4 | Hygon DCU 32GB | 8GB | 25% |
+| hygon-dcu-32g-1/8 | Hygon DCU 32GB | 4GB | 12% |
 
 ---
 
 ## 3. 用户操作流程
 
-### 3.1 注册物理集群（启用 HAMi）
+### 3.1 管理员在 K8s 节点配置标签
+
+```bash
+# 单规格
+kubectl label node gpu-node-1 pool=nvidia-a100-80g-1/4 --overwrite
+
+# 多规格（逗号分隔，同一节点支持多种切分）
+kubectl label node gpu-node-1 pool=nvidia-a100-80g-1/2,nvidia-a100-80g-1/4,nvidia-a100-80g-1/8 --overwrite
+```
+
+### 3.2 注册物理集群
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/physical-clusters \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
     "name": "nvidia-cluster",
-    "kubeconfigBase64": "<base64-kubeconfig>",
-    "hamiEnabled": true
+    "kubeconfigBase64": "<base64-kubeconfig>"
   }'
 ```
 
-### 3.2 创建资源池（启用切分）
+### 3.3 扫描节点（查看可用规格）
 
 ```bash
-# 创建 1/4 卡切分的资源池
+curl http://localhost:8080/api/v1/physical-clusters/{clusterId}/nodes \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+返回：
+```json
+{
+  "nodes": [
+    {
+      "name": "gpu-node-1",
+      "poolLabels": ["nvidia-a100-80g-1/2", "nvidia-a100-80g-1/4", "nvidia-a100-80g-1/8"],
+      "gpuType": "A100-80GB-SXM"
+    }
+  ],
+  "poolLabels": ["nvidia-a100-80g-1/2", "nvidia-a100-80g-1/4", "nvidia-a100-80g-1/8"]
+}
+```
+
+**前端展示 poolLabels，用户选择其中一种（如 "nvidia-a100-80g-1/4"）**
+
+### 3.4 创建资源池（启用切分）
+
+```bash
 curl -X POST http://localhost:8080/api/v1/resource-pools \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
-    "name": "nvidia-vgpu-pool",
-    "departmentCode": "AI",
+    "name": "A100-1/4卡池",
+    "departmentCode": "ai",
     "departmentName": "AI部门",
     "physicalClusterIds": ["<cluster-id>"],
-    "splitType": "1/4",
-    "gpuType": "A100-80GB-SXM",
+    "poolLabel": "nvidia-a100-80g-1/4",
     "specQuotas": [{"specName": "nvidia-a100-80g-1/4", "totalQuota": 20}]
   }'
 ```
 
 **平台自动执行**：
-1. 查找 `GpuSplitSpec.NVIDIA_A100_80GB_1_4` → `specName=nvidia-a100-80g-1/4`
+1. 根据 `poolLabel` 查找 `GpuSplitSpec.fromSpecName("nvidia-a100-80g-1/4")`
 2. 创建 ComputeSpec：
    - `name`: nvidia-a100-80g-1/4
    - `nodeSelector`: `{"pool":"nvidia-a100-80g-1/4"}`
@@ -67,7 +111,7 @@ curl -X POST http://localhost:8080/api/v1/resource-pools \
    - `defaultGpucores`: 25
 3. 插入 `resource_pool_spec_quota`
 
-### 3.3 部署推理服务
+### 3.5 部署推理服务
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/workspaces/<wsId>/model-deployments \
@@ -80,13 +124,12 @@ curl -X POST http://localhost:8080/api/v1/workspaces/<wsId>/model-deployments \
 ```
 
 **平台执行链路**：
-
 ```
 PoolMetadataService.pickClusterForSpec
     ↓
-spec.nodeSelector = {pool: nvidia-a100-80g-1/4}
+ComputeSpec.nodeSelector = {pool: nvidia-a100-80g-1/4}
     ↓
-匹配集群 nodeLabels 中的 pool=nvidia-a100-80g-1/4
+匹配 PhysicalCluster.nodeLabels
     ↓
 K8sResourceBuilder.buildVllmDeploymentAndService
     ↓
@@ -94,36 +137,28 @@ Pod spec:
   nodeSelector: {pool: nvidia-a100-80g-1/4}
   limits:
     nvidia.com/gpu: "1"
-    nvidia.com/gpumem: "20480Mi"    ← 自动从 ComputeSpec 填充
-    nvidia.com/gpucores: "25"       ← 自动从 ComputeSpec 填充
+    nvidia.com/gpumem: "20480Mi"
+    nvidia.com/gpucores: "25"
     platform.io/nvidia-a100-80g-1/4: "1"
     ↓
-HAMi 调度器在节点上找到满足 gpumem>=20480Mi 的 vGPU 单元，绑定给容器
+HAMi 调度器在节点上找到满足条件的 vGPU 单元绑定给容器
 ```
 
 ---
 
-## 4. 关键代码
+## 4. 多规格场景
 
-### 4.1 GpuSplitSpec 枚举
+同一节点支持多种切分规格（如 1/2、1/4、1/8），但**每种规格需要单独创建资源池**。
 
-```java
-public enum GpuSplitSpec {
-    NVIDIA_A100_80GB_1_2("nvidia-a100-80g-1/2", "NVIDIA", "A100-80GB-SXM", 40960, 50),
-    NVIDIA_A100_80GB_1_4("nvidia-a100-80g-1/4", "NVIDIA", "A100-80GB-SXM", 20480, 25),
-    NVIDIA_A100_80GB_1_8("nvidia-a100-80g-1/8", "NVIDIA", "A100-80GB-SXM", 10240, 12),
-    // ...
-}
 ```
-
-### 4.2 资源池创建（切分模式）
-
-```java
-// ResourcePoolService.create() 中
-if (request.getSplitType() != null) {
-    GpuSplitSpec splitSpec = GpuSplitSpec.fromGpuTypeAndRatio(gpuType, splitType);
-    // 创建 ComputeSpec，自动设置 nodeSelector = {pool: specName}
-}
+节点标签：pool=nvidia-a100-80g-1/2,nvidia-a100-80g-1/4,nvidia-a100-80g-1/8
+    ↓
+扫描返回 poolLabels: [nvidia-a100-80g-1/2, nvidia-a100-80g-1/4, nvidia-a100-80g-1/8]
+    ↓
+用户选择 "nvidia-a100-80g-1/4" → 创建资源池 A（1/4 卡池）
+用户选择 "nvidia-a100-80g-1/8" → 创建资源池 B（1/8 卡池）
+    ↓
+两个资源池，共用同一节点，通过 ResourceQuota 分别限制配额
 ```
 
 ---
@@ -132,3 +167,4 @@ if (request.getSplitType() != null) {
 
 - [HAMi vGPU K8s 配置操作指南](./HAMI-OPERATION.md)
 - [异构算力调度设计](./HETEROGENEOUS-COMPUTE.md)
+- [节点纳管与资源池创建](./NODE-ONBOARDING.md)

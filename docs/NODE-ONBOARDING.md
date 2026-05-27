@@ -8,7 +8,7 @@
 
 | 模式 | 适用场景 | 节点标签 | 每节点可调度数 |
 |------|----------|----------|---------------|
-| 物理规格 | 物理机 / 无 HAMi 环境 | 无 pool 标签 | gpuCount |
+| 物理规格 | 物理机 / 无 HAMi 环境 | 无 pool 标签 | nodeCount |
 | HAMi 虚拟切分 | 启用了 HAMi vGPU 切分 | pool=xxx | 由切分规格决定 |
 
 ---
@@ -102,16 +102,16 @@ Authorization: Bearer $TOKEN
       "name": "gpu-node-1",
       "status": "Ready",
       "gpuType": "A100-80GB-SXM",
-      "gpuCount": 6,
-      "gpuMemMb": 81920,
-      "gpuCores": 100,
+      "nodeCount": 6,
+      "nodeMemMb": 81920,
+      "nodeCores": 100,
       "cpuCores": 64,
       "memoryGiB": 256,
-      "poolLabel": "nvidia-a100-80g-1/4",
-      "labelsJson": "{\"pool\":\"nvidia-a100-80g-1/4\",\"nvidia.com/gpu-family\":\"A100-80GB-SXM\"}"
+      "poolLabels": ["nvidia-a100-80g-1/4", "nvidia-a100-80g-1/8"],
+      "labelsJson": "{\"pool\":\"nvidia-a100-80g-1/4,nvidia-a100-80g-1/8\",\"nvidia.com/gpu-family\":\"A100-80GB-SXM\"}"
     }
   ],
-  "poolLabels": ["nvidia-a100-80g-1/4", "hygon-dcu-32g-1/4"]
+  "poolLabels": ["nvidia-a100-80g-1/4", "nvidia-a100-80g-1/8"]
 }
 ```
 
@@ -123,34 +123,35 @@ Authorization: Bearer $TOKEN
 | nodes[].name | 节点名称 |
 | nodes[].status | 节点状态（Ready/NotReady） |
 | nodes[].gpuType | GPU 型号（从 nvidia.com/gpu-family 或 amd.com/dcu-family 获取） |
-| nodes[].gpuCount | GPU 卡数（nvidia.com/gpu allocatable） |
-| nodes[].gpuMemMb | GPU 显存 MB（HAMi 切分后） |
-| nodes[].gpuCores | GPU 算力百分比（HAMi 切分后） |
-| nodes[].poolLabel | 节点标签 pool 的值 |
+| nodes[].nodeCount | 可用节点数（vGPU 实例数，HAMi 切分后） |
+| nodes[].nodeMemMb | 每节点显存 MB（HAMi 切分后） |
+| nodes[].nodeCores | 每节点算力百分比（HAMi 切分后） |
+| nodes[].poolLabels | 节点支持的切分规格标签集（逗号分隔，1/2/1/4/1/8 可同时存在） |
 | poolLabels | **集群中所有不重复的 pool 标签枚举**（用于资源池创建时选择切分规格） |
 
 ---
 
 ### 判断规格类型
 
-**情况 A：poolLabel 为空 → 物理规格模式**
+**情况 A：poolLabels 为空 → 物理规格模式**
 
-节点的 `poolLabel == null`，该节点**未启用 HAMi 切分**，整卡调度。
+节点的 `poolLabels` 为空，该节点**未启用 HAMi 切分**，整卡调度。
 
 **结论：**
-- 每节点可调度 `gpuCount` 个 Pod
+- 每节点可调度 `nodeCount` 个 Pod
 - 需要创建 **PHYSICAL 规格**
 
 ---
 
-**情况 B：poolLabel 有值 → HAMi 虚拟切分模式**
+**情况 B：poolLabels 有值 → HAMi 虚拟切分模式**
 
-节点的 `poolLabel` 非空，如 `nvidia-a100-80g-1/4`。
+节点的 `poolLabels` 非空，如 `["nvidia-a100-80g-1/4", "nvidia-a100-80g-1/8"]`。
 
 **结论：**
-- 该节点已启用 HAMi，GPU 被切成对应规格
-- 前端用 `poolLabels` 枚举供用户选择切分规格
+- 该节点已启用 HAMi，GPU 被切成多种规格
+- 前端用 `poolLabels` 枚举供用户选择**其中一种**切分规格
 - **平台根据用户选择的 poolLabel 自动生成 ComputeSpec**（见 Step 3B）
+- **一个资源池 = 一种切分规格**，不同规格需分别创建不同的资源池
 
 ---
 
@@ -211,14 +212,14 @@ Authorization: Bearer $TOKEN
 
 平台预设以下切分规格，与 HAMi 节点标签对应：
 
-| poolLabel | GPU 型号 | 显存 | 算力 |
+| 规格名 | GPU 型号 | 显存 | 算力 |
 |-----------|----------|------|------|
 | nvidia-a100-80g-1/2 | NVIDIA A100 80GB | 40GB | 50% |
 | nvidia-a100-80g-1/4 | NVIDIA A100 80GB | 20GB | 25% |
 | nvidia-a100-80g-1/8 | NVIDIA A100 80GB | 10GB | 12% |
-| nvidia-rtx4090-24g-1/2 | NVIDIA RTX 4090 24GB | 12GB | 50% |
-| nvidia-rtx4090-24g-1/4 | NVIDIA RTX 4090 24GB | 6GB | 25% |
-| nvidia-rtx4090-24g-1/8 | NVIDIA RTX 4090 24GB | 3GB | 12% |
+| nvidia-h100-80g-1/2 | NVIDIA H100 80GB | 40GB | 50% |
+| nvidia-h100-80g-1/4 | NVIDIA H100 80GB | 20GB | 25% |
+| nvidia-h100-80g-1/8 | NVIDIA H100 80GB | 10GB | 12% |
 | hygon-dcu-32g-1/2 | Hygon DCU 32GB | 16GB | 50% |
 | hygon-dcu-32g-1/4 | Hygon DCU 32GB | 8GB | 25% |
 | hygon-dcu-32g-1/8 | Hygon DCU 32GB | 4GB | 12% |
@@ -265,9 +266,10 @@ Authorization: Bearer $TOKEN
 ```
 
 **说明**：
-- `poolLabel` 字段即为 Step 2 中 `poolLabels` 枚举的某个值
+- `poolLabel` 字段为用户从 Step 2 `poolLabels` 枚举中选择的**单一规格**
 - 平台自动创建 ComputeSpec（若不存在），`nodeSelector = {"pool":"nvidia-a100-80g-1/4"}`
 - 与节点标签精确匹配，确保 Pod 调度到正确的 vGPU 节点
+- **一个资源池 = 一种切分规格**，如需多规格需分别创建资源池
 
 ---
 
@@ -322,14 +324,16 @@ curl http://localhost:8080/api/v1/physical-clusters/cls-001/nodes \
   "nodes": [
     {
       "name": "a100-node-1",
-      "poolLabel": "nvidia-a100-80g-1/4",
+      "poolLabels": ["nvidia-a100-80g-1/4", "nvidia-a100-80g-1/8"],
       "gpuType": "A100-80GB-SXM",
-      "gpuCount": 6
+      "nodeCount": 6
     }
   ],
-  "poolLabels": ["nvidia-a100-80g-1/4"]
+  "poolLabels": ["nvidia-a100-80g-1/4", "nvidia-a100-80g-1/8"]
 }
 ```
+
+**前端展示 poolLabels 枚举，用户选择其中一种（如 "nvidia-a100-80g-1/4"）**
 
 **Step 3**: 创建资源池（自动生成规格）
 ```bash

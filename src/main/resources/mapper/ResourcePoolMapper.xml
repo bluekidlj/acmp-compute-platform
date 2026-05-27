@@ -8,15 +8,16 @@
         <result column="description" property="description"/>
         <result column="department_code" property="departmentCode"/>
         <result column="department_name" property="departmentName"/>
+        <result column="pool_mode" property="poolMode"/>
         <result column="status" property="status"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
 
     <insert id="insert">
-        INSERT INTO resource_pool (id, name, description, department_code, department_name, status,
+        INSERT INTO resource_pool (id, name, description, department_code, department_name, pool_mode, status,
                                    created_at, updated_at)
-        VALUES (#{id}, #{name}, #{description}, #{departmentCode}, #{departmentName}, #{status},
+        VALUES (#{id}, #{name}, #{description}, #{departmentCode}, #{departmentName}, #{poolMode}, #{status},
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 
@@ -26,6 +27,7 @@
             description = #{description},
             department_code = #{departmentCode},
             department_name = #{departmentName},
+            pool_mode = #{poolMode},
             status = #{status},
             updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}

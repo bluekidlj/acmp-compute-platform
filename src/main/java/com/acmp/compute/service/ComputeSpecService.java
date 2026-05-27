@@ -109,10 +109,10 @@ public class ComputeSpecService {
             entries.add(SpecQuotaEntry.builder()
                     .specName((String) row.get("spec_name"))
                     .specId((String) row.get("spec_id"))
-                    .totalQuota(row.containsKey("total_quota") ? toInt(row.get("total_quota")) : null)
-                    .maxQuota(row.containsKey("max_quota") ? toInt(row.get("max_quota")) : null)
-                    .allocatedQuota(row.containsKey("allocated_quota") ? toInt(row.get("allocated_quota")) : null)
-                    .usedQuota(row.containsKey("used_quota") ? toInt(row.get("used_quota")) : null)
+                    .totalQuota(row.containsKey("total_nodes") ? toInt(row.get("total_nodes")) : null)
+                    .maxQuota(row.containsKey("max_nodes") ? toInt(row.get("max_nodes")) : null)
+                    .allocatedQuota(row.containsKey("allocated_nodes") ? toInt(row.get("allocated_nodes")) : null)
+                    .usedQuota(row.containsKey("used_nodes") ? toInt(row.get("used_nodes")) : null)
                     .available(toInt(row.get("available")))
                     .build());
         }
