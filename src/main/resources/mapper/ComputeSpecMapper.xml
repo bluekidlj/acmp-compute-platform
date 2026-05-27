@@ -17,6 +17,8 @@
         <result column="resource_quota_key" property="resourceQuotaKey"/>
         <result column="memory_gb" property="memoryGb"/>
         <result column="description" property="description"/>
+        <result column="spec_type" property="specType"/>
+        <result column="hami_vgpu_unit_id" property="hamiVgpuUnitId"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
@@ -25,11 +27,11 @@
         INSERT INTO compute_spec (id, name, display_name, gpu_brand,
             default_gpu_count, default_gpumem_mb, default_gpucores, default_cpu_cores, default_memory_gib,
             node_selector, tolerations, resource_quota_key,
-            memory_gb, description, created_at, updated_at)
+            memory_gb, description, spec_type, hami_vgpu_unit_id, created_at, updated_at)
         VALUES (#{id}, #{name}, #{displayName}, #{gpuBrand},
             #{defaultGpuCount}, #{defaultGpumemMb}, #{defaultGpucores}, #{defaultCpuCores}, #{defaultMemoryGib},
             #{nodeSelector}, #{tolerations}, #{resourceQuotaKey},
-            #{memoryGb}, #{description}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            #{memoryGb}, #{description}, #{specType}, #{hamiVgpuUnitId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 
     <select id="findById" resultMap="BaseResultMap">
@@ -43,6 +45,27 @@
     <select id="findAll" resultMap="BaseResultMap">
         SELECT * FROM compute_spec ORDER BY gpu_brand, memory_gb DESC
     </select>
+
+    <update id="update">
+        UPDATE compute_spec
+        SET name = #{name},
+            display_name = #{displayName},
+            gpu_brand = #{gpuBrand},
+            default_gpu_count = #{defaultGpuCount},
+            default_gpumem_mb = #{defaultGpumemMb},
+            default_gpucores = #{defaultGpucores},
+            default_cpu_cores = #{defaultCpuCores},
+            default_memory_gib = #{defaultMemoryGib},
+            node_selector = #{nodeSelector},
+            tolerations = #{tolerations},
+            resource_quota_key = #{resourceQuotaKey},
+            memory_gb = #{memoryGb},
+            description = #{description},
+            spec_type = #{specType},
+            hami_vgpu_unit_id = #{hamiVgpuUnitId},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
 
     <delete id="deleteById">
         DELETE FROM compute_spec WHERE id = #{id}

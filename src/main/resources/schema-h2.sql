@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS physical_cluster (
     node_labels VARCHAR(1024),
     -- taints JSON: [{"key":"nvidia.com/gpu","value":"present","effect":"NoSchedule"}]
     taints VARCHAR(2048),
+    -- 【HAMi vGPU】是否启用 HAMi vGPU 支持
+    hami_enabled BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -95,6 +97,10 @@ CREATE TABLE IF NOT EXISTS compute_spec (
     resource_quota_key VARCHAR(255),
     memory_gb INT,
     description VARCHAR(512),
+    -- 【HAMi vGPU】规格类型：PHYSICAL=物理整卡，VIRTUAL=HAMi 切分后的 vGPU 规格
+    spec_type VARCHAR(32) DEFAULT 'PHYSICAL',
+    -- 【HAMi vGPU】关联的 vGPU 单元 ID（VIRTUAL 规格时必填）
+    hami_vgpu_unit_id VARCHAR(36),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -104,9 +110,43 @@ CREATE TABLE IF NOT EXISTS physical_cluster_spec (
     physical_cluster_id VARCHAR(36) NOT NULL,
     spec_id VARCHAR(36) NOT NULL,
     total_count INT DEFAULT 0,
+    -- 【HAMi vGPU】该集群该规格的可用数量（虚拟规格时同步 vGPU 实际可用数）
+    available_count INT DEFAULT 0,
     PRIMARY KEY (physical_cluster_id, spec_id),
     FOREIGN KEY (physical_cluster_id) REFERENCES physical_cluster(id),
     FOREIGN KEY (spec_id) REFERENCES compute_spec(id)
+);
+
+-- ============================================
+-- 【HAMi vGPU】GPU 切分主配置：每行代表一个物理集群中一种 GPU 型号的切分配置
+-- ============================================
+CREATE TABLE IF NOT EXISTS hami_gpu_config (
+    id VARCHAR(36) PRIMARY KEY,
+    physical_cluster_id VARCHAR(36) NOT NULL,
+    gpu_type VARCHAR(64) NOT NULL,              -- GPU 型号，如 "A100-80GB-SXM"
+    gpu_mem_mb INT NOT NULL,                     -- 整卡显存 MB，如 81920
+    gpu_cores INT NOT NULL,                      -- 整卡算力占比 0-100，如 100
+    total_vgpu_count INT NOT NULL,               -- 从该卡切出的 vGPU 总数，如 6
+    node_selector_key VARCHAR(128),             -- 节点标签 key，如 "pool"
+    node_selector_prefix VARCHAR(64),            -- 节点标签前缀，如 "v100-"
+    status VARCHAR(32) DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (physical_cluster_id) REFERENCES physical_cluster(id)
+);
+
+-- 【HAMi vGPU】vGPU 单元明细：一个 hami_gpu_config 对应多个 vGPU 单元
+CREATE TABLE IF NOT EXISTS hami_vgpu_unit (
+    id VARCHAR(36) PRIMARY KEY,
+    hami_gpu_config_id VARCHAR(36) NOT NULL,
+    vgpu_index INT NOT NULL,                    -- vGPU 索引 0,1,2...
+    vgpu_name VARCHAR(64) NOT NULL,              -- vGPU 名称，如 "v100-7b"
+    vgpu_mem_mb INT NOT NULL,                    -- vGPU 显存 MB，如 14000
+    vgpu_cores INT NOT NULL,                    -- vGPU 算力占比 0-100，如 16
+    node_selector_value VARCHAR(128),            -- 节点标签 value，如 "v100-7b"
+    tolerations VARCHAR(1024),                   -- 容忍配置 JSON
+    available_count INT NOT NULL,                -- 该 vGPU 单元在集群中的可用数量
+    FOREIGN KEY (hami_gpu_config_id) REFERENCES hami_gpu_config(id)
 );
 
 -- 逻辑池按规格的总配额（资源初次划分）

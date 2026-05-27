@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.acmp.compute.mapper.HamiGpuConfigMapper">
+
+    <resultMap id="BaseResultMap" type="com.acmp.compute.entity.HamiGpuConfig">
+        <id column="id" property="id"/>
+        <result column="physical_cluster_id" property="physicalClusterId"/>
+        <result column="gpu_type" property="gpuType"/>
+        <result column="gpu_mem_mb" property="gpuMemMb"/>
+        <result column="gpu_cores" property="gpuCores"/>
+        <result column="total_vgpu_count" property="totalVgpuCount"/>
+        <result column="node_selector_key" property="nodeSelectorKey"/>
+        <result column="node_selector_prefix" property="nodeSelectorPrefix"/>
+        <result column="status" property="status"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO hami_gpu_config (id, physical_cluster_id, gpu_type, gpu_mem_mb, gpu_cores,
+            total_vgpu_count, node_selector_key, node_selector_prefix, status, created_at, updated_at)
+        VALUES (#{id}, #{physicalClusterId}, #{gpuType}, #{gpuMemMb}, #{gpuCores},
+            #{totalVgpuCount}, #{nodeSelectorKey}, #{nodeSelectorPrefix}, #{status},
+            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    </insert>
+
+    <update id="update">
+        UPDATE hami_gpu_config
+        SET gpu_type = #{gpuType},
+            gpu_mem_mb = #{gpuMemMb},
+            gpu_cores = #{gpuCores},
+            total_vgpu_count = #{totalVgpuCount},
+            node_selector_key = #{nodeSelectorKey},
+            node_selector_prefix = #{nodeSelectorPrefix},
+            status = #{status},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <select id="findById" resultMap="BaseResultMap">
+        SELECT * FROM hami_gpu_config WHERE id = #{id}
+    </select>
+
+    <select id="findByPhysicalClusterId" resultMap="BaseResultMap">
+        SELECT * FROM hami_gpu_config WHERE physical_cluster_id = #{physicalClusterId} ORDER BY created_at DESC
+    </select>
+
+    <delete id="deleteById">
+        DELETE FROM hami_gpu_config WHERE id = #{id}
+    </delete>
+
+    <select id="findAll" resultMap="BaseResultMap">
+        SELECT * FROM hami_gpu_config ORDER BY created_at DESC
+    </select>
+</mapper>

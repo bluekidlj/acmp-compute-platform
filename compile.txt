@@ -1,0 +1,45 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] -----------------------< com.acmp:acmp-compute >------------------------
+[INFO] Building acmp-compute 1.0.0-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- resources:3.2.0:resources (default-resources) @ acmp-compute ---
+[INFO] Using 'UTF-8' encoding to copy filtered resources.
+[INFO] Using 'UTF-8' encoding to copy filtered properties files.
+[INFO] Copying 1 resource
+[INFO] Copying 19 resources
+[INFO] 
+[INFO] --- compiler:3.10.1:compile (default-compile) @ acmp-compute ---
+[INFO] Changes detected - recompiling the module!
+[INFO] Compiling 80 source files to C:\Users\jiang\Documents\code\acmp-latest-0526\acmp-compute-platform\acmp-compute\target\classes
+[INFO] /C:/Users/jiang/Documents/code/acmp-latest-0526/acmp-compute-platform/acmp-compute/src/main/java/com/acmp/compute/service/PoolMetadataService.java: 某些输入文件使用或覆盖了已过时的 API。
+[INFO] /C:/Users/jiang/Documents/code/acmp-latest-0526/acmp-compute-platform/acmp-compute/src/main/java/com/acmp/compute/service/PoolMetadataService.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+[INFO] -------------------------------------------------------------
+[ERROR] COMPILATION ERROR : 
+[INFO] -------------------------------------------------------------
+[ERROR] /C:/Users/jiang/Documents/code/acmp-latest-0526/acmp-compute-platform/acmp-compute/src/main/java/com/acmp/compute/service/PhysicalClusterService.java:[181,114] 未报告的异常错误com.fasterxml.jackson.core.JsonProcessingException; 必须对其进行捕获或声明以便抛出
+[ERROR] /C:/Users/jiang/Documents/code/acmp-latest-0526/acmp-compute-platform/acmp-compute/src/main/java/com/acmp/compute/controller/HamiGpuConfigController.java:[51,26] 找不到符号
+  符号:   方法 toList()
+  位置: 接口 java.util.stream.Stream<com.acmp.compute.entity.HamiVgpuUnit>
+[INFO] 2 errors 
+[INFO] -------------------------------------------------------------
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  9.389 s
+[INFO] Finished at: 2026-05-27T12:55:48+08:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.10.1:compile (default-compile) on project acmp-compute: Compilation failure: Compilation failure: 
+[ERROR] /C:/Users/jiang/Documents/code/acmp-latest-0526/acmp-compute-platform/acmp-compute/src/main/java/com/acmp/compute/service/PhysicalClusterService.java:[181,114] 未报告的异常错误com.fasterxml.jackson.core.JsonProcessingException; 必须对其进行捕获或声明以便抛出
+[ERROR] /C:/Users/jiang/Documents/code/acmp-latest-0526/acmp-compute-platform/acmp-compute/src/main/java/com/acmp/compute/controller/HamiGpuConfigController.java:[51,26] 找不到符号
+[ERROR]   符号:   方法 toList()
+[ERROR]   位置: 接口 java.util.stream.Stream<com.acmp.compute.entity.HamiVgpuUnit>
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException

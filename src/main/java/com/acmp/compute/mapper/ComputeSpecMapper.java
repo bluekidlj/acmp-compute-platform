@@ -34,4 +34,7 @@ public interface ComputeSpecMapper {
                                   @Param("specId") String sid, @Param("usedQuota") int used);
     void deleteWorkspaceSpecQuotas(@Param("workspaceId") String wid);
     List<java.util.Map<String, Object>> findSpecQuotasByWorkspaceId(@Param("workspaceId") String wid);
+
+    // ── 更新规格（用于 HAMi vGPU 同步）──
+    void update(ComputeSpec spec);
 }

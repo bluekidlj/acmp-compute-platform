@@ -10,6 +10,11 @@ import java.time.Instant;
 /**
  * 物理集群实体：代表一个完整的 K8s 集群，通过 kubeconfig 连接。
  * 支持多种 GPU 硬件规格和地域划分。
+ *
+ * <h2>【HAMi vGPU】说明</h2>
+ * hamiEnabled 字段标识该集群是否启用 HAMi vGPU 支持。
+ * 若启用，平台会自动扫描节点标签（pool=xxx）发现 vGPU 切分规格，
+ * 并创建对应的 ComputeSpec，实现 vGPU 节点路由。
  */
 @Data
 @Builder
@@ -33,6 +38,8 @@ public class PhysicalCluster {
     private String nodeLabels;
     /** JSON: [{"key":"hami.io/gpu","value":"present","effect":"NoSchedule"}] — 节点污点 */
     private String taints;
+    /** 【HAMi vGPU】是否启用 HAMi vGPU 支持 */
+    private Boolean hamiEnabled;
     private Instant createdAt;
     private Instant updatedAt;
 }

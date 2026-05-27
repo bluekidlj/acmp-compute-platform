@@ -24,6 +24,8 @@ import java.time.Instant;
  * | resourceQuotaKey | 平台计量键 | limits["platform.io/{spec}"] = 1 |
  * | memoryGb | 展示用，总内存参考值 | - |
  * | gpuBrand | GPU 品牌（NVIDIA/HYGON/HUAWEI_ASCEND）| 决定使用哪个 GPU 资源键 |
+ * | specType | 【HAMi vGPU】规格类型 PHYSICAL/VIRTUAL | - |
+ * | hamiVgpuUnitId | 【HAMi vGPU】关联的 vGPU 单元 ID | - |
  *
  * <h2>磁盘/存储说明</h2>
  * 磁盘（storage）目前未纳入 ComputeSpec 字段。
@@ -82,9 +84,22 @@ public class ComputeSpec {
     private Instant createdAt;
     private Instant updatedAt;
 
+    // ── 【HAMi vGPU】规格类型：PHYSICAL=物理整卡，VIRTUAL=HAMi 切分后的 vGPU 规格 ──
+    private SpecType specType;
+    /** 【HAMi vGPU】关联的 vGPU 单元 ID（VIRTUAL 规格时必填） */
+    private String hamiVgpuUnitId;
+
     /** 获取 ResourceQuota 键，若未设置则生成默认值 */
     public String getResourceQuotaKey() {
         if (resourceQuotaKey != null && !resourceQuotaKey.isEmpty()) return resourceQuotaKey;
         return "platform.io/" + name;
+    }
+
+    /** 【HAMi vGPU】规格类型 */
+    public enum SpecType {
+        /** 物理整卡规格 */
+        PHYSICAL,
+        /** HAMi 切分后的 vGPU 规格 */
+        VIRTUAL
     }
 }

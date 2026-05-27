@@ -1,6 +1,8 @@
 package com.acmp.compute.controller;
 
 import com.acmp.compute.dto.CapacityResponse;
+import com.acmp.compute.dto.NodeInfoResponse;
+import com.acmp.compute.dto.NodeScanResponse;
 import com.acmp.compute.dto.PhysicalClusterRegisterRequest;
 import com.acmp.compute.dto.PhysicalClusterResponse;
 import com.acmp.compute.entity.GpuBrand;
@@ -42,6 +44,15 @@ public class PhysicalClusterController {
     @GetMapping("/{id}/capacity")
     public ResponseEntity<CapacityResponse> getCapacity(@PathVariable String id) {
         return ResponseEntity.ok(physicalClusterService.getCapacity(id));
+    }
+
+    /**
+     * 扫描集群节点，收集节点算力信息（用于纳管展示）。
+     * 返回节点列表 + 集群 poolLabel 枚举。
+     */
+    @GetMapping("/{id}/nodes")
+    public ResponseEntity<NodeScanResponse> scanNodes(@PathVariable String id) {
+        return ResponseEntity.ok(physicalClusterService.scanNodes(id));
     }
 
     @DeleteMapping("/{id}")

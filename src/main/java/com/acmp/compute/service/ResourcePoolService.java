@@ -3,6 +3,7 @@ package com.acmp.compute.service;
 import com.acmp.compute.dto.ResourcePoolCreateRequest;
 import com.acmp.compute.dto.ResourcePoolResponse;
 import com.acmp.compute.entity.ComputeSpec;
+import com.acmp.compute.entity.GpuSplitSpec;
 import com.acmp.compute.entity.ResourcePool;
 import com.acmp.compute.exception.BadRequestException;
 import com.acmp.compute.exception.ForbiddenException;
@@ -51,13 +52,18 @@ public class ResourcePoolService {
                 throw new ResourceNotFoundException("物理集群不存在: " + cid);
         }
 
-        // 2. 规格存在性校验 + 名称→ID 映射
+        // 2. 【HAMi vGPU 切分模式】自动生成 ComputeSpec
+        if (request.getPoolLabel() != null && !request.getPoolLabel().isEmpty()) {
+            return createWithGpuSplit(request, clusterIds);
+        }
+
+        // 3. 规格存在性校验 + 名称→ID 映射
         Map<String, ComputeSpec> specByName = request.getSpecQuotas().stream()
                 .map(item -> computeSpecMapper.findByName(item.getSpecName())
                         .orElseThrow(() -> new BadRequestException("规格不存在: " + item.getSpecName())))
                 .collect(Collectors.toMap(ComputeSpec::getName, s -> s, (a, b) -> a));
 
-        // 3. resource_pool 行
+        // 4. resource_pool 行
         String id = UUID.randomUUID().toString();
         ResourcePool pool = ResourcePool.builder()
                 .id(id)
@@ -69,12 +75,12 @@ public class ResourcePoolService {
                 .build();
         resourcePoolMapper.insert(pool);
 
-        // 4. 物理集群关联
+        // 5. 物理集群关联
         for (String cid : clusterIds) {
             resourcePoolMapper.insertPhysicalCluster(id, cid);
         }
 
-        // 5. 按规格配额（allocated 起始 0）
+        // 6. 按规格配额（allocated 起始 0）
         for (ResourcePoolCreateRequest.SpecQuotaItem item : request.getSpecQuotas()) {
             ComputeSpec spec = specByName.get(item.getSpecName());
             computeSpecMapper.insertResourcePoolSpecQuota(id, spec.getId(), item.getTotalQuota(), 0);
@@ -84,6 +90,93 @@ public class ResourcePoolService {
                 id, clusterIds.size(), request.getSpecQuotas().size());
 
         return toResponse(resourcePoolMapper.findById(id).orElseThrow());
+    }
+
+    /**
+     * 【HAMi vGPU 切分模式】根据 poolLabel 自动生成 ComputeSpec 并创建资源池。
+     * poolLabel 直接作为 ComputeSpec.name（与节点 pool 标签一致）。
+     * 尝试匹配 GpuSplitSpec 枚举获取 gpumem/gpucores；若不匹配则用默认值。
+     */
+    private ResourcePoolResponse createWithGpuSplit(ResourcePoolCreateRequest request, List<String> clusterIds) {
+        String poolLabel = request.getPoolLabel();
+
+        // 尝试从 GpuSplitSpec 枚举获取详细参数
+        GpuSplitSpec splitSpec = GpuSplitSpec.fromSpecName(poolLabel);
+
+        int gpumemMb = 16384;  // 默认 16GB
+        int gpucores = 50;     // 默认 50%
+        String gpuBrand = "NVIDIA";
+        String displaySuffix = poolLabel;
+
+        if (splitSpec != null) {
+            gpumemMb = splitSpec.getGpumemMb();
+            gpucores = splitSpec.getGpucores();
+            gpuBrand = splitSpec.getGpuBrand();
+            displaySuffix = GpuSplitSpec.parseSplitType(poolLabel);
+        } else {
+            log.warn("poolLabel {} 未匹配到预设 GpuSplitSpec，使用默认参数", poolLabel);
+        }
+
+        String specName = poolLabel;
+
+        // 检查 ComputeSpec 是否已存在（已存在则复用）
+        ComputeSpec existingSpec = computeSpecMapper.findByName(specName).orElse(null);
+        String specId;
+        if (existingSpec != null) {
+            specId = existingSpec.getId();
+            log.info("复用已有 ComputeSpec: {}", specName);
+        } else {
+            // 创建新的 ComputeSpec
+            specId = UUID.randomUUID().toString();
+            ComputeSpec spec = ComputeSpec.builder()
+                    .id(specId)
+                    .name(specName)
+                    .displayName(displaySuffix)
+                    .gpuBrand(com.acmp.compute.entity.GpuBrand.valueOf(gpuBrand))
+                    .defaultGpuCount(1)
+                    .defaultGpumemMb(gpumemMb)
+                    .defaultGpucores(gpucores)
+                    .defaultCpuCores(4)
+                    .defaultMemoryGib(16)
+                    .nodeSelector("{\"pool\":\"" + specName + "\"}")
+                    .tolerations("[{\"key\":\"nvidia.com/gpu\",\"operator\":\"Exists\",\"effect\":\"NoSchedule\"}]")
+                    .resourceQuotaKey("platform.io/" + specName)
+                    .specType(ComputeSpec.SpecType.VIRTUAL)
+                    .memoryGb(gpumemMb / 1024)
+                    .build();
+            computeSpecMapper.insert(spec);
+
+            // 关联到所有物理集群
+            for (String cid : clusterIds) {
+                computeSpecMapper.insertPhysicalClusterSpec(cid, specId, 0);
+            }
+            log.info("✓ 自动创建 HAMi vGPU 切分规格: {}", specName);
+        }
+
+        // 创建资源池
+        String poolId = UUID.randomUUID().toString();
+        ResourcePool pool = ResourcePool.builder()
+                .id(poolId)
+                .name(request.getName())
+                .description(request.getDescription())
+                .departmentCode(request.getDepartmentCode())
+                .departmentName(request.getDepartmentName())
+                .status("active")
+                .build();
+        resourcePoolMapper.insert(pool);
+
+        // 物理集群关联
+        for (String cid : clusterIds) {
+            resourcePoolMapper.insertPhysicalCluster(poolId, cid);
+        }
+
+        // 配额（切分模式下只有一种规格，配额来自请求的 specQuotas）
+        int totalQuota = request.getSpecQuotas() != null && !request.getSpecQuotas().isEmpty()
+                ? request.getSpecQuotas().get(0).getTotalQuota() : 0;
+        computeSpecMapper.insertResourcePoolSpecQuota(poolId, specId, totalQuota, 0);
+
+        log.info("✓ HAMi vGPU 切分资源池 {} 已创建 (spec={}, totalQuota={})", poolId, specName, totalQuota);
+        return toResponse(resourcePoolMapper.findById(poolId).orElseThrow());
     }
 
     public List<ResourcePoolResponse> listByPhysicalCluster(String cid) {

@@ -33,9 +33,11 @@ public class ResourcePoolCreateRequest {
     @NotBlank
     private String departmentName;
 
-    /** 按规格的总配额清单，至少一条 */
-    @NotEmpty
+    /** 按规格的总配额清单，至少一条（poolLabel 非空时忽略此字段，由平台自动生成切分规格） */
     private List<SpecQuotaItem> specQuotas;
+
+    /** 【HAMi vGPU】节点 poolLabel（即切分规格名），如 "nvidia-a100-80g-1/4"。非空时表示启用切分，平台自动生成 ComputeSpec */
+    private String poolLabel;
 
     @Data
     public static class SpecQuotaItem {

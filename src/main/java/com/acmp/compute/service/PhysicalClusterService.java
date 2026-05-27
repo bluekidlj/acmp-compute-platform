@@ -1,6 +1,8 @@
 package com.acmp.compute.service;
 
 import com.acmp.compute.dto.CapacityResponse;
+import com.acmp.compute.dto.NodeInfoResponse;
+import com.acmp.compute.dto.NodeScanResponse;
 import com.acmp.compute.dto.PhysicalClusterResponse;
 import com.acmp.compute.entity.PhysicalCluster;
 import com.acmp.compute.entity.GpuBrand;
@@ -15,8 +17,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -122,6 +126,87 @@ public class PhysicalClusterService {
                 .build();
     }
 
+    /**
+     * 扫描集群节点，收集节点算力信息（用于纳管展示）。
+     * 返回节点列表 + 集群不重复的 poolLabel 枚举（用于资源池创建时选择切分规格）。
+     */
+    public NodeScanResponse scanNodes(String clusterId) {
+        KubernetesClient client = clientManager.getClient(clusterId);
+        List<Node> nodes = client.nodes().list().getItems();
+
+        List<NodeInfoResponse> nodeInfos = nodes.stream().map(this::toNodeInfo).collect(Collectors.toList());
+
+        // 汇总集群中所有不重复的 poolLabel
+        Set<String> poolLabels = new HashSet<>();
+        for (Node n : nodes) {
+            var labels = n.getMetadata().getLabels();
+            if (labels != null) {
+                String pl = labels.get("pool");
+                if (pl != null && !pl.isEmpty()) {
+                    poolLabels.add(pl);
+                }
+            }
+        }
+
+        return NodeScanResponse.builder()
+                .nodes(nodeInfos)
+                .poolLabels(poolLabels)
+                .build();
+    }
+
+    private NodeInfoResponse toNodeInfo(Node node) {
+        var labels = node.getMetadata().getLabels();
+        var allocatable = node.getStatus() != null ? node.getStatus().getAllocatable() : null;
+
+        String poolLabel = labels != null ? labels.get("pool") : null;
+        String gpuType = labels != null ? labels.get("nvidia.com/gpu-family") : null;
+        if (gpuType == null) gpuType = labels != null ? labels.get("amd.com/dcu-family") : null;
+
+        int gpuCount = allocatable != null ? parseInt(allocatable.get("nvidia.com/gpu")) : 0;
+        int gpuMemMb = allocatable != null ? parseInt(allocatable.get("nvidia.com/gpumem")) : 0;
+        int gpuCores = allocatable != null ? parseInt(allocatable.get("nvidia.com/gpucores")) : 0;
+        int cpuCores = allocatable != null ? parseInt(allocatable.get("cpu")) : 0;
+        int memoryGiB = allocatable != null ? parseMemoryAsGiB(allocatable.get("memory")) : 0;
+
+        return NodeInfoResponse.builder()
+                .name(node.getMetadata().getName())
+                .status(node.getStatus() != null ? node.getStatus().getPhase() : "Unknown")
+                .gpuType(gpuType)
+                .gpuCount(gpuCount)
+                .gpuMemMb(gpuMemMb)
+                .gpuCores(gpuCores)
+                .cpuCores(cpuCores)
+                .memoryGiB(memoryGiB)
+                .poolLabel(poolLabel)
+                .labelsJson(labels != null ? safeWriteValueAsString(labels) : "{}")
+                .build();
+    }
+
+    private int parseInt(Quantity q) {
+        if (q == null) return 0;
+        try {
+            Object amount = q.getAmount();
+            if (amount instanceof Number) return ((Number) amount).intValue();
+            return Integer.parseInt(q.getAmount().toString());
+        } catch (Exception e) { return 0; }
+    }
+
+    private int parseMemoryAsGiB(Quantity q) {
+        if (q == null) return 0;
+        try {
+            Object amount = q.getAmount();
+            if (amount instanceof Number) {
+                long bytes = ((Number) amount).longValue();
+                return (int) (bytes / (1024 * 1024 * 1024));
+            }
+            String str = q.getAmount().toString();
+            if (str.endsWith("Gi")) return Integer.parseInt(str.replace("Gi", "").trim());
+            if (str.endsWith("Mi")) return Integer.parseInt(str.replace("Mi", "").trim()) / 1024;
+            if (str.endsWith("Ki")) return Integer.parseInt(str.replace("Ki", "").trim()) / (1024 * 1024);
+            return Integer.parseInt(str) / (1024 * 1024 * 1024);
+        } catch (Exception e) { return 0; }
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public void delete(String id) {
         if (!physicalClusterMapper.findById(id).isPresent()) {
@@ -143,5 +228,14 @@ public class PhysicalClusterService {
                 .createdAt(c.getCreatedAt())
                 .updatedAt(c.getUpdatedAt())
                 .build();
+    }
+
+    private String safeWriteValueAsString(Object obj) {
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(obj);
+        } catch (Exception e) {
+            log.warn("JSON序列化失败: {}", obj, e);
+            return "{}";
+        }
     }
 }
