@@ -1,11 +1,10 @@
 package com.acmp.compute.controller;
 
 import com.acmp.compute.dto.CapacityResponse;
-import com.acmp.compute.dto.NodeInfoResponse;
-import com.acmp.compute.dto.NodeScanResponse;
 import com.acmp.compute.dto.PhysicalClusterRegisterRequest;
 import com.acmp.compute.dto.PhysicalClusterResponse;
 import com.acmp.compute.entity.GpuBrand;
+import com.acmp.compute.k8s.NodeScanResponse;
 import com.acmp.compute.service.PhysicalClusterService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;

@@ -115,6 +115,7 @@ public class QuotaService {
 
     @Transactional(rollbackFor = Exception.class)
     public void rollbackBothLevelQuotas(String resourcePoolId, String workspaceId, String specId, int units) {
+        // 回滚顺序与扣减顺序相反（L2→L1），确保嵌套事务一致性
         rollbackWorkspaceLevelQuota(workspaceId, resourcePoolId, specId, units);
         rollbackPoolLevelQuota(resourcePoolId, specId, units);
         log.info("✓ 双层配额已回滚: 池={}, ws={}, 规格={}, units={}",

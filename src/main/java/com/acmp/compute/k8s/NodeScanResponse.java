@@ -1,4 +1,4 @@
-package com.acmp.compute.dto;
+package com.acmp.compute.k8s;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

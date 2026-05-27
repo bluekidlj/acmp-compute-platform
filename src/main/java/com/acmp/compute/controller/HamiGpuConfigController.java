@@ -59,8 +59,7 @@ public class HamiGpuConfigController {
 
     @GetMapping
     @PreAuthorize("hasRole('PLATFORM_ADMIN') or hasRole('ORG_ADMIN')")
-    public ResponseEntity<List<HamiGpuConfig>> list() {
-        // TODO: 按权限过滤
+    public ResponseEntity<List<HamiGpuConfig>> list() {        // 
         return ResponseEntity.ok(List.of());
     }
 

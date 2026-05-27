@@ -1,14 +1,15 @@
 package com.acmp.compute.service;
 
 import com.acmp.compute.dto.CapacityResponse;
-import com.acmp.compute.dto.NodeInfoResponse;
-import com.acmp.compute.dto.NodeScanResponse;
 import com.acmp.compute.dto.PhysicalClusterResponse;
 import com.acmp.compute.entity.PhysicalCluster;
 import com.acmp.compute.entity.GpuBrand;
 import com.acmp.compute.exception.ResourceNotFoundException;
 import com.acmp.compute.k8s.KubernetesClientManager;
+import com.acmp.compute.k8s.NodeInfoResponse;
+import com.acmp.compute.k8s.NodeScanResponse;
 import com.acmp.compute.mapper.PhysicalClusterMapper;
+import com.acmp.compute.security.EncryptionService;
 import io.fabric8.kubernetes.api.model.Node;
 import io.fabric8.kubernetes.api.model.Quantity;
 import io.fabric8.kubernetes.client.KubernetesClient;
@@ -154,6 +155,11 @@ public class PhysicalClusterService {
                 .build();
     }
 
+    /**
+     * 注意：poolLabel 与 GPU type 的对应关系需外部保证。
+     * poolLabels 枚举只反映节点上有哪些 pool 标签值，
+     * 不包含这些标签值属于哪个 GPU 型号（HAMI/AMD）。前端需根据节点列表推断。
+     */
     private NodeInfoResponse toNodeInfo(Node node) {
         var labels = node.getMetadata().getLabels();
         var allocatable = node.getStatus() != null ? node.getStatus().getAllocatable() : null;

@@ -248,6 +248,7 @@ public class K8sResourceBuilder {
         Map<String, Object> task = new HashMap<>();
         task.put("name", "worker");
         task.put("replicas", replicas);
+        // minAvailable=replicas 阻塞调度：所有副本都 ready 才算 Job 完成
         task.put("minAvailable", replicas);
         task.put("template", template);
 

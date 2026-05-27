@@ -2,7 +2,7 @@ package com.acmp.compute.k8s;
 
 import com.acmp.compute.entity.PhysicalCluster;
 import com.acmp.compute.mapper.PhysicalClusterMapper;
-import com.acmp.compute.service.EncryptionService;
+import com.acmp.compute.security.EncryptionService;
 import io.fabric8.kubernetes.api.model.Namespace;
 import io.fabric8.kubernetes.api.model.NamespaceBuilder;
 import io.fabric8.kubernetes.api.model.Quantity;
