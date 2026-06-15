@@ -73,6 +73,7 @@ docker run -d -p 8080:8080 \
 | [docs/04-DEPLOYMENT-FLOW.md](docs/04-DEPLOYMENT-FLOW.md) | 部署推理服务全流程 |
 | [docs/05-EXAMPLE.md](docs/05-EXAMPLE.md) | curl 调用示例 |
 | [docs/06-VERIFICATION.md](docs/06-VERIFICATION.md) | 验证报告（修复清单 + 测试用例 + 手工 step） |
+| [docs/07-HOWTO-VERIFY.md](docs/07-HOWTO-VERIFY.md) | 换个环境验证手册（从 0 到 verify.sh 通过） |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Docker 部署说明 |
 
 ## 🧪 验证
