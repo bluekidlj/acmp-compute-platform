@@ -3,5 +3,5 @@ MERGE INTO organization (id, code, name) KEY(id)
 VALUES ('org-default', 'DEFAULT', 'Default Org');
 
 MERGE INTO app_user (id, username, password_hash, display_name, role, organization_id) KEY(id)
-VALUES ('user-admin', 'admin', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVKIUi',
+VALUES ('user-admin', 'admin', '$2a$10$tllIrxiBy4rhAf3Df1v2LO86yf6so9jZMAxbC16/uKAdOr0jPRTS6',
         'Platform Admin', 'PLATFORM_ADMIN', 'org-default');

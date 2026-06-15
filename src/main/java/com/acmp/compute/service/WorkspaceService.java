@@ -109,7 +109,12 @@ public class WorkspaceService {
             clientManager.createRoleBinding(cluster.getId(), ns, rbName, roleName, sa);
 
             String queueYaml = K8sResourceBuilder.buildVolcanoQueue(queueName, new java.util.LinkedHashMap<>());
-            clientManager.applyClusterScopedYaml(cluster.getId(), queueYaml);
+            try {
+                clientManager.applyClusterScopedYaml(cluster.getId(), queueYaml);
+            } catch (Exception queueEx) {
+                // Volcano CRD 未安装（如 kind/minikube 测试环境）→ 仅 log.warn，不阻断 WS 创建
+                log.warn("Volcano Queue 创建失败（继续）: {}", queueEx.getMessage());
+            }
         } catch (Exception e) {
             log.error("K8s 资源创建失败: {}", e.getMessage(), e);
             throw new RuntimeException("工作空间创建失败（K8s 资源）: " + e.getMessage(), e);

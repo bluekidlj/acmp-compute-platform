@@ -163,8 +163,10 @@ public class ModelDeploymentService {
         // 超分池跳过 K8s 提交
         if ("OVERSELL".equals(spec.getPoolType())) {
             deploymentMapper.updateStatus(id, "running", null);
+            ModelDeployment refreshed = deploymentMapper.findById(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("部署不存在: " + id));
             log.info("✅ 超分占位部署完成（未提交 K8s）: id={}, project={}, spec={}", id, projectId, spec.getName());
-            return toResponse(record, null);
+            return toResponse(refreshed, null);
         }
 
         try {

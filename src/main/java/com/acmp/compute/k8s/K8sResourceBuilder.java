@@ -177,7 +177,7 @@ public class K8sResourceBuilder {
                     .withName(deploymentName)
                     .withNamespace(namespace)
                     .addToLabels("app", "vllm")
-                    .addToLabels("spec", spec.getName())
+                    .addToLabels("spec", sanitizeLabel(spec.getName()))
                 .endMetadata()
                 .withNewSpec()
                     .withReplicas(replicas != null ? replicas : 1)
@@ -189,7 +189,7 @@ public class K8sResourceBuilder {
                         .withNewMetadata()
                             .addToLabels("app", "vllm")
                             .addToLabels("deployment", deploymentName)
-                            .addToLabels("spec", spec.getName())
+                            .addToLabels("spec", sanitizeLabel(spec.getName()))
                         .endMetadata()
                         .withSpec(podSpecBuilder.build())
                     .endTemplate()
@@ -388,6 +388,14 @@ public class K8sResourceBuilder {
         }
         // 空格分隔
         return java.util.Arrays.asList(command.split("\\s+"));
+    }
+
+    /**
+     * K8s label value 不允许 '/', 把 name 里的 '/' 替换为 '-'
+     */
+    private static String sanitizeLabel(String name) {
+        if (name == null) return null;
+        return name.replace('/', '-');
     }
 
     private static Map<String, String> parseNodeSelector(String json) {
