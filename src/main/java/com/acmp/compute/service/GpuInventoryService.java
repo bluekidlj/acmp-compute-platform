@@ -9,14 +9,17 @@ import com.acmp.compute.exception.ResourceNotFoundException;
 import com.acmp.compute.k8s.KubernetesClientManager;
 import com.acmp.compute.mapper.PhysicalClusterMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.fabric8.kubernetes.api.model.Node;
-import io.fabric8.kubernetes.api.model.Quantity;
-import io.fabric8.kubernetes.client.KubernetesClient;
+import io.kubernetes.client.openapi.ApiException;
+import io.kubernetes.client.openapi.apis.CoreV1Api;
+import io.kubernetes.client.openapi.models.V1Node;
+import io.kubernetes.client.openapi.models.V1NodeList;
+import io.kubernetes.client.openapi.models.V1Taint;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -45,15 +48,14 @@ public class GpuInventoryService {
 
     public List<NodeView> listNodes(String clusterId) {
         ensureCluster(clusterId);
-        List<Node> nodes = clientManager.getClient(clusterId).nodes().list().getItems();
-        return nodes.stream().map(this::toNodeView).collect(Collectors.toList());
+        return listK8sNodes(clusterId).stream().map(this::toNodeView).collect(Collectors.toList());
     }
 
     public List<GpuInfoView> listGpus(String clusterId) {
         ensureCluster(clusterId);
-        List<Node> nodes = clientManager.getClient(clusterId).nodes().list().getItems();
+        List<V1Node> nodes = listK8sNodes(clusterId);
         Map<String, GpuInfoView> agg = new LinkedHashMap<>();
-        for (Node n : nodes) {
+        for (V1Node n : nodes) {
             String model = readGpuModel(n);
             if (model == null) continue;
             long mem = readGpuMemoryMb(n);
@@ -70,11 +72,11 @@ public class GpuInventoryService {
 
     public List<GpuSplitView> listGpuSplits(String clusterId) {
         ensureCluster(clusterId);
-        List<Node> nodes = clientManager.getClient(clusterId).nodes().list().getItems();
+        List<V1Node> nodes = listK8sNodes(clusterId);
         Map<String, GpuSplitView> agg = new LinkedHashMap<>();
-        for (Node n : nodes) {
+        for (V1Node n : nodes) {
             String nodeName = n.getMetadata().getName();
-            var ann = n.getMetadata().getAnnotations();
+            Map<String, String> ann = n.getMetadata().getAnnotations();
             if (ann == null) continue;
             for (var e : ann.entrySet()) {
                 String key = e.getKey();
@@ -105,18 +107,18 @@ public class GpuInventoryService {
     @Transactional
     public ScanResult scanAndPersist(String clusterId) {
         PhysicalCluster cluster = ensureCluster(clusterId);
-        List<Node> nodes = clientManager.getClient(clusterId).nodes().list().getItems();
+        List<V1Node> nodes = listK8sNodes(clusterId);
 
         List<GpuInfoView> gpus = aggregateGpus(nodes);
         List<GpuSplitView> splits = aggregateSplits(nodes);
 
         int maxCpu = 0;
         long maxMemBytes = 0L;
-        for (Node n : nodes) {
+        for (V1Node n : nodes) {
             int cpu = (int) readAllocatableLong(n, "cpu");
             if (cpu > maxCpu) maxCpu = cpu;
             long mem = readAllocatableLong(n, "memory");
-            if (mem > maxMemBytes) maxMemBytes = mem;
+            if (maxMemBytes == 0 || mem > maxMemBytes) maxMemBytes = mem;
         }
         int maxMemGib = (int) (maxMemBytes / (1024L * 1024L * 1024L));
 
@@ -149,14 +151,29 @@ public class GpuInventoryService {
     }
 
     // ─── helpers ───
+
+    private List<V1Node> listK8sNodes(String clusterId) {
+        try {
+            V1NodeList nodeList = new CoreV1Api(clientManager.getClient(clusterId))
+                    .listNode()
+                    .execute();
+            return nodeList != null && nodeList.getItems() != null
+                    ? nodeList.getItems()
+                    : List.of();
+        } catch (ApiException e) {
+            log.error("listNode 失败: {}", e.getResponseBody(), e);
+            throw new RuntimeException("读 K8s 节点列表失败: " + e.getResponseBody(), e);
+        }
+    }
+
     private PhysicalCluster ensureCluster(String clusterId) {
         return physicalClusterMapper.findById(clusterId)
                 .orElseThrow(() -> new ResourceNotFoundException("集群不存在: " + clusterId));
     }
 
-    private List<GpuInfoView> aggregateGpus(List<Node> nodes) {
+    private List<GpuInfoView> aggregateGpus(List<V1Node> nodes) {
         Map<String, GpuInfoView> agg = new LinkedHashMap<>();
-        for (Node n : nodes) {
+        for (V1Node n : nodes) {
             String model = readGpuModel(n);
             if (model == null) continue;
             int cards = (int) readAllocatableLong(n, "nvidia.com/gpu");
@@ -171,11 +188,11 @@ public class GpuInventoryService {
         return new ArrayList<>(agg.values());
     }
 
-    private List<GpuSplitView> aggregateSplits(List<Node> nodes) {
+    private List<GpuSplitView> aggregateSplits(List<V1Node> nodes) {
         Map<String, GpuSplitView> agg = new LinkedHashMap<>();
-        for (Node n : nodes) {
+        for (V1Node n : nodes) {
             String nodeName = n.getMetadata().getName();
-            var ann = n.getMetadata().getAnnotations();
+            Map<String, String> ann = n.getMetadata().getAnnotations();
             if (ann == null) continue;
             for (var e : ann.entrySet()) {
                 if (!e.getKey().startsWith("nvidia.com/virtualization-group-")) continue;
@@ -194,11 +211,11 @@ public class GpuInventoryService {
         return new ArrayList<>(agg.values());
     }
 
-    private NodeView toNodeView(Node n) {
+    private NodeView toNodeView(V1Node n) {
         String name = n.getMetadata().getName();
         String status = n.getStatus() != null ? n.getStatus().getPhase() : "Unknown";
-        var labels = n.getMetadata().getLabels();
-        var taints = n.getSpec() != null ? n.getSpec().getTaints() : null;
+        Map<String, String> labels = n.getMetadata().getLabels();
+        List<V1Taint> taints = n.getSpec() != null ? n.getSpec().getTaints() : null;
         return NodeView.builder()
                 .name(name)
                 .status(status)
@@ -212,9 +229,9 @@ public class GpuInventoryService {
                 .build();
     }
 
-    private List<GpuSplitView> extractNodeSplits(Node n) {
+    private List<GpuSplitView> extractNodeSplits(V1Node n) {
         List<GpuSplitView> result = new ArrayList<>();
-        var ann = n.getMetadata().getAnnotations();
+        Map<String, String> ann = n.getMetadata().getAnnotations();
         if (ann == null) return result;
         for (var e : ann.entrySet()) {
             if (!e.getKey().startsWith("nvidia.com/virtualization-group-")) continue;
@@ -232,8 +249,8 @@ public class GpuInventoryService {
         return result;
     }
 
-    private String readGpuModel(Node n) {
-        var labels = n.getMetadata().getLabels();
+    private String readGpuModel(V1Node n) {
+        Map<String, String> labels = n.getMetadata().getLabels();
         if (labels == null) return null;
         String m = labels.get("nvidia.com/gpu.product");
         if (m != null) return m;
@@ -242,8 +259,8 @@ public class GpuInventoryService {
         return null;
     }
 
-    private long readGpuMemoryMb(Node n) {
-        var ann = n.getMetadata().getAnnotations();
+    private long readGpuMemoryMb(V1Node n) {
+        Map<String, String> ann = n.getMetadata().getAnnotations();
         if (ann == null) return 0L;
         String s = ann.get("nvidia.com/gpu-memory");
         if (s == null) return 0L;
@@ -251,15 +268,23 @@ public class GpuInventoryService {
         catch (Exception e) { return 0L; }
     }
 
-    private long readAllocatableLong(Node n, String key) {
+    private long readAllocatableLong(V1Node n, String key) {
         if (n.getStatus() == null || n.getStatus().getAllocatable() == null) return 0L;
-        Quantity q = n.getStatus().getAllocatable().get(key);
+        io.kubernetes.client.custom.Quantity q = n.getStatus().getAllocatable().get(key);
         if (q == null) return 0L;
         try {
-            Object amount = q.getAmount();
-            if (amount instanceof Number) return ((Number) amount).longValue();
+            BigDecimal num = q.getNumber();
+            if (num != null) {
+                // K8s quantity format: 1Gi = 1073741824, 1Mi = 1048576, 1Ki = 1024, 1m = 0.001
+                // Quantity.getNumber() 返回 SI base unit（已转换）；getFormat() 给出原始格式
+                io.kubernetes.client.custom.Quantity.Format fmt = q.getFormat();
+                if (fmt == io.kubernetes.client.custom.Quantity.Format.BINARY_SI
+                        || fmt == io.kubernetes.client.custom.Quantity.Format.DECIMAL_SI) {
+                    return num.longValue();
+                }
+                return num.longValue();
+            }
         } catch (Exception ignored) {}
-        try { return Quantity.getAmountInBytes(q).longValue(); } catch (Exception ignored) {}
         return 0L;
     }
 

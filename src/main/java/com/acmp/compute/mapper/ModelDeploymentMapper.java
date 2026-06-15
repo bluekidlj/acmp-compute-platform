@@ -19,5 +19,4 @@ public interface ModelDeploymentMapper {
     List<ModelDeployment> findByProjectId(@Param("projectId") String projectId);
     List<ModelDeployment> findByWorkspaceId(@Param("workspaceId") String workspaceId);
     int deleteById(@Param("id") String id);
-    List<ModelDeployment> findAll();
 }

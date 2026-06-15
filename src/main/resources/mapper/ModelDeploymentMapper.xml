@@ -75,8 +75,5 @@
     <select id="findByWorkspaceId" resultMap="BaseResultMap">
         SELECT * FROM model_deployment WHERE workspace_id = #{workspaceId} ORDER BY created_at DESC
     </select>
-    <select id="findAll" resultMap="BaseResultMap">
-        SELECT * FROM model_deployment ORDER BY created_at DESC
-    </select>
     <delete id="deleteById">DELETE FROM model_deployment WHERE id = #{id}</delete>
 </mapper>
