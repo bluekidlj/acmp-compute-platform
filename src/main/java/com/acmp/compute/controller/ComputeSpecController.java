@@ -14,7 +14,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 算力规格管理 API。
+ * 1.0 算力规格 API。
+ * 7 条预置规格由 schema-h2.sql 自动注入。
  */
 @RestController
 @RequestMapping("/api/v1/specs")
@@ -30,8 +31,8 @@ public class ComputeSpecController {
     }
 
     @GetMapping
-    public ResponseEntity<List<SpecResponse>> list() {
-        return ResponseEntity.ok(specService.list());
+    public ResponseEntity<List<SpecResponse>> list(@RequestParam(required = false) String poolType) {
+        return ResponseEntity.ok(specService.list(poolType));
     }
 
     @GetMapping("/{id}")

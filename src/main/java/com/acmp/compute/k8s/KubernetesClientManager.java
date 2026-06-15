@@ -129,8 +129,8 @@ public class KubernetesClientManager {
                 .withNewMetadata().withName(quotaName).withNamespace(namespace).endMetadata()
                 .withNewSpec().withHard(hard).endSpec()
                 .build();
-        client.resourceQuotas().inNamespace(namespace).resource(quota).serverSideApply();
-        log.info("已创建按规格 ResourceQuota: {} @ ns={}, specs={}", quotaName, namespace, specLimits);
+        client.resourceQuotas().inNamespace(namespace).resource(quota).createOrReplace();
+        log.info("已创建/替换按规格 ResourceQuota: {} @ ns={}, specs={}", quotaName, namespace, specLimits);
     }
 
     /**
@@ -180,6 +180,14 @@ public class KubernetesClientManager {
         if (deployment == null || deployment.getStatus() == null) return Optional.of(0);
         Integer ready = deployment.getStatus().getReadyReplicas();
         return Optional.ofNullable(ready == null ? 0 : ready);
+    }
+
+    /**
+     * 读取 K8s Deployment 对象（用于对账/审计）。
+     */
+    public Deployment getDeployment(String physicalClusterId, String namespace, String deploymentName) {
+        KubernetesClient client = getClient(physicalClusterId);
+        return client.apps().deployments().inNamespace(namespace).withName(deploymentName).get();
     }
 
     /**

@@ -24,19 +24,18 @@ public class UserService implements UserDetailsService {
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        User user = userMapper.findByUsername(username).orElseThrow(() -> new UsernameNotFoundException("用户不存在: " + username));
-        List<String> poolIds = userMapper.findResourcePoolIdsByUserId(user.getId());
+        User user = userMapper.findByUsername(username)
+                .orElseThrow(() -> new UsernameNotFoundException("用户不存在: " + username));
         return UserPrincipal.builder()
                 .id(user.getId())
                 .username(user.getUsername())
                 .passwordHash(user.getPasswordHash())
                 .role(user.getRole())
                 .organizationId(user.getOrganizationId())
-                .resourcePoolIds(poolIds)
+                .resourcePoolIds(List.of())
                 .build();
     }
 
-    /** 登录：校验密码后返回 JWT */
     public LoginResponse login(String username, String password) {
         UserPrincipal principal = (UserPrincipal) loadUserByUsername(username);
         if (!passwordEncoder.matches(password, principal.getPassword())) {
@@ -46,7 +45,7 @@ public class UserService implements UserDetailsService {
                 principal.getId(),
                 principal.getUsername(),
                 principal.getRole(),
-                principal.getResourcePoolIds()
+                List.of()
         );
         return LoginResponse.builder()
                 .token(token)

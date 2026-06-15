@@ -13,41 +13,43 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 模型服务部署。
+ * 1.0 模型部署 API：入口在 Project 下。
+ *
+ * <pre>
+ * POST   /api/v1/projects/{projectId}/deployments
+ * GET    /api/v1/projects/{projectId}/deployments
+ * GET    /api/v1/projects/{projectId}/deployments/{id}
+ * DELETE /api/v1/projects/{projectId}/deployments/{id}
+ * </pre>
  */
 @RestController
+@RequestMapping("/api/v1/projects/{projectId}/deployments")
 @RequiredArgsConstructor
 public class ModelDeploymentController {
 
-    private final ModelDeploymentService modelDeploymentService;
+    private final ModelDeploymentService service;
 
-    /**
-     * 部署推理服务（新版，完全自定义每副本资源）。
-     */
-    @PostMapping("/api/v1/resource-pools/{poolId}/workspaces/{workspaceId}/model-deployments")
-    public ResponseEntity<ModelDeploymentResponse> deploy(
-            @PathVariable String poolId,
-            @PathVariable String workspaceId,
-            @Valid @RequestBody ModelDeploymentRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(modelDeploymentService.deployBySpec(poolId, workspaceId, request));
+    @PostMapping
+    public ResponseEntity<ModelDeploymentResponse> deploy(@PathVariable String projectId,
+                                                           @Valid @RequestBody ModelDeploymentRequest req) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.deploy(projectId, req));
     }
 
-    @GetMapping("/api/v1/workspaces/{workspaceId}/model-deployments")
-    public ResponseEntity<List<ModelDeploymentResponse>> list(@PathVariable String workspaceId) {
-        return ResponseEntity.ok(modelDeploymentService.listByWorkspace(workspaceId));
+    @GetMapping
+    public ResponseEntity<List<ModelDeploymentResponse>> list(@PathVariable String projectId) {
+        return ResponseEntity.ok(service.listByProject(projectId));
     }
 
-    @GetMapping("/api/v1/workspaces/{workspaceId}/model-deployments/{deploymentId}")
-    public ResponseEntity<ModelDeploymentResponse> getStatus(
-            @PathVariable String workspaceId, @PathVariable String deploymentId) {
-        return ResponseEntity.ok(modelDeploymentService.getStatus(workspaceId, deploymentId));
+    @GetMapping("/{deploymentId}")
+    public ResponseEntity<ModelDeploymentResponse> getStatus(@PathVariable String projectId,
+                                                              @PathVariable String deploymentId) {
+        return ResponseEntity.ok(service.getStatus(projectId, deploymentId));
     }
 
-    @DeleteMapping("/api/v1/workspaces/{workspaceId}/model-deployments/{deploymentId}")
-    public ResponseEntity<Map<String, String>> delete(
-            @PathVariable String workspaceId, @PathVariable String deploymentId) {
-        modelDeploymentService.delete(workspaceId, deploymentId);
+    @DeleteMapping("/{deploymentId}")
+    public ResponseEntity<Map<String, String>> delete(@PathVariable String projectId,
+                                                      @PathVariable String deploymentId) {
+        service.delete(projectId, deploymentId);
         return ResponseEntity.ok(Map.of("message", "已删除部署"));
     }
 }

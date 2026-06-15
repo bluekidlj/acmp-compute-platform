@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 工作空间管理 API：CRUD + 成员。配额信息嵌入 WorkspaceResponse.specQuotas 返回。
+ * 工作空间（租户）管理 API。
  */
 @RestController
 @RequestMapping("/api/v1/workspaces")
@@ -31,8 +31,7 @@ public class WorkspaceController {
 
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('PLATFORM_ADMIN') or hasRole('ORG_ADMIN')")
-    public ResponseEntity<WorkspaceResponse> update(@PathVariable String id,
-                                                     @Valid @RequestBody WorkspaceRequest request) {
+    public ResponseEntity<WorkspaceResponse> update(@PathVariable String id, @Valid @RequestBody WorkspaceRequest request) {
         return ResponseEntity.ok(workspaceService.update(id, request));
     }
 
@@ -53,22 +52,18 @@ public class WorkspaceController {
         return ResponseEntity.ok(workspaceService.getById(id));
     }
 
-    // ── 成员管理 ──
-
     @PostMapping("/{id}/members")
     @PreAuthorize("hasRole('PLATFORM_ADMIN') or hasRole('ORG_ADMIN')")
-    public ResponseEntity<Map<String, String>> addMember(@PathVariable String id,
-                                                          @RequestBody Map<String, String> body) {
+    public ResponseEntity<Map<String, String>> addMember(@PathVariable String id, @RequestBody Map<String, String> body) {
         workspaceService.addMember(id, body.get("userId"));
-        return ResponseEntity.ok(Map.of("message", "已添加成员"));
+        return ResponseEntity.ok(Map.of("message", "已添加"));
     }
 
     @DeleteMapping("/{id}/members/{userId}")
     @PreAuthorize("hasRole('PLATFORM_ADMIN') or hasRole('ORG_ADMIN')")
-    public ResponseEntity<Map<String, String>> removeMember(@PathVariable String id,
-                                                             @PathVariable String userId) {
+    public ResponseEntity<Map<String, String>> removeMember(@PathVariable String id, @PathVariable String userId) {
         workspaceService.removeMember(id, userId);
-        return ResponseEntity.ok(Map.of("message", "已移除成员"));
+        return ResponseEntity.ok(Map.of("message", "已移除"));
     }
 
     @GetMapping("/{id}/members")

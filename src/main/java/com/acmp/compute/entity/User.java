@@ -6,10 +6,9 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
-import java.util.List;
 
 /**
- * 用户实体。resourcePoolIds 通过 user_resource_pool 表关联查询。
+ * 1.0 用户实体。表名 app_user（避免与 SQL 关键字 users 冲突）。
  */
 @Data
 @Builder
@@ -19,11 +18,12 @@ public class User {
     private String id;
     private String username;
     private String passwordHash;
-    /** PLATFORM_ADMIN / ORG_ADMIN / TRAINING_USER / INFERENCE_USER */
+    private String displayName;
+    private String email;
+    /** PLATFORM_ADMIN / ORG_ADMIN / INFERENCE_USER */
     private String role;
     private String organizationId;
+    private String status;
     private Instant createdAt;
     private Instant updatedAt;
-    /** 可访问的资源池 ID 列表（关联查询，不持久化在 user 表） */
-    private List<String> resourcePoolIds;
 }

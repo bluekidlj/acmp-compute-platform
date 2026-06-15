@@ -1,19 +1,17 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.acmp.compute.mapper.PhysicalClusterMapper">
-
     <resultMap id="BaseResultMap" type="com.acmp.compute.entity.PhysicalCluster">
         <id column="id" property="id"/>
         <result column="name" property="name"/>
         <result column="description" property="description"/>
         <result column="kubeconfig_base64_encrypted" property="kubeconfigBase64Encrypted"/>
         <result column="status" property="status"/>
-        <result column="total_gpu_slots" property="totalGpuSlots"/>
         <result column="gpu_types" property="gpuTypes"/>
+        <result column="hami_splits" property="hamiSplits"/>
         <result column="location" property="location"/>
         <result column="node_labels" property="nodeLabels"/>
         <result column="taints" property="taints"/>
-        <result column="hami_enabled" property="hamiEnabled"/>
         <result column="max_cpu_cores" property="maxCpuCores"/>
         <result column="max_memory_gib" property="maxMemoryGib"/>
         <result column="created_at" property="createdAt"/>
@@ -23,13 +21,11 @@
     <insert id="insert">
         INSERT INTO physical_cluster
             (id, name, description, kubeconfig_base64_encrypted, status,
-             total_gpu_slots, gpu_types, location, node_labels, taints, hami_enabled,
-             max_cpu_cores, max_memory_gib,
+             gpu_types, location, node_labels, taints, max_cpu_cores, max_memory_gib,
              created_at, updated_at)
         VALUES
             (#{id}, #{name}, #{description}, #{kubeconfigBase64Encrypted}, #{status},
-             #{totalGpuSlots}, #{gpuTypes}, #{location}, #{nodeLabels}, #{taints}, #{hamiEnabled},
-             #{maxCpuCores}, #{maxMemoryGib},
+             #{gpuTypes}, #{location}, #{nodeLabels}, #{taints}, #{maxCpuCores}, #{maxMemoryGib},
              CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 
@@ -39,27 +35,27 @@
             description = #{description},
             kubeconfig_base64_encrypted = #{kubeconfigBase64Encrypted},
             status = #{status},
-            total_gpu_slots = #{totalGpuSlots},
             gpu_types = #{gpuTypes},
             location = #{location},
             node_labels = #{nodeLabels},
             taints = #{taints},
-            hami_enabled = #{hamiEnabled},
             max_cpu_cores = #{maxCpuCores},
             max_memory_gib = #{maxMemoryGib},
             updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
     </update>
 
-    <select id="findById" resultMap="BaseResultMap">
-        SELECT * FROM physical_cluster WHERE id = #{id}
-    </select>
+    <update id="updateScanSummary">
+        UPDATE physical_cluster
+        SET gpu_types       = #{gpuTypes},
+            hami_splits     = #{hamiSplits},
+            max_cpu_cores   = #{maxCpuCores},
+            max_memory_gib  = #{maxMemoryGib},
+            updated_at      = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
 
-    <select id="findAll" resultMap="BaseResultMap">
-        SELECT * FROM physical_cluster ORDER BY created_at DESC
-    </select>
-
-    <delete id="deleteById">
-        DELETE FROM physical_cluster WHERE id = #{id}
-    </delete>
+    <select id="findById" resultMap="BaseResultMap">SELECT * FROM physical_cluster WHERE id = #{id}</select>
+    <select id="findAll" resultMap="BaseResultMap">SELECT * FROM physical_cluster ORDER BY created_at DESC</select>
+    <delete id="deleteById">DELETE FROM physical_cluster WHERE id = #{id}</delete>
 </mapper>

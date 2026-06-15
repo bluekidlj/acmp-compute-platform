@@ -9,20 +9,15 @@ import java.util.Optional;
 
 @Mapper
 public interface ResourcePoolMapper {
-
     int insert(ResourcePool entity);
     int update(ResourcePool entity);
+    int updateCapacity(@Param("id") String id, @Param("totalNodes") int totalNodes);
+    int updateAllocated(@Param("id") String id, @Param("allocatedNodes") int allocatedNodes);
 
     Optional<ResourcePool> findById(@Param("id") String id);
     List<ResourcePool> findAll();
-    List<ResourcePool> findByPhysicalClusterId(@Param("physicalClusterId") String physicalClusterId);
-
-    int insertPhysicalCluster(@Param("resourcePoolId") String resourcePoolId,
-                              @Param("physicalClusterId") String physicalClusterId);
-    List<String> findPhysicalClusterIds(@Param("resourcePoolId") String resourcePoolId);
-
-    /** 【异构算力】从 workspace_pool_cluster 查工作空间关联的物理集群 */
-    List<String> findPhysicalClusterIdsByWorkspaceId(@Param("workspaceId") String workspaceId);
-
+    List<ResourcePool> findByWorkspaceId(@Param("workspaceId") String workspaceId);
+    Optional<ResourcePool> findByWorkspaceAndType(@Param("workspaceId") String workspaceId,
+                                                  @Param("poolType") String poolType);
     int deleteById(@Param("id") String id);
 }

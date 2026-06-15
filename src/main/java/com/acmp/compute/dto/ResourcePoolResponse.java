@@ -10,28 +10,30 @@ import java.util.List;
 @Builder
 public class ResourcePoolResponse {
     private String id;
+    private String workspaceId;
+    /** EXCLUSIVE / SHARED / OVERSELL */
+    private String poolType;
     private String name;
     private String description;
-    private String departmentCode;
-    private String departmentName;
+    private String primaryClusterId;
+    private Integer totalNodes;
+    private Integer allocatedNodes;
+    private Integer availableNodes;
     private String status;
 
-    /** 关联的物理集群 ID 列表 */
-    private List<String> physicalClusterIds;
-
-    /** 按规格的配额（每条含 specName/total/allocated/available） */
-    private List<SpecQuotaView> specQuotas;
+    /** 已关联的规格（简版：id + name） */
+    private List<SpecBrief> specs;
 
     private Instant createdAt;
     private Instant updatedAt;
 
     @Data
     @Builder
-    public static class SpecQuotaView {
-        private String specId;
-        private String specName;
-        private Integer totalQuota;
-        private Integer allocatedQuota;
-        private Integer availableQuota;
+    public static class SpecBrief {
+        private String id;
+        private String name;
+        private String displayName;
+        private String specType;
+        private String poolType;
     }
 }

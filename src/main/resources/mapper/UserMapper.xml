@@ -3,42 +3,43 @@
 <mapper namespace="com.acmp.compute.mapper.UserMapper">
 
     <resultMap id="BaseResultMap" type="com.acmp.compute.entity.User">
-        <id column="id" property="id"/>
-        <result column="username" property="username"/>
-        <result column="password_hash" property="passwordHash"/>
-        <result column="role" property="role"/>
+        <id     column="id"              property="id"/>
+        <result column="username"        property="username"/>
+        <result column="password_hash"   property="passwordHash"/>
+        <result column="display_name"    property="displayName"/>
+        <result column="email"           property="email"/>
+        <result column="role"            property="role"/>
         <result column="organization_id" property="organizationId"/>
-        <result column="created_at" property="createdAt"/>
-        <result column="updated_at" property="updatedAt"/>
+        <result column="status"          property="status"/>
+        <result column="created_at"      property="createdAt"/>
+        <result column="updated_at"      property="updatedAt"/>
     </resultMap>
 
-    <insert id="insert">
-        INSERT INTO user (id, username, password_hash, role, organization_id, created_at, updated_at)
-        VALUES (#{id}, #{username}, #{passwordHash}, #{role}, #{organizationId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    </insert>
-
-    <update id="update">
-        UPDATE user SET username = #{username}, role = #{role}, organization_id = #{organizationId}, updated_at = CURRENT_TIMESTAMP
-        WHERE id = #{id}
-    </update>
-
     <select id="findById" resultMap="BaseResultMap">
-        SELECT * FROM user WHERE id = #{id}
+        SELECT * FROM app_user WHERE id = #{id}
     </select>
 
     <select id="findByUsername" resultMap="BaseResultMap">
-        SELECT * FROM user WHERE username = #{username}
+        SELECT * FROM app_user WHERE username = #{username}
     </select>
 
-    <select id="findResourcePoolIdsByUserId" resultType="java.lang.String">
-        SELECT resource_pool_id FROM user_resource_pool WHERE user_id = #{userId}
+    <select id="findAll" resultMap="BaseResultMap">
+        SELECT * FROM app_user ORDER BY created_at DESC
     </select>
 
-    <insert id="insertUserResourcePool">
-        INSERT INTO user_resource_pool (user_id, resource_pool_id) VALUES (#{userId}, #{resourcePoolId})
+    <insert id="insert">
+        INSERT INTO app_user (id, username, password_hash, display_name, email, role, organization_id, status, created_at, updated_at)
+        VALUES (#{id}, #{username}, #{passwordHash}, #{displayName}, #{email}, #{role}, #{organizationId}, #{status},
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 
-    <delete id="deleteUserResourcePoolsByUserId">
-        DELETE FROM user_resource_pool WHERE user_id = #{userId}
-    </delete>
+    <update id="update">
+        UPDATE app_user
+        SET display_name = #{displayName},
+            email        = #{email},
+            role         = #{role},
+            status       = #{status},
+            updated_at   = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
 </mapper>

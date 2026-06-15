@@ -4,67 +4,52 @@
 
     <resultMap id="BaseResultMap" type="com.acmp.compute.entity.ResourcePool">
         <id column="id" property="id"/>
+        <result column="workspace_id" property="workspaceId"/>
+        <result column="pool_type" property="poolType"/>
         <result column="name" property="name"/>
         <result column="description" property="description"/>
-        <result column="department_code" property="departmentCode"/>
-        <result column="department_name" property="departmentName"/>
-        <result column="pool_mode" property="poolMode"/>
+        <result column="primary_cluster_id" property="primaryClusterId"/>
+        <result column="total_nodes" property="totalNodes"/>
+        <result column="allocated_nodes" property="allocatedNodes"/>
         <result column="status" property="status"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
 
     <insert id="insert">
-        INSERT INTO resource_pool (id, name, description, department_code, department_name, pool_mode, status,
-                                   created_at, updated_at)
-        VALUES (#{id}, #{name}, #{description}, #{departmentCode}, #{departmentName}, #{poolMode}, #{status},
-                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO resource_pool
+            (id, workspace_id, pool_type, name, description, primary_cluster_id,
+             total_nodes, allocated_nodes, status, created_at, updated_at)
+        VALUES
+            (#{id}, #{workspaceId}, #{poolType}, #{name}, #{description}, #{primaryClusterId},
+             #{totalNodes}, #{allocatedNodes}, #{status},
+             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 
     <update id="update">
         UPDATE resource_pool
         SET name = #{name},
             description = #{description},
-            department_code = #{departmentCode},
-            department_name = #{departmentName},
-            pool_mode = #{poolMode},
             status = #{status},
             updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
     </update>
 
-    <select id="findById" resultMap="BaseResultMap">
-        SELECT * FROM resource_pool WHERE id = #{id}
+    <update id="updateCapacity">
+        UPDATE resource_pool SET total_nodes = #{totalNodes}, updated_at = CURRENT_TIMESTAMP WHERE id = #{id}
+    </update>
+
+    <update id="updateAllocated">
+        UPDATE resource_pool SET allocated_nodes = #{allocatedNodes}, updated_at = CURRENT_TIMESTAMP WHERE id = #{id}
+    </update>
+
+    <select id="findById" resultMap="BaseResultMap">SELECT * FROM resource_pool WHERE id = #{id}</select>
+    <select id="findAll" resultMap="BaseResultMap">SELECT * FROM resource_pool ORDER BY created_at DESC</select>
+    <select id="findByWorkspaceId" resultMap="BaseResultMap">
+        SELECT * FROM resource_pool WHERE workspace_id = #{workspaceId} ORDER BY pool_type
     </select>
-
-    <select id="findAll" resultMap="BaseResultMap">
-        SELECT * FROM resource_pool ORDER BY created_at DESC
+    <select id="findByWorkspaceAndType" resultMap="BaseResultMap">
+        SELECT * FROM resource_pool WHERE workspace_id = #{workspaceId} AND pool_type = #{poolType}
     </select>
-
-    <select id="findByPhysicalClusterId" resultMap="BaseResultMap">
-        SELECT rp.* FROM resource_pool rp
-        JOIN resource_pool_physical_cluster rppc ON rp.id = rppc.resource_pool_id
-        WHERE rppc.physical_cluster_id = #{physicalClusterId}
-        ORDER BY rp.created_at DESC
-    </select>
-
-    <insert id="insertPhysicalCluster">
-        INSERT INTO resource_pool_physical_cluster (resource_pool_id, physical_cluster_id)
-        VALUES (#{resourcePoolId}, #{physicalClusterId})
-    </insert>
-
-    <select id="findPhysicalClusterIds" resultType="java.lang.String">
-        SELECT physical_cluster_id FROM resource_pool_physical_cluster WHERE resource_pool_id = #{resourcePoolId}
-    </select>
-
-    <!-- 【异构算力】从 workspace_pool_cluster 查工作空间关联的物理集群 -->
-    <select id="findPhysicalClusterIdsByWorkspaceId" resultType="java.lang.String">
-        SELECT wpc.physical_cluster_id
-        FROM workspace_pool_cluster wpc
-        WHERE wpc.workspace_id = #{workspaceId}
-    </select>
-
-    <delete id="deleteById">
-        DELETE FROM resource_pool WHERE id = #{id}
-    </delete>
+    <delete id="deleteById">DELETE FROM resource_pool WHERE id = #{id}</delete>
 </mapper>

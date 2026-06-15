@@ -4,15 +4,13 @@
 
     <resultMap id="BaseResultMap" type="com.acmp.compute.entity.Workspace">
         <id column="id" property="id"/>
-        <result column="resource_pool_id" property="resourcePoolId"/>
         <result column="name" property="name"/>
         <result column="description" property="description"/>
+        <result column="primary_cluster_id" property="primaryClusterId"/>
         <result column="namespace" property="namespace"/>
         <result column="service_account_name" property="serviceAccountName"/>
         <result column="volcano_queue_name" property="volcanoQueueName"/>
-        <result column="primary_cluster_id" property="primaryClusterId"/>
         <result column="max_pods" property="maxPods"/>
-        <result column="node_count" property="nodeCount"/>
         <result column="created_by" property="createdBy"/>
         <result column="status" property="status"/>
         <result column="created_at" property="createdAt"/>
@@ -21,62 +19,40 @@
 
     <insert id="insert">
         INSERT INTO workspace
-            (id, resource_pool_id, name, description,
-             namespace, service_account_name, volcano_queue_name, primary_cluster_id,
-             max_pods, node_count, created_by, status, created_at, updated_at)
+            (id, name, description, primary_cluster_id, namespace,
+             service_account_name, volcano_queue_name, max_pods,
+             created_by, status, created_at, updated_at)
         VALUES
-            (#{id}, #{resourcePoolId}, #{name}, #{description},
-             #{namespace}, #{serviceAccountName}, #{volcanoQueueName}, #{primaryClusterId},
-             #{maxPods}, #{nodeCount}, #{createdBy}, #{status},
-             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            (#{id}, #{name}, #{description}, #{primaryClusterId}, #{namespace},
+             #{serviceAccountName}, #{volcanoQueueName}, #{maxPods},
+             #{createdBy}, #{status}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 
     <update id="update">
         UPDATE workspace
         SET name = #{name},
             description = #{description},
+            max_pods = #{maxPods},
             status = #{status},
             updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
     </update>
 
-    <select id="findById" resultMap="BaseResultMap">
-        SELECT * FROM workspace WHERE id = #{id}
-    </select>
+    <select id="findById" resultMap="BaseResultMap">SELECT * FROM workspace WHERE id = #{id}</select>
+    <select id="findAll" resultMap="BaseResultMap">SELECT * FROM workspace ORDER BY created_at DESC</select>
+    <delete id="deleteById">DELETE FROM workspace WHERE id = #{id}</delete>
 
-    <select id="findAll" resultMap="BaseResultMap">
-        SELECT * FROM workspace ORDER BY created_at DESC
-    </select>
-
-    <select id="findByResourcePoolId" resultMap="BaseResultMap">
-        SELECT * FROM workspace WHERE resource_pool_id = #{resourcePoolId} ORDER BY created_at DESC
-    </select>
-
-    <delete id="deleteById">
-        DELETE FROM workspace WHERE id = #{id}
-    </delete>
-
-    <!-- 成员管理 -->
     <insert id="insertMember">
-        MERGE INTO workspace_member (user_id, workspace_id) KEY(user_id, workspace_id)
-        VALUES (#{userId}, #{workspaceId})
+        MERGE INTO workspace_member (workspace_id, user_id) KEY(workspace_id, user_id)
+        VALUES (#{workspaceId}, #{userId})
     </insert>
     <delete id="deleteMember">
         DELETE FROM workspace_member WHERE workspace_id = #{workspaceId} AND user_id = #{userId}
     </delete>
+    <delete id="deleteAllMembers">
+        DELETE FROM workspace_member WHERE workspace_id = #{workspaceId}
+    </delete>
     <select id="findMemberIds" resultType="java.lang.String">
         SELECT user_id FROM workspace_member WHERE workspace_id = #{workspaceId}
     </select>
-
-    <!-- 【异构算力】workspace_pool_cluster 关联 -->
-    <insert id="insertCluster">
-        MERGE INTO workspace_pool_cluster (workspace_id, physical_cluster_id) KEY(workspace_id, physical_cluster_id)
-        VALUES (#{workspaceId}, #{physicalClusterId})
-    </insert>
-    <select id="findClusterIds" resultType="java.lang.String">
-        SELECT physical_cluster_id FROM workspace_pool_cluster WHERE workspace_id = #{workspaceId}
-    </select>
-    <delete id="deleteClusters">
-        DELETE FROM workspace_pool_cluster WHERE workspace_id = #{workspaceId}
-    </delete>
 </mapper>

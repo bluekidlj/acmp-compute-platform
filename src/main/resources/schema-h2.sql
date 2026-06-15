@@ -1,366 +1,278 @@
--- AI Compute Platform - H2 数据库表结构（v2.0）
--- 设计原则："物理属性归物理池，标准定义归规格，逻辑池只存关联关系"
+-- ===================================================================
+-- ACMP-Compute 1.0 数据库结构
+-- 概念模型：
+--   PhysicalCluster (物理 K8s 集群)
+--      └── Workspace (租户 = 1 K8s Namespace)
+--             ├── 3 个 ResourcePool (EXCLUSIVE / SHARED / OVERSELL)
+--             │     └── N 个关联 ComputeSpec
+--             └── N 个 Project (项目 = 配额真正持有者)
+--                    ├── ProjectMember (项目成员，独立于 WS 成员)
+--                    └── ProjectResourceQuota (从池 × 规格维度分配的配额)
+--                           ↑
+--                     ModelDeployment (推理服务) 实际扣减对象
+-- ===================================================================
 
--- ============================================
--- 物理集群（K8s 集群）：节点标签、污点的唯一存储点
--- ============================================
-CREATE TABLE IF NOT EXISTS physical_cluster (
-    id VARCHAR(36) PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    description VARCHAR(512),
-    kubeconfig_base64_encrypted CLOB NOT NULL,
-    status VARCHAR(32) NOT NULL DEFAULT 'active',
-    total_gpu_slots INT,
-    gpu_types VARCHAR(255) DEFAULT 'NVIDIA',
-    location VARCHAR(64) DEFAULT 'default',
-    -- 调度属性（唯一存储点，逻辑池不存）
-    -- node_labels JSON: {"pool":"nvidia-gpu-pool"}
-    node_labels VARCHAR(1024),
-    -- taints JSON: [{"key":"nvidia.com/gpu","value":"present","effect":"NoSchedule"}]
-    taints VARCHAR(2048),
-    -- 【HAMi vGPU】是否启用 HAMi vGPU 支持
-    hami_enabled BOOLEAN DEFAULT FALSE,
-    -- 单节点资源上限（用于部署预检验）
-    max_cpu_cores INT,
-    max_memory_gib INT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 组织
+-- ─────────── 用户与组织 ───────────
 CREATE TABLE IF NOT EXISTS organization (
-    id VARCHAR(36) PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id           VARCHAR(64) PRIMARY KEY,
+    code         VARCHAR(64) UNIQUE NOT NULL,
+    name         VARCHAR(128) NOT NULL,
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- ============================================
--- 逻辑资源池：纯 DB 聚合容器，不存标签/污点/调度规则
--- pool_mode: HOMOGENEOUS（单物理集群）/ HETEROGENEOUS（多物理集群）
--- ============================================
-CREATE TABLE IF NOT EXISTS resource_pool (
-    id VARCHAR(36) PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    description VARCHAR(512),
-    department_code VARCHAR(64) NOT NULL,
-    department_name VARCHAR(255),
-    pool_mode VARCHAR(32) DEFAULT 'HOMOGENEOUS',
-    status VARCHAR(32) NOT NULL DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS app_user (
+    id              VARCHAR(64) PRIMARY KEY,
+    username        VARCHAR(64) UNIQUE NOT NULL,
+    password_hash   VARCHAR(255) NOT NULL,
+    display_name    VARCHAR(128),
+    email           VARCHAR(128),
+    role            VARCHAR(32) NOT NULL,    -- PLATFORM_ADMIN / ORG_ADMIN / INFERENCE_USER
+    organization_id VARCHAR(64),
+    status          VARCHAR(20) DEFAULT 'active',
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_app_user_org ON app_user(organization_id);
+
+-- ─────────── 物理集群 ───────────
+CREATE TABLE IF NOT EXISTS physical_cluster (
+    id                              VARCHAR(64) PRIMARY KEY,
+    name                            VARCHAR(128) NOT NULL,
+    description                     VARCHAR(512),
+    kubeconfig_base64_encrypted     CLOB NOT NULL,
+    status                          VARCHAR(32) NOT NULL DEFAULT 'active',
+    gpu_types                       VARCHAR(512),       -- CSV: NVIDIA,HYGON,HUAWEI_ASCEND
+    hami_splits                     TEXT,               -- JSON 数组：HAMi 切分规格
+    location                        VARCHAR(64),
+    node_labels                     VARCHAR(1024),      -- JSON
+    taints                          VARCHAR(2048),      -- JSON
+    max_cpu_cores                   INT,
+    max_memory_gib                  INT,
+    created_at                      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at                      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 逻辑资源池 ↔ 物理集群 多对多
-CREATE TABLE IF NOT EXISTS resource_pool_physical_cluster (
-    resource_pool_id VARCHAR(36) NOT NULL,
-    physical_cluster_id VARCHAR(36) NOT NULL,
-    PRIMARY KEY (resource_pool_id, physical_cluster_id),
-    FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id),
-    FOREIGN KEY (physical_cluster_id) REFERENCES physical_cluster(id)
-);
-
--- 用户
-CREATE TABLE IF NOT EXISTS users (
-    id VARCHAR(36) PRIMARY KEY,
-    username VARCHAR(128) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
-    role VARCHAR(32) NOT NULL,
-    organization_id VARCHAR(36),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (organization_id) REFERENCES organization(id)
-);
-
--- 用户-资源池 多对多
-CREATE TABLE IF NOT EXISTS user_resource_pool (
-    user_id VARCHAR(36) NOT NULL,
-    resource_pool_id VARCHAR(36) NOT NULL,
-    PRIMARY KEY (user_id, resource_pool_id),
-    FOREIGN KEY (user_id) REFERENCES users(id),
-    FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id)
-);
-
--- ============================================
--- 算力规格：预设的 K8s ResourceRequirements 模板 + nodeSelector + tolerations
--- ============================================
+-- ─────────── 算力规格（全局规格库）───────────
+-- specType 决定 poolType 一一对应：
+--   PHYSICAL  → EXCLUSIVE
+--   VIRTUAL   → SHARED     （HAMi vGPU 切分）
+--   OVERSELL  → OVERSELL   （1.0 暂未实现真实 K8s 提交）
 CREATE TABLE IF NOT EXISTS compute_spec (
-    id VARCHAR(36) PRIMARY KEY,
-    name VARCHAR(128) NOT NULL UNIQUE,
-    display_name VARCHAR(255),
-    gpu_brand VARCHAR(64) DEFAULT 'NVIDIA',
-    -- 预设 ResourceRequirements
-    default_gpu_count INT DEFAULT 1,
-    default_gpumem_mb INT,
-    default_gpucores INT,
-    default_cpu_cores INT DEFAULT 4,
-    default_memory_gib INT DEFAULT 16,
-    -- 节点选择器 + 污点容忍（JSON）
-    node_selector VARCHAR(512),
-    tolerations VARCHAR(1024),
-    -- ResourceQuota 中的资源键，默认 platform.io/{name}
-    resource_quota_key VARCHAR(255),
-    memory_gb INT,
-    description VARCHAR(512),
-    -- 【HAMi vGPU】规格类型：PHYSICAL=物理整卡，VIRTUAL=HAMi 切分后的 vGPU 规格
-    spec_type VARCHAR(32) DEFAULT 'PHYSICAL',
-    -- 【HAMi vGPU】关联的 vGPU 单元 ID（VIRTUAL 规格时必填）
-    hami_vgpu_unit_id VARCHAR(36),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id                    VARCHAR(64) PRIMARY KEY,
+    name                  VARCHAR(128) UNIQUE NOT NULL,
+    display_name          VARCHAR(128),
+    gpu_brand             VARCHAR(32),            -- NVIDIA / HYGON / HUAWEI_ASCEND
+    spec_type             VARCHAR(20) NOT NULL,    -- PHYSICAL / VIRTUAL / OVERSELL
+    pool_type             VARCHAR(20) NOT NULL,    -- EXCLUSIVE / SHARED / OVERSELL (冗余)
+    default_gpu_count     INT DEFAULT 1,
+    default_gpumem_mb     INT,
+    default_gpucores      INT,
+    default_cpu_cores     INT DEFAULT 4,
+    default_memory_gib    INT DEFAULT 16,
+    node_selector         VARCHAR(512),           -- JSON
+    tolerations           VARCHAR(1024),           -- JSON
+    resource_quota_key    VARCHAR(128),
+    memory_gb             INT,
+    description           VARCHAR(512),
+    created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 物理集群拥有的规格及数量（用于"按规格选目标集群"调度决策）
-CREATE TABLE IF NOT EXISTS physical_cluster_spec (
-    physical_cluster_id VARCHAR(36) NOT NULL,
-    spec_id VARCHAR(36) NOT NULL,
-    total_count INT DEFAULT 0,
-    -- 【HAMi vGPU】该集群该规格的可用数量（虚拟规格时同步 vGPU 实际可用数）
-    available_count INT DEFAULT 0,
-    PRIMARY KEY (physical_cluster_id, spec_id),
-    FOREIGN KEY (physical_cluster_id) REFERENCES physical_cluster(id),
-    FOREIGN KEY (spec_id) REFERENCES compute_spec(id)
-);
-
--- ============================================
--- 【HAMi vGPU】GPU 切分主配置：每行代表一个物理集群中一种 GPU 型号的切分配置
--- ============================================
-CREATE TABLE IF NOT EXISTS hami_gpu_config (
-    id VARCHAR(36) PRIMARY KEY,
-    physical_cluster_id VARCHAR(36) NOT NULL,
-    gpu_type VARCHAR(64) NOT NULL,              -- GPU 型号，如 "A100-80GB-SXM"
-    gpu_mem_mb INT NOT NULL,                     -- 整卡显存 MB，如 81920
-    gpu_cores INT NOT NULL,                      -- 整卡算力占比 0-100，如 100
-    total_vgpu_count INT NOT NULL,               -- 从该卡切出的 vGPU 总数，如 6
-    node_selector_key VARCHAR(128),             -- 节点标签 key，如 "pool"
-    node_selector_prefix VARCHAR(64),            -- 节点标签前缀，如 "v100-"
-    status VARCHAR(32) DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (physical_cluster_id) REFERENCES physical_cluster(id)
-);
-
--- 【HAMi vGPU】vGPU 单元明细：一个 hami_gpu_config 对应多个 vGPU 单元
-CREATE TABLE IF NOT EXISTS hami_vgpu_unit (
-    id VARCHAR(36) PRIMARY KEY,
-    hami_gpu_config_id VARCHAR(36) NOT NULL,
-    vgpu_index INT NOT NULL,                    -- vGPU 索引 0,1,2...
-    vgpu_name VARCHAR(64) NOT NULL,              -- vGPU 名称，如 "v100-7b"
-    vgpu_mem_mb INT NOT NULL,                    -- vGPU 显存 MB，如 14000
-    vgpu_cores INT NOT NULL,                    -- vGPU 算力占比 0-100，如 16
-    node_selector_value VARCHAR(128),            -- 节点标签 value，如 "v100-7b"
-    tolerations VARCHAR(1024),                   -- 容忍配置 JSON
-    available_count INT NOT NULL,                -- 该 vGPU 单元在集群中的可用数量
-    FOREIGN KEY (hami_gpu_config_id) REFERENCES hami_gpu_config(id)
-);
-
--- 逻辑池按规格的总节点数（节点初次划分）
-CREATE TABLE IF NOT EXISTS resource_pool_spec_quota (
-    resource_pool_id VARCHAR(36) NOT NULL,
-    spec_id VARCHAR(36) NOT NULL,
-    total_nodes INT DEFAULT 0,
-    allocated_nodes INT DEFAULT 0,
-    PRIMARY KEY (resource_pool_id, spec_id),
-    FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id),
-    FOREIGN KEY (spec_id) REFERENCES compute_spec(id)
-);
-
--- ============================================
--- 工作空间 = K8s Namespace（100% 对应，用户唯一可见的资源边界）
--- ============================================
+-- ─────────── 工作空间 = 租户 ───────────
+-- 1.0 每个 WS = 1 个 K8s Namespace + 1 个 Volcano Queue
+-- primaryClusterId: 1.0 单集群下必有值
 CREATE TABLE IF NOT EXISTS workspace (
-    id VARCHAR(36) PRIMARY KEY,
-    resource_pool_id VARCHAR(36) NOT NULL,
-    -- K8s 资源名
-    namespace VARCHAR(255) NOT NULL UNIQUE,
-    service_account_name VARCHAR(255),
-    volcano_queue_name VARCHAR(255),
-    primary_cluster_id VARCHAR(36),
-    -- 配额仅保留 maxPods 这类与规格无关的全局上限（gpu/cpu/mem 已迁移到 workspace_pool_spec_quota）
-    max_pods INT DEFAULT 50,
-    node_count INT DEFAULT 1,
-    -- 描述
-    name VARCHAR(255) NOT NULL,
-    description VARCHAR(512),
-    created_by VARCHAR(36),
-    status VARCHAR(32) NOT NULL DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id),
-    FOREIGN KEY (created_by) REFERENCES users(id)
+    id                      VARCHAR(64) PRIMARY KEY,
+    name                    VARCHAR(128) NOT NULL,
+    description             VARCHAR(512),
+    primary_cluster_id      VARCHAR(64) NOT NULL,
+    namespace               VARCHAR(128) UNIQUE NOT NULL,
+    service_account_name    VARCHAR(128),
+    volcano_queue_name      VARCHAR(128),
+    max_pods                INT DEFAULT 50,
+    created_by              VARCHAR(64),
+    status                  VARCHAR(20) DEFAULT 'active',
+    created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX IF NOT EXISTS idx_workspace_cluster ON workspace(primary_cluster_id);
 
--- 工作空间 ↔ 逻辑资源池 绑定（冗余表，与 workspace.resource_pool_id 等价，保留以兼容文档 v2.0）
-CREATE TABLE IF NOT EXISTS workspace_resource_pool (
-    workspace_id VARCHAR(36) NOT NULL,
-    resource_pool_id VARCHAR(36) NOT NULL,
-    PRIMARY KEY (workspace_id, resource_pool_id),
-    FOREIGN KEY (workspace_id) REFERENCES workspace(id),
-    FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id)
-);
-
--- 工作空间在逻辑池中的按规格节点配额（资源二次分配，双层配额核心）
-CREATE TABLE IF NOT EXISTS workspace_pool_spec_quota (
-    workspace_id VARCHAR(36) NOT NULL,
-    resource_pool_id VARCHAR(36) NOT NULL,
-    spec_id VARCHAR(36) NOT NULL,
-    max_nodes INT DEFAULT 0,
-    used_nodes INT DEFAULT 0,
-    PRIMARY KEY (workspace_id, resource_pool_id, spec_id),
-    FOREIGN KEY (workspace_id) REFERENCES workspace(id),
-    FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id),
-    FOREIGN KEY (spec_id) REFERENCES compute_spec(id)
-);
-
--- ============================================
--- 【异构算力核心】工作空间 ↔ 物理集群 多对多关联
--- 记录工作空间涉及的所有物理集群，供部署时动态选择目标集群。
--- 不再依赖 workspace.primaryClusterId（已废弃）。
--- ============================================
-CREATE TABLE IF NOT EXISTS workspace_pool_cluster (
-    workspace_id VARCHAR(36) NOT NULL,
-    physical_cluster_id VARCHAR(36) NOT NULL,
-    PRIMARY KEY (workspace_id, physical_cluster_id),
-    FOREIGN KEY (workspace_id) REFERENCES workspace(id),
-    FOREIGN KEY (physical_cluster_id) REFERENCES physical_cluster(id)
-);
-
--- ============================================
--- 模型广场（模型文件元信息，支持多存储后端）
--- ============================================
-CREATE TABLE IF NOT EXISTS model (
-    id VARCHAR(36) PRIMARY KEY,
-    name VARCHAR(128) NOT NULL UNIQUE,
-    display_name VARCHAR(255),
-    description VARCHAR(512),
-    model_source VARCHAR(32) NOT NULL DEFAULT 'with_weights',
-    storage_backend VARCHAR(32) NOT NULL DEFAULT 'nfs',
-    storage_path VARCHAR(512) NOT NULL,
-    file_size_mb BIGINT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- ============================================
--- vLLM 模型服务部署记录
--- ============================================
-CREATE TABLE IF NOT EXISTS model_deployment (
-    id VARCHAR(36) PRIMARY KEY,
-    -- 真实的所属语义：workspace 是 K8s 边界，pool 是配额归属
-    workspace_id VARCHAR(36) NOT NULL,
-    resource_pool_id VARCHAR(36) NOT NULL,
-    spec_id VARCHAR(36),
-    name VARCHAR(255) NOT NULL,
-    model_name VARCHAR(255),
-    model_source VARCHAR(32) NOT NULL,
-    model_id_or_path VARCHAR(512),
-    vllm_image VARCHAR(512),
-    gpu_per_replica INT DEFAULT 1,
-    gpumem_mb INT,
-    gpucores INT,
-    replicas INT DEFAULT 1,
-    k8s_deployment_name VARCHAR(255),
-    k8s_service_name VARCHAR(255),
-    status VARCHAR(32) NOT NULL DEFAULT 'pending',
-    service_url VARCHAR(512),
-    created_by VARCHAR(36),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (workspace_id) REFERENCES workspace(id),
-    FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id),
-    FOREIGN KEY (spec_id) REFERENCES compute_spec(id),
-    FOREIGN KEY (created_by) REFERENCES users(id)
-);
-
--- ============================================
--- 训练任务记录
--- ============================================
-CREATE TABLE IF NOT EXISTS training_job_record (
-    id VARCHAR(36) PRIMARY KEY,
-    workspace_id VARCHAR(36) NOT NULL,
-    resource_pool_id VARCHAR(36) NOT NULL,
-    spec_id VARCHAR(36),
-    replicas INT DEFAULT 1,
-    k8s_job_name VARCHAR(255),
-    job_name VARCHAR(255),
-    status VARCHAR(32),
-    created_by VARCHAR(36),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (workspace_id) REFERENCES workspace(id),
-    FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id),
-    FOREIGN KEY (spec_id) REFERENCES compute_spec(id)
-);
-
--- 资源池凭证（兼容旧版，按 workspace 发放更合理）
-CREATE TABLE IF NOT EXISTS resource_pool_credential (
-    id VARCHAR(36) PRIMARY KEY,
-    resource_pool_id VARCHAR(36) NOT NULL,
-    username VARCHAR(128) NOT NULL,
-    kubeconfig CLOB NOT NULL,
-    expire_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (resource_pool_id) REFERENCES resource_pool(id)
-);
-
--- ============================================
--- 权限：工作空间成员（平台层权限记录）
--- 每个工作空间只有一个 SA，平台层代理校验用户-工作空间关系
--- ============================================
 CREATE TABLE IF NOT EXISTS workspace_member (
-    user_id VARCHAR(36) NOT NULL,
-    workspace_id VARCHAR(36) NOT NULL,
-    PRIMARY KEY (user_id, workspace_id),
-    FOREIGN KEY (user_id) REFERENCES users(id),
-    FOREIGN KEY (workspace_id) REFERENCES workspace(id)
+    workspace_id    VARCHAR(64) NOT NULL,
+    user_id         VARCHAR(64) NOT NULL,
+    PRIMARY KEY (workspace_id, user_id)
 );
 
--- 索引
-CREATE INDEX IF NOT EXISTS idx_resource_pool_dept ON resource_pool(department_code);
-CREATE INDEX IF NOT EXISTS idx_credential_pool ON resource_pool_credential(resource_pool_id);
-CREATE INDEX IF NOT EXISTS idx_user_resource_pool_user ON user_resource_pool(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_resource_pool_pool ON user_resource_pool(resource_pool_id);
-CREATE INDEX IF NOT EXISTS idx_workspace_status ON workspace(status);
-CREATE INDEX IF NOT EXISTS idx_workspace_pool ON workspace(resource_pool_id);
-CREATE INDEX IF NOT EXISTS idx_rp_pc_pool ON resource_pool_physical_cluster(resource_pool_id);
-CREATE INDEX IF NOT EXISTS idx_rp_pc_cluster ON resource_pool_physical_cluster(physical_cluster_id);
-CREATE INDEX IF NOT EXISTS idx_model_dep_ws ON model_deployment(workspace_id);
-CREATE INDEX IF NOT EXISTS idx_model_dep_pool ON model_deployment(resource_pool_id);
-CREATE INDEX IF NOT EXISTS idx_training_ws ON training_job_record(workspace_id);
+-- ─────────── 资源池（WS 私有三类池）───────────
+-- 每 WS 每类池唯一，池被三个池类型预占
+CREATE TABLE IF NOT EXISTS resource_pool (
+    id                  VARCHAR(64) PRIMARY KEY,
+    workspace_id        VARCHAR(64) NOT NULL,
+    pool_type           VARCHAR(20) NOT NULL,    -- EXCLUSIVE / SHARED / OVERSELL
+    name                VARCHAR(128) NOT NULL,
+    description         VARCHAR(512),
+    primary_cluster_id  VARCHAR(64) NOT NULL,
+    total_nodes         INT NOT NULL DEFAULT 0,   -- 池总容量（卡数 / vGPU 数 / 超分单元数）
+    allocated_nodes     INT NOT NULL DEFAULT 0,   -- 已分配给各 Project 之和
+    status              VARCHAR(20) DEFAULT 'active',
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (workspace_id, pool_type)
+);
+CREATE INDEX IF NOT EXISTS idx_resource_pool_ws ON resource_pool(workspace_id);
 
--- 初始规格数据
-MERGE INTO compute_spec (id, name, display_name, gpu_brand, default_gpu_count, default_cpu_cores, default_memory_gib, node_selector, tolerations, resource_quota_key, memory_gb) KEY(id)
-VALUES ('spec-nvidia-a100-80g', 'nvidia-a100-80g', 'NVIDIA A100 80GB SXM', 'NVIDIA',
-        1, 8, 32,
-        '{"pool":"nvidia-gpu"}',
-        '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
-        'platform.io/nvidia-a100-80g', 80);
+-- 池 - 规格 多对多
+CREATE TABLE IF NOT EXISTS resource_pool_spec (
+    resource_pool_id    VARCHAR(64) NOT NULL,
+    spec_id             VARCHAR(64) NOT NULL,
+    PRIMARY KEY (resource_pool_id, spec_id)
+);
 
-MERGE INTO compute_spec (id, name, display_name, gpu_brand, default_gpu_count, default_cpu_cores, default_memory_gib, node_selector, tolerations, resource_quota_key, memory_gb) KEY(id)
-VALUES ('spec-nvidia-a100-40g', 'nvidia-a100-40g', 'NVIDIA A100 40GB PCIe', 'NVIDIA',
-        1, 8, 32,
-        '{"pool":"nvidia-gpu"}',
-        '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
-        'platform.io/nvidia-a100-40g', 40);
+-- ─────────── 项目（WS 内的子租户）───────────
+CREATE TABLE IF NOT EXISTS project (
+    id              VARCHAR(64) PRIMARY KEY,
+    workspace_id    VARCHAR(64) NOT NULL,
+    name            VARCHAR(128) NOT NULL,
+    description     VARCHAR(512),
+    created_by      VARCHAR(64),
+    status          VARCHAR(20) DEFAULT 'active',
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (workspace_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_project_ws ON project(workspace_id);
 
-MERGE INTO compute_spec (id, name, display_name, gpu_brand, default_gpu_count, default_cpu_cores, default_memory_gib, node_selector, tolerations, resource_quota_key, memory_gb) KEY(id)
-VALUES ('spec-nvidia-rtx4090-24g', 'nvidia-rtx4090-24g', 'NVIDIA RTX 4090 24GB', 'NVIDIA',
-        1, 8, 32,
-        '{"pool":"nvidia-gpu"}',
-        '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
-        'platform.io/nvidia-rtx4090-24g', 24);
+CREATE TABLE IF NOT EXISTS project_member (
+    project_id  VARCHAR(64) NOT NULL,
+    user_id     VARCHAR(64) NOT NULL,
+    PRIMARY KEY (project_id, user_id)
+);
 
-MERGE INTO compute_spec (id, name, display_name, gpu_brand, default_gpu_count, default_cpu_cores, default_memory_gib, node_selector, tolerations, resource_quota_key, memory_gb) KEY(id)
-VALUES ('spec-hygon-dcu-32g', 'hygon-dcu-32g', 'Hygon DCU 32GB', 'HYGON',
-        1, 8, 32,
-        '{"pool":"hygon-dcu"}',
-        '[{"key":"amd.com/dcu","operator":"Exists","effect":"NoSchedule"}]',
-        'platform.io/hygon-dcu-32g', 32);
+-- 项目从池获得的配额（按 pool × spec 维度）
+CREATE TABLE IF NOT EXISTS project_resource_quota (
+    id                  VARCHAR(64) PRIMARY KEY,
+    project_id          VARCHAR(64) NOT NULL,
+    resource_pool_id    VARCHAR(64) NOT NULL,
+    spec_id             VARCHAR(64) NOT NULL,
+    total_nodes         INT NOT NULL DEFAULT 0,
+    used_nodes          INT NOT NULL DEFAULT 0,
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (project_id, resource_pool_id, spec_id)
+);
+CREATE INDEX IF NOT EXISTS idx_prq_project ON project_resource_quota(project_id);
 
-MERGE INTO compute_spec (id, name, display_name, gpu_brand, default_gpu_count, default_cpu_cores, default_memory_gib, node_selector, tolerations, resource_quota_key, memory_gb) KEY(id)
-VALUES ('spec-huawei-ascend-910b', 'huawei-ascend-910b', 'HUAWEI Ascend 910B 64GB', 'HUAWEI_ASCEND',
-        1, 8, 32,
-        '{"pool":"huawei-ascend"}',
-        '[{"key":"huawei.com/ascend910","operator":"Exists","effect":"NoSchedule"}]',
-        'platform.io/huawei-ascend-910b', 64);
+-- ─────────── 模型部署 ───────────
+CREATE TABLE IF NOT EXISTS model_deployment (
+    id                      VARCHAR(64) PRIMARY KEY,
+    project_id              VARCHAR(64) NOT NULL,
+    workspace_id            VARCHAR(64) NOT NULL,
+    resource_pool_id        VARCHAR(64) NOT NULL,
+    spec_id                 VARCHAR(64) NOT NULL,
+    pool_type               VARCHAR(20) NOT NULL,        -- EXCLUSIVE / SHARED / OVERSELL
+    name                    VARCHAR(255) NOT NULL,
+    model_name              VARCHAR(255),
+    model_source            VARCHAR(32),
+    model_id_or_path        VARCHAR(512),
+    vllm_image              VARCHAR(512),
+    gpu_per_replica         INT DEFAULT 1,
+    gpumem_mb               INT,
+    gpucores                INT,
+    replicas                INT DEFAULT 1,
+    k8s_deployment_name     VARCHAR(255),
+    k8s_service_name        VARCHAR(255),
+    status                  VARCHAR(32) NOT NULL DEFAULT 'pending',
+    service_url             VARCHAR(512),
+    actual_cluster_id       VARCHAR(64),
+    created_by              VARCHAR(64),
+    created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_md_project ON model_deployment(project_id);
+CREATE INDEX IF NOT EXISTS idx_md_workspace ON model_deployment(workspace_id);
+
+-- ─────────── 模型广场 ───────────
+CREATE TABLE IF NOT EXISTS model_source (
+    id                  VARCHAR(64) PRIMARY KEY,
+    name                VARCHAR(128) NOT NULL UNIQUE,
+    display_name        VARCHAR(255),
+    description         TEXT,
+    model_source        VARCHAR(32) NOT NULL DEFAULT 'with_weights',
+    storage_backend     VARCHAR(32) NOT NULL DEFAULT 'nfs',
+    storage_path        VARCHAR(512) NOT NULL,
+    file_size_mb        BIGINT,
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ─────────── 训练任务记录（保留兼容，本轮不动）───────────
+CREATE TABLE IF NOT EXISTS training_job_record (
+    id                  VARCHAR(64) PRIMARY KEY,
+    workspace_id        VARCHAR(64) NOT NULL,
+    resource_pool_id    VARCHAR(64) NOT NULL,
+    spec_id             VARCHAR(64),
+    replicas            INT DEFAULT 1,
+    k8s_job_name        VARCHAR(255),
+    job_name            VARCHAR(255),
+    status              VARCHAR(32),
+    created_by          VARCHAR(64),
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ===================================================================
+-- 预置数据：7 条标准规格
+-- ===================================================================
+MERGE INTO compute_spec (id, name, display_name, gpu_brand, spec_type, pool_type,
+    default_gpu_count, default_cpu_cores, default_memory_gib,
+    node_selector, tolerations, resource_quota_key, memory_gb)
+KEY(id) VALUES
+('spec-exclusive-a100', 'exclusive-nvidia-a100-80g', 'NVIDIA A100 80GB (独占整卡)', 'NVIDIA',
+ 'PHYSICAL', 'EXCLUSIVE',
+ 1, 8, 32,
+ '{"pool":"exclusive-nvidia-a100-80g"}',
+ '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
+ 'platform.io/exclusive-nvidia-a100-80g', 80),
+
+('spec-exclusive-h100', 'exclusive-nvidia-h100-80g', 'NVIDIA H100 80GB (独占整卡)', 'NVIDIA',
+ 'PHYSICAL', 'EXCLUSIVE',
+ 1, 8, 32,
+ '{"pool":"exclusive-nvidia-h100-80g"}',
+ '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
+ 'platform.io/exclusive-nvidia-h100-80g', 80),
+
+('spec-exclusive-dcu', 'exclusive-hygon-dcu', 'Hygon DCU (独占整卡)', 'HYGON',
+ 'PHYSICAL', 'EXCLUSIVE',
+ 1, 8, 32,
+ '{"pool":"exclusive-hygon-dcu"}',
+ '[{"key":"amd.com/dcu","operator":"Exists","effect":"NoSchedule"}]',
+ 'platform.io/exclusive-hygon-dcu', 32),
+
+('spec-shared-a100-12', 'shared-hami-a100-1/2', 'A100 80GB 1/2 卡 (HAMi 切分)', 'NVIDIA',
+ 'VIRTUAL', 'SHARED',
+ 1, 4, 16,
+ '{"pool":"shared-hami-a100-1/2"}',
+ '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
+ 'platform.io/shared-hami-a100-1/2', 40),
+
+('spec-shared-a100-14', 'shared-hami-a100-1/4', 'A100 80GB 1/4 卡 (HAMi 切分)', 'NVIDIA',
+ 'VIRTUAL', 'SHARED',
+ 1, 2, 8,
+ '{"pool":"shared-hami-a100-1/4"}',
+ '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
+ 'platform.io/shared-hami-a100-1/4', 20),
+
+('spec-shared-a100-18', 'shared-hami-a100-1/8', 'A100 80GB 1/8 卡 (HAMi 切分)', 'NVIDIA',
+ 'VIRTUAL', 'SHARED',
+ 1, 1, 4,
+ '{"pool":"shared-hami-a100-1/8"}',
+ '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
+ 'platform.io/shared-hami-a100-1/8', 10),
+
+('spec-oversell-a100', 'oversell-a100-mig-1/2', 'A100 MIG 1/2 (超分占位)', 'NVIDIA',
+ 'OVERSELL', 'OVERSELL',
+ 1, 4, 16,
+ '{"pool":"oversell-a100-mig-1/2"}',
+ '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
+ 'platform.io/oversell-a100-mig-1/2', 40);

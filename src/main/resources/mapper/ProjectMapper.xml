@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.acmp.compute.mapper.ProjectMapper">
+
+    <resultMap id="BaseResultMap" type="com.acmp.compute.entity.Project">
+        <id column="id" property="id"/>
+        <result column="workspace_id" property="workspaceId"/>
+        <result column="name" property="name"/>
+        <result column="description" property="description"/>
+        <result column="created_by" property="createdBy"/>
+        <result column="status" property="status"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO project
+            (id, workspace_id, name, description, created_by, status, created_at, updated_at)
+        VALUES
+            (#{id}, #{workspaceId}, #{name}, #{description}, #{createdBy}, #{status},
+             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    </insert>
+
+    <update id="update">
+        UPDATE project
+        SET name = #{name},
+            description = #{description},
+            status = #{status},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <select id="findById" resultMap="BaseResultMap">SELECT * FROM project WHERE id = #{id}</select>
+    <select id="findAll" resultMap="BaseResultMap">SELECT * FROM project ORDER BY created_at DESC</select>
+    <select id="findByWorkspaceId" resultMap="BaseResultMap">
+        SELECT * FROM project WHERE workspace_id = #{workspaceId} ORDER BY created_at DESC
+    </select>
+    <delete id="deleteById">DELETE FROM project WHERE id = #{id}</delete>
+
+    <insert id="insertMember">
+        MERGE INTO project_member (project_id, user_id) KEY(project_id, user_id)
+        VALUES (#{projectId}, #{userId})
+    </insert>
+    <delete id="deleteMember">
+        DELETE FROM project_member WHERE project_id = #{projectId} AND user_id = #{userId}
+    </delete>
+    <delete id="deleteAllMembers">
+        DELETE FROM project_member WHERE project_id = #{projectId}
+    </delete>
+    <select id="findMemberIds" resultType="java.lang.String">
+        SELECT user_id FROM project_member WHERE project_id = #{projectId}
+    </select>
+</mapper>

@@ -12,9 +12,11 @@ public class PhysicalClusterResponse {
     private String name;
     private String description;
     private String status;
-    private Integer totalGpuSlots;
     private String gpuTypes;
     private String location;
+    private String hamiSplits;
+    private Integer maxCpuCores;
+    private Integer maxMemoryGib;
     private Instant createdAt;
     private Instant updatedAt;
 }

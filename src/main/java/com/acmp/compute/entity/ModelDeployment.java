@@ -8,12 +8,17 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 /**
- * vLLM 模型服务部署记录。
+ * 1.0 模型部署。
  *
- * 三个层级 ID：
- *  - workspaceId    : K8s 边界（Namespace 所在）
- *  - resourcePoolId : 配额归属（双层配额 L1）
- *  - specId         : 算力规格（驱动资源键、调度约束）
+ * 关键字段：
+ * <ul>
+ *   <li>projectId          - 部署归属项目（配额真正持有者）</li>
+ *   <li>workspaceId        - K8s 边界（Namespace）</li>
+ *   <li>resourcePoolId     - 实际落到的资源池</li>
+ *   <li>specId             - 使用的算力规格</li>
+ *   <li>poolType           - 池类型（EXCLUSIVE/SHARED/OVERSELL）</li>
+ *   <li>actualClusterId    - 实际落到的物理集群（1.0 = workspace.primaryClusterId）</li>
+ * </ul>
  */
 @Data
 @Builder
@@ -21,12 +26,13 @@ import java.time.Instant;
 @AllArgsConstructor
 public class ModelDeployment {
     private String id;
+    private String projectId;
     private String workspaceId;
     private String resourcePoolId;
     private String specId;
+    private String poolType;
     private String name;
     private String modelName;
-    /** with_weights / without_weights */
     private String modelSource;
     private String modelIdOrPath;
     private String vllmImage;
@@ -36,9 +42,9 @@ public class ModelDeployment {
     private Integer replicas;
     private String k8sDeploymentName;
     private String k8sServiceName;
-    /** pending / running / failed / stopped */
     private String status;
     private String serviceUrl;
+    private String actualClusterId;
     private String createdBy;
     private Instant createdAt;
     private Instant updatedAt;
