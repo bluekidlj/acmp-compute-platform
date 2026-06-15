@@ -11,6 +11,9 @@ import {
   UserOutlined,
   LogoutOutlined,
   ExperimentOutlined,
+  PartitionOutlined,
+  MessageOutlined,
+  CloudOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -32,6 +35,10 @@ const AppLayout: React.FC = () => {
     { key: '/specs', icon: <SettingOutlined />, label: '算力规格' },
     { key: '/resource-pools', icon: <AppstoreOutlined />, label: '资源池' },
     { key: '/workspaces', icon: <HddOutlined />, label: '工作空间' },
+    { key: '/deployments', icon: <RocketOutlined />, label: '部署服务' },
+    { key: '/inference-chat', icon: <MessageOutlined />, label: '推理对话' },
+    { key: '/models', icon: <CloudOutlined />, label: '模型广场' },
+    { key: '/hami-gpu-configs', icon: <PartitionOutlined />, label: 'GPU 切分配置' },
   ];
 
   const currentPath = '/' + (location.pathname.split('/')[1] || '');

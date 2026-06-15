@@ -8,11 +8,16 @@ import AppLayout from './components/Layout';
 import LoginPage from './pages/Login';
 import DashboardPage from './pages/Dashboard';
 import PhysicalClustersPage from './pages/PhysicalClusters';
+import PhysicalClusterDetailPage from './pages/PhysicalClusterDetail';
 import SpecsPage from './pages/Specs';
 import ResourcePoolsPage from './pages/ResourcePools';
 import ResourcePoolDetailPage from './pages/ResourcePoolDetail';
 import WorkspacesPage from './pages/Workspaces';
 import WorkspaceDetailPage from './pages/WorkspaceDetail';
+import DeploymentsPage from './pages/Deployments';
+import InferenceChatPage from './pages/InferenceChat';
+import ModelsPage from './pages/Models';
+import HamiGpuConfigsPage from './pages/HamiGpuConfigs';
 import './styles/global.css';
 
 const App: React.FC = () => (
@@ -38,11 +43,16 @@ const App: React.FC = () => (
           >
             <Route path="/" element={<DashboardPage />} />
             <Route path="/physical-clusters" element={<PhysicalClustersPage />} />
+            <Route path="/physical-clusters/:id" element={<PhysicalClusterDetailPage />} />
             <Route path="/specs" element={<SpecsPage />} />
             <Route path="/resource-pools" element={<ResourcePoolsPage />} />
             <Route path="/resource-pools/:id" element={<ResourcePoolDetailPage />} />
             <Route path="/workspaces" element={<WorkspacesPage />} />
             <Route path="/workspaces/:id" element={<WorkspaceDetailPage />} />
+            <Route path="/deployments" element={<DeploymentsPage />} />
+            <Route path="/inference-chat" element={<InferenceChatPage />} />
+            <Route path="/models" element={<ModelsPage />} />
+            <Route path="/hami-gpu-configs" element={<HamiGpuConfigsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -1,5 +1,124 @@
 # 修改记录
 
+## 2026-05-28 前端工程全面改造：对齐后端新接口 + 新增部署服务页面 + 推理对话页面
+
+### 背景
+前端工程与后端新功能存在多处不匹配，部署接口仍使用旧的 VllmDeployRequest（用户选 specName），而后端已支持 ModelDeploymentRequest（用户填 gpuType + gpuCount，平台自动生成 ComputeSpec）。需要全面对齐并新增页面。
+
+### 修改内容
+
+#### 1. 类型修正（types/index.ts）
+- **PhysicalCluster** 新增 `maxCpuCores` / `maxMemoryGib` 字段
+- **PhysicalClusterCreateRequest** 新增 `maxCpuCores` / `maxMemoryGib` 字段
+- **ResourcePool** 新增 `poolMode` 字段（HOMOGENEOUS / HETEROGENEOUS）
+- **SpecQuota** 字段重命名：`totalQuota` → `totalNodes`，`allocatedQuota` → `allocatedNodes`，`availableQuota` → `availableNodes`
+- **WorkspaceSpecQuota** 字段重命名：`maxQuota` → `maxNodes`，`usedQuota` → `usedNodes`，`availableQuota` → `availableNodes`
+- **VllmDeployRequest** 替换为新的 **ModelDeploymentRequest** 接口（gpuCount / cpuCores / memoryGib / gpuType / image / envVars / command / args 等新字段）
+- **ModelDeployment** 新增 `updatedAt` 字段
+
+#### 2. API 层更新（api/modelDeployments.ts）
+- `deploy` 方法类型从 `VllmDeployRequest` 切换为 `ModelDeploymentRequest`
+- 保留 list / get / delete 方法
+
+#### 3. Mock 数据更新（mock/data.ts + mock/modelDeployments.ts）
+- `mockClusters` 添加 `maxCpuCores` / `maxMemoryGib` 字段
+- `mockPools` 添加 `poolMode` 字段（HOMOGENEOUS / HETEROGENEOUS）
+- `mockWorkspaces` 的 specQuotas 字段名更新
+- `mockModelDeploymentApi` 适配新请求类型
+
+#### 4. Mock 辅助模块更新
+- `mock/resourcePools.ts`：specQuotas 映射字段名更新
+- `mock/workspaces.ts`：specQuotas 映射字段名更新
+
+#### 5. 新增页面：部署服务（Deployments.tsx）
+- 路由：`/deployments`
+- 功能：跨所有工作空间的部署记录列表 + 部署表单
+- 部署表单字段：部署名称、所属工作空间、GPU 类型（Select）、GPU 数量、CPU 核数、内存 GiB、副本数、vLLM 镜像、模型来源、模型名称、模型路径、启动命令、启动参数
+- 不再让用户选 specName，改为直接填资源需求
+
+#### 6. 新增页面：推理对话（InferenceChat.tsx）
+- 路由：`/inference-chat`
+- 功能：展示运行中的推理服务列表，点击进入 ChatGPT 风格对话界面
+- 对话实现：调用 vLLM OpenAI Compatible API `/v1/chat/completions`
+- 支持多轮对话（消息历史维护在组件 state）
+- 展示服务信息卡片（名称、状态、服务地址、GPU 配置）
+
+#### 7. 路由注册（App.tsx）
+- 新增 `/deployments` → DeploymentsPage
+- 新增 `/inference-chat` → InferenceChatPage
+
+#### 8. Layout 导航更新（components/Layout.tsx）
+- 新增菜单项："部署服务" → `/deployments`
+- 新增菜单项："推理对话" → `/inference-chat`
+
+#### 9. 现有页面微调
+- **ResourcePools.tsx**：specQuotas 展示字段名更新
+- **ResourcePoolDetail.tsx**：配额列字段名更新
+- **Workspaces.tsx**：specQuotas 展示字段名更新
+- **WorkspaceDetail.tsx**：部署弹窗改为新接口字段（gpuType + gpuCount + cpuCores + memoryGib）
+
+### 涉及文件
+- `frontend/src/types/index.ts`
+- `frontend/src/api/modelDeployments.ts`
+- `frontend/src/mock/data.ts`
+- `frontend/src/mock/modelDeployments.ts`
+- `frontend/src/mock/resourcePools.ts`
+- `frontend/src/mock/workspaces.ts`
+- `frontend/src/pages/Deployments.tsx`（新增）
+- `frontend/src/pages/InferenceChat.tsx`（新增）
+- `frontend/src/App.tsx`
+- `frontend/src/components/Layout.tsx`
+- `frontend/src/pages/ResourcePools.tsx`
+- `frontend/src/pages/ResourcePoolDetail.tsx`
+- `frontend/src/pages/Workspaces.tsx`
+- `frontend/src/pages/WorkspaceDetail.tsx`
+
+### 验证
+- `npx tsc --noEmit` 编译通过，无类型错误
+- `npm run dev` 前端启动正常，访问 localhost:3000 无报错
+- 菜单导航正确跳转
+
+## 2026-05-28 模型广场模块（第二轮重构）
+
+### 概述
+模型广场模块重构，解决三项反馈：NFS 与模型广场解耦、去除所有 lambda 表达式、新增运维操作手册。
+
+### 存储后端抽象
+- `Model.nfsPath` → `Model.storageBackend` + `Model.storagePath`
+- `storageBackend`：存储后端类型（当前固定 "nfs"，未来可扩展）
+- `storagePath`：存储根路径（不含 name），如 `/mnt/nfs/models`
+- 完整路径计算逻辑下沉到 `util/NfsStoragePathResolver.java`（新增，无 lambda）
+
+### 后端变更
+- `entity/Model.java` — 字段变更（nfsPath → storageBackend + storagePath）
+- `dto/ModelRequest.java` — 字段同步，新增 storageBackend
+- `dto/ModelResponse.java` — 字段同步，新增 storageBackend
+- `mapper/ModelMapper.xml` — SQL 列名 `nfs_path` → `storage_backend`, `storage_path`
+- `schema-h2.sql` — 表字段同步
+- `util/NfsStoragePathResolver.java`（新增）— 路径拼接工具，无 lambda
+- `service/ModelService.java` — 去除 lambda（Optional.map → if-null-throw，stream → for 循环），调用 NfsStoragePathResolver
+- `service/ModelDeploymentService.java` — 字段名更新（nfsPath → storagePath），去除 stream/collect lambda
+- `mapper/ModelMapper.java` — findById/findByName 返回值从 `Optional<Model>` 改为 `Model`（消除 lambdas 的根源）
+
+### 前端变更
+- `types/index.ts` — Model/ModelRequest 类型字段同步（nfsPath → storageBackend + storagePath）
+- `mock/data.ts` — mockModels 字段同步
+- `mock/models.ts` — 字段同步，去除 lambda 风格的 create/update
+- `pages/Models.tsx` — 表单和列表字段更新（nfsPath → storageBackend + storagePath）
+- `pages/Deployments.tsx` — 模型选择后填充字段名同步
+
+### 运维文档
+- `docs/MODEL-SQUARE.md`（重写）— 新增三部分：
+  1. 运维操作手册（Step by Step：NFS 挂载 → 上传文件 → 平台登记 → 部署使用）
+  2. 底层原理（Pod 挂载模型文件的完整链路图，从用户点击部署到 vLLM 启动的每一步）
+  3. 操作流程汇总（运维准备阶段 vs 部署人员使用阶段）
+
+### 验证
+- `mvn compile` 后端编译通过
+- `npm run build` 前端编译通过
+- 代码中不存在任何 `->` lambda 语法
+- 运维文档可读，流程清晰
+
 ## 2026-05-26 异构算力调度核心改造 + ComputeSpec 资源键注释
 
 ### 背景

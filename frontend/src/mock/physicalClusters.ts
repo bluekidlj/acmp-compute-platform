@@ -1,6 +1,6 @@
 import { mockResponse } from './index';
-import { mockClusters, mockCapacities } from './data';
-import type { PhysicalCluster, PhysicalClusterCreateRequest, PhysicalClusterCapacity } from '../types';
+import { mockClusters, mockCapacities, mockNodeScans } from './data';
+import type { PhysicalCluster, PhysicalClusterCreateRequest, PhysicalClusterCapacity, NodeScanResponse } from '../types';
 
 export const mockPhysicalClusterApi = {
   list: () => mockResponse<PhysicalCluster[]>(mockClusters),
@@ -25,6 +25,13 @@ export const mockPhysicalClusterApi = {
   capacity: (id: string) => {
     const cap = mockCapacities[id] || { gpuSlots: 0, cpu: '0', memory: '0' };
     return mockResponse<PhysicalClusterCapacity>(cap);
+  },
+
+  nodes: (id: string) => {
+    const scan = mockNodeScans[id];
+    return scan
+      ? mockResponse<NodeScanResponse>(scan)
+      : Promise.reject({ response: { status: 404, data: { message: '集群不存在' } } });
   },
 
   delete: (id: string) => {

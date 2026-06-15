@@ -35,6 +35,8 @@ export interface PhysicalCluster {
   location: string;
   nodeLabels?: string;
   taints?: string;
+  maxCpuCores?: number;
+  maxMemoryGib?: number;
   createdAt: string;
 }
 
@@ -46,12 +48,30 @@ export interface PhysicalClusterCreateRequest {
   location?: string;
   nodeLabels?: string;
   taints?: string;
+  maxCpuCores?: number;
+  maxMemoryGib?: number;
 }
 
 export interface PhysicalClusterCapacity {
   gpuSlots: number;
   cpu: string;
   memory: string;
+}
+
+// ── 物理集群节点 ──
+export interface ClusterNodeInfo {
+  name: string;
+  labels: Record<string, string>;
+  allocatable: Record<string, string>;
+  capacity: Record<string, string>;
+  conditions: { type: string; status: string }[];
+}
+
+export interface NodeScanResponse {
+  clusterId: string;
+  nodes: ClusterNodeInfo[];
+  totalNodes: number;
+  readyNodes: number;
 }
 
 // ── 算力规格 ──
@@ -93,9 +113,9 @@ export interface SpecCreateRequest {
 export interface SpecQuota {
   specId: string;
   specName: string;
-  totalQuota: number;
-  allocatedQuota: number;
-  availableQuota: number;
+  totalNodes: number;
+  allocatedNodes: number;
+  availableNodes: number;
 }
 
 export interface ResourcePool {
@@ -105,6 +125,7 @@ export interface ResourcePool {
   departmentCode: string;
   departmentName: string;
   status: 'active' | 'inactive';
+  poolMode?: 'HOMOGENEOUS' | 'HETEROGENEOUS';
   physicalClusterIds: string[];
   specQuotas: SpecQuota[];
   createdAt: string;
@@ -123,9 +144,9 @@ export interface ResourcePoolCreateRequest {
 export interface WorkspaceSpecQuota {
   specId: string;
   specName: string;
-  maxQuota: number;
-  usedQuota: number;
-  availableQuota: number;
+  maxNodes: number;
+  usedNodes: number;
+  availableNodes: number;
 }
 
 export interface Workspace {
@@ -178,15 +199,20 @@ export interface IssueCredentialResponse {
 }
 
 // ── 模型部署 ──
-export interface VllmDeployRequest {
+export interface ModelDeploymentRequest {
   name: string;
-  specName: string;
   replicas: number;
-  modelName?: string;
+  gpuCount: number;
+  cpuCores: number;
+  memoryGib: number;
+  gpuType: string;
+  image: string;
+  envVars?: Record<string, string>;
+  command?: string;
+  args?: string;
   modelSource: string;
   modelIdOrPath?: string;
-  vllmImage?: string;
-  hostModelPath?: string;
+  modelName?: string;
 }
 
 export interface ModelDeployment {
@@ -208,6 +234,7 @@ export interface ModelDeployment {
   readyReplicas?: number;
   createdBy: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 // ── 训练任务 ──
@@ -231,4 +258,94 @@ export interface ApiError {
   error: string;
   message: string;
   path: string;
+}
+
+// ── HAMi GPU 配置 ──
+export interface HamiVgpuUnit {
+  id: string;
+  configId: string;
+  vgpuIndex: number;
+  vgpuName: string;
+  vgpuMemMb: number;
+  vgpuCores: number;
+  nodeSelectorValue: string;
+  tolerations?: string;
+  availableCount: number;
+  createdAt: string;
+}
+
+export interface HamiGpuConfig {
+  id: string;
+  physicalClusterId: string;
+  gpuType: string;
+  gpuMemMb: number;
+  gpuCores: number;
+  totalVgpuCount: number;
+  nodeSelectorKey: string;
+  nodeSelectorPrefix: string;
+  vgpuUnits?: HamiVgpuUnit[];
+  createdAt: string;
+}
+
+export interface HamiGpuConfigCreateRequest {
+  physicalClusterId: string;
+  gpuType: string;
+  gpuMemMb: number;
+  gpuCores: number;
+  totalVgpuCount: number;
+  nodeSelectorKey: string;
+  nodeSelectorPrefix: string;
+  vgpuUnits?: {
+    vgpuIndex: number;
+    vgpuName: string;
+    vgpuMemMb: number;
+    vgpuCores: number;
+    nodeSelectorValue: string;
+    tolerations?: string;
+  }[];
+}
+
+export interface HamiVgpuUnitCreateRequest {
+  vgpuIndex: number;
+  vgpuName: string;
+  vgpuMemMb: number;
+  vgpuCores: number;
+  nodeSelectorValue: string;
+  tolerations?: string;
+  availableCount?: number;
+}
+
+// ── 资源池容量补丁 ──
+export interface ResourcePoolCapacityPatch {
+  gpuSlots: number;
+  cpuCores: number;
+  memoryGiB: number;
+}
+
+// ── 模型广场 ──
+export interface Model {
+  id: string;
+  name: string;
+  displayName?: string;
+  description?: string;
+  modelSource: 'with_weights' | 'without_weights';
+  /** 存储后端类型，如 nfs */
+  storageBackend: string;
+  /** 存储路径前缀（不含 name），如 /mnt/nfs/models */
+  storagePath: string;
+  fileSizeMb?: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ModelRequest {
+  name: string;
+  displayName?: string;
+  description?: string;
+  modelSource?: 'with_weights' | 'without_weights';
+  /** 存储后端类型，当前固定 nfs */
+  storageBackend?: string;
+  /** 存储根路径，如 /mnt/nfs/models */
+  storagePath: string;
+  fileSizeMb?: number;
 }

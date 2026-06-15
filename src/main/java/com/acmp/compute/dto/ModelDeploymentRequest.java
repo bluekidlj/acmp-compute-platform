@@ -67,6 +67,13 @@ public class ModelDeploymentRequest {
 
     // ─────────────────────────── 模型配置 ───────────────────────────
 
+    /**
+     * 模型 ID（可选），关联模型广场中的模型。
+     * 如果填了 modelId，平台自动用对应模型的 nfsPath 和 modelSource 填充。
+     * 与 modelIdOrPath 二选一，modelId 优先。
+     */
+    private String modelId;
+
     /** 模型来源：with_weights / without_weights */
     @NotBlank
     private String modelSource;

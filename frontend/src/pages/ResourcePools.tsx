@@ -72,8 +72,8 @@ const ResourcePoolsPage: React.FC = () => {
       title: '规格配额', dataIndex: 'specQuotas', key: 'specQuotas', width: 180,
       render: (quotas: ResourcePool['specQuotas']) =>
         quotas?.map((q) => (
-          <Tag key={q.specId} color={q.availableQuota > 0 ? 'green' : 'red'}>
-            {q.specName}: {q.allocatedQuota}/{q.totalQuota}
+          <Tag key={q.specId} color={q.availableNodes > 0 ? 'green' : 'red'}>
+            {q.specName}: {q.allocatedNodes}/{q.totalNodes}
           </Tag>
         )),
     },

@@ -9,6 +9,7 @@ import {
 import { physicalClusterApi } from '../api/physicalClusters';
 import { resourcePoolApi } from '../api/resourcePools';
 import { workspaceApi } from '../api/workspaces';
+import { modelDeploymentApi } from '../api/modelDeployments';
 import { useNavigate } from 'react-router-dom';
 
 const { Title } = Typography;
@@ -27,12 +28,25 @@ const DashboardPage: React.FC = () => {
           resourcePoolApi.list(),
           workspaceApi.list(),
         ]);
+
+        // Count deployments across all workspaces
+        let totalDeployments = 0;
+        if (workspaces.data.length > 0) {
+          const depResults = await Promise.allSettled(
+            workspaces.data.map((ws) => modelDeploymentApi.list(ws.id)),
+          );
+          totalDeployments = depResults.reduce((sum, r) => {
+            if (r.status === 'fulfilled') return sum + r.value.data.length;
+            return sum;
+          }, 0);
+        }
+
         if (!cancelled) {
           setStats({
             clusters: clusters.data.length,
             pools: pools.data.length,
             workspaces: workspaces.data.length,
-            deployments: 0,
+            deployments: totalDeployments,
           });
         }
       } catch {

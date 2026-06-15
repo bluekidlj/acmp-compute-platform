@@ -85,8 +85,8 @@ const WorkspacesPage: React.FC = () => {
       title: '规格配额', dataIndex: 'specQuotas', key: 'specQuotas', width: 200,
       render: (quotas: Workspace['specQuotas']) =>
         quotas?.map((q) => (
-          <Tag key={q.specId} color={q.availableQuota > 0 ? 'green' : 'red'}>
-            {q.specName}: {q.usedQuota}/{q.maxQuota}
+          <Tag key={q.specId} color={q.availableNodes > 0 ? 'green' : 'red'}>
+            {q.specName}: {q.usedNodes}/{q.maxNodes}
           </Tag>
         )),
     },

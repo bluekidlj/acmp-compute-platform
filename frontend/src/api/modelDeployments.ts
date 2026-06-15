@@ -1,10 +1,10 @@
 import apiClient from './client';
-import type { ModelDeployment, VllmDeployRequest } from '../types';
+import type { ModelDeployment, ModelDeploymentRequest } from '../types';
 import { USE_MOCK } from '../mock';
 import { mockModelDeploymentApi } from '../mock/modelDeployments';
 
 const realApi = {
-  deploy: (poolId: string, workspaceId: string, data: VllmDeployRequest) =>
+  deploy: (poolId: string, workspaceId: string, data: ModelDeploymentRequest) =>
     apiClient.post<ModelDeployment>(
       `/resource-pools/${poolId}/workspaces/${workspaceId}/model-deployments`,
       data,

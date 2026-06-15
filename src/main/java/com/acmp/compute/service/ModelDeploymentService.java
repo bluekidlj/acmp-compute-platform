@@ -2,6 +2,7 @@ package com.acmp.compute.service;
 
 import com.acmp.compute.dto.ModelDeploymentRequest;
 import com.acmp.compute.dto.ModelDeploymentResponse;
+import com.acmp.compute.dto.ModelResponse;
 import com.acmp.compute.entity.ComputeSpec;
 import com.acmp.compute.entity.GpuSplitSpec;
 import com.acmp.compute.entity.GpuBrand;
@@ -17,15 +18,16 @@ import com.acmp.compute.mapper.ComputeSpecMapper;
 import com.acmp.compute.mapper.ModelDeploymentMapper;
 import com.acmp.compute.mapper.WorkspaceMapper;
 import com.acmp.compute.security.UserPrincipal;
+import com.acmp.compute.util.NfsStoragePathResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * 模型服务部署。
@@ -37,9 +39,10 @@ import java.util.stream.Collectors;
  *  ④ 双层配额校验（L1: pool, L2: workspace）
  *  ⑤ 根据 poolMode 动态选定目标物理集群（PoolMetadataService）
  *  ⑥ 双层配额预扣
- *  ⑦ 构建 K8s Deployment + Service（注入 spec 资源键 + nodeSelector + tolerations + platform.io/{spec}）
- *  ⑧ 提交到⑤中选定的目标物理集群；失败回滚配额
- *  ⑨ 删除时同样回滚配额
+ *  ⑦ 如果 modelId 非空，从模型广场获取 nfsPath，自动设置 hostModelPath
+ *  ⑧ 构建 K8s Deployment + Service（注入 spec 资源键 + nodeSelector + tolerations + platform.io/{spec}）
+ *  ⑨ 提交到⑤中选定的目标物理集群；失败回滚配额
+ *  ⑩ 删除时同样回滚配额
  */
 @Slf4j
 @Service
@@ -53,6 +56,8 @@ public class ModelDeploymentService {
     private final QuotaService quotaService;
     /** 【异构算力】用于根据 spec 动态选定目标物理集群 */
     private final PoolMetadataService poolMetadataService;
+    /** 【模型广场】用于根据 modelId 自动获取 nfsPath 和 modelSource */
+    private final ModelService modelService;
 
     private UserPrincipal currentUser() {
         Object p = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
@@ -103,6 +108,17 @@ public class ModelDeploymentService {
         String modelPath = request.getModelIdOrPath() != null ? request.getModelIdOrPath() : "/models";
         String image = request.getImage() != null ? request.getImage() : "vllm/vllm-openai:latest";
 
+        // ⑦ 如果 modelId 非空，从模型广场获取 storagePath 和 modelSource，自动映射
+        String hostModelPath = null;
+        String effectiveModelSource = request.getModelSource();
+        if (request.getModelId() != null && !request.getModelId().isEmpty()) {
+            ModelResponse modelResp = modelService.getById(request.getModelId());
+            hostModelPath = NfsStoragePathResolver.resolve(modelResp.getStoragePath(), modelResp.getName());
+            effectiveModelSource = modelResp.getModelSource();
+            log.info("📦 模型广场: modelId={}, storagePath={}, modelSource={}",
+                    request.getModelId(), hostModelPath, effectiveModelSource);
+        }
+
         String id = UUID.randomUUID().toString();
         ModelDeployment record = ModelDeployment.builder()
                 .id(id)
@@ -111,7 +127,7 @@ public class ModelDeploymentService {
                 .specId(spec.getId())
                 .name(request.getName())
                 .modelName(request.getModelName())
-                .modelSource(request.getModelSource())
+                .modelSource(effectiveModelSource)
                 .modelIdOrPath(modelPath)
                 .vllmImage(image)
                 .gpuPerReplica(request.getGpuCount())
@@ -127,10 +143,11 @@ public class ModelDeploymentService {
 
         try {
             // 构建 YAML（spec 驱动，支持 envVars/command）
+            // hostModelPath 来自模型广场（如果 modelId 非空），否则为 null
             String yaml = K8sResourceBuilder.buildVllmDeploymentAndService(
                     deploymentName, serviceName, ws.getNamespace(),
                     image, modelPath,
-                    spec, replicas, null,
+                    spec, replicas, hostModelPath,
                     spec.getNodeSelector(), spec.getTolerations(),
                     request.getEnvVars(), request.getCommand(), request.getArgs());
 
@@ -233,9 +250,12 @@ public class ModelDeploymentService {
 
     public List<ModelDeploymentResponse> listByWorkspace(String workspaceId) {
         ensureCanAccessWorkspace(workspaceId);
-        return modelDeploymentMapper.findByWorkspaceId(workspaceId).stream()
-                .map(m -> toResponse(m, null))
-                .collect(Collectors.toList());
+        List<ModelDeploymentResponse> result = new ArrayList<>();
+        List<ModelDeployment> records = modelDeploymentMapper.findByWorkspaceId(workspaceId);
+        for (ModelDeployment m : records) {
+            result.add(toResponse(m, null));
+        }
+        return result;
     }
 
     public ModelDeploymentResponse getStatus(String workspaceId, String deploymentId) {

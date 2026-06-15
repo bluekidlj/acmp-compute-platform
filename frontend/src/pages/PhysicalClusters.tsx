@@ -3,7 +3,8 @@ import {
   Table, Button, Modal, Form, Input, Select, Space, Tag, Typography,
   Descriptions, Popconfirm, message, Tooltip,
 } from 'antd';
-import { PlusOutlined, ReloadOutlined, DashboardOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, DashboardOutlined, EyeOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { physicalClusterApi } from '../api/physicalClusters';
 import type { PhysicalCluster, PhysicalClusterCreateRequest, PhysicalClusterCapacity } from '../types';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,6 +14,7 @@ const { TextArea } = Input;
 
 const PhysicalClustersPage: React.FC = () => {
   const { isAdmin } = useAuth();
+  const navigate = useNavigate();
   const [clusters, setClusters] = useState<PhysicalCluster[]>([]);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -72,9 +74,13 @@ const PhysicalClustersPage: React.FC = () => {
       render: (v: string) => statusTag(v),
     },
     {
-      title: '操作', key: 'actions', width: 220,
+      title: '操作', key: 'actions', width: 280,
       render: (_: unknown, record: PhysicalCluster) => (
         <Space>
+          <Button size="small" type="link" icon={<EyeOutlined />}
+            onClick={() => navigate(`/physical-clusters/${record.id}`)}>
+            详情
+          </Button>
           <Tooltip title="实时容量">
             <Button size="small" icon={<DashboardOutlined />} onClick={() => handleViewCapacity(record.id)}>
               容量

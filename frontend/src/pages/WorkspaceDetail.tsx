@@ -14,7 +14,7 @@ import { trainingJobApi } from '../api/trainingJobs';
 import { specApi } from '../api/specs';
 import type {
   Workspace, WorkspaceUpdateRequest, WorkspaceSpecQuota,
-  ModelDeployment, VllmDeployRequest, ComputeSpec,
+  ModelDeployment, ModelDeploymentRequest, ComputeSpec,
 } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -104,7 +104,7 @@ const WorkspaceDetailPage: React.FC = () => {
     const values = await deployForm.validateFields();
     setDeploying(true);
     try {
-      const req: VllmDeployRequest = { ...values };
+      const req: ModelDeploymentRequest = { ...values };
       await modelDeploymentApi.deploy(ws!.resourcePoolId, id!, req);
       message.success('推理服务部署成功');
       setDeployOpen(false);
@@ -219,7 +219,7 @@ const WorkspaceDetailPage: React.FC = () => {
             {
               title: '可用', dataIndex: 'availableQuota',
               render: (v: number, r: WorkspaceSpecQuota) => (
-                <Tag color={v > 0 ? 'green' : 'red'}>{v} / {r.maxQuota}</Tag>
+                <Tag color={v > 0 ? 'green' : 'red'}>{v} / {r.maxNodes}</Tag>
               ),
             },
           ]}
@@ -341,41 +341,57 @@ const WorkspaceDetailPage: React.FC = () => {
         onCancel={() => { setDeployOpen(false); deployForm.resetFields(); }}
         confirmLoading={deploying}
         okText="部署"
-        width={560}
+        width={600}
       >
         <Form form={deployForm} layout="vertical">
           <Form.Item name="name" label="部署名称" rules={[{ required: true }]}>
             <Input placeholder="qwen3-svc" />
           </Form.Item>
-          <Form.Item name="specName" label="算力规格" rules={[{ required: true }]}>
-            <Select placeholder="选择规格">
-              {wsSpecs.map((s) => (
-                <Select.Option key={s.id} value={s.name}>
-                  {s.displayName} (GPU: {s.defaultGpuCount}, CPU: {s.defaultCpuCores}, Mem: {s.defaultMemoryGib}Gi)
-                </Select.Option>
-              ))}
-            </Select>
+          <Space style={{ width: '100%' }} size="middle">
+            <Form.Item name="gpuType" label="GPU 类型" rules={[{ required: true }]}>
+              <Select placeholder="选择 GPU 类型" style={{ width: 200 }}>
+                <Select.Option value="nvidia-a100-80g-1/4">NVIDIA A100 80GB (1/4)</Select.Option>
+                <Select.Option value="nvidia-rtx4090-24g-1/4">NVIDIA RTX 4090 24GB (1/4)</Select.Option>
+                <Select.Option value="hygon-dcu-32g-1/4">Hygon DCU 32GB (1/4)</Select.Option>
+              </Select>
+            </Form.Item>
+            <Form.Item name="gpuCount" label="GPU 数量" initialValue={1}>
+              <InputNumber min={1} max={8} style={{ width: 80 }} />
+            </Form.Item>
+          </Space>
+          <Space style={{ width: '100%' }} size="middle">
+            <Form.Item name="cpuCores" label="CPU 核数" initialValue={4}>
+              <InputNumber min={1} max={64} style={{ width: 80 }} />
+            </Form.Item>
+            <Form.Item name="memoryGib" label="内存 (GiB)" initialValue={16}>
+              <InputNumber min={1} max={512} style={{ width: 100 }} />
+            </Form.Item>
+            <Form.Item name="replicas" label="副本数" initialValue={1}>
+              <InputNumber min={1} max={10} style={{ width: 80 }} />
+            </Form.Item>
+          </Space>
+          <Form.Item name="image" label="vLLM 镜像" initialValue="vllm/vllm-openai:latest">
+            <Input placeholder="vllm/vllm-openai:latest" />
           </Form.Item>
-          <Form.Item name="replicas" label="副本数" rules={[{ required: true }]} initialValue={1}>
-            <InputNumber min={1} max={10} style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="modelName" label="模型名称">
-            <Input placeholder="Qwen3-7B-Instruct" />
-          </Form.Item>
-          <Form.Item name="modelSource" label="模型来源" rules={[{ required: true }]} initialValue="with_weights">
-            <Select>
-              <Select.Option value="with_weights">带权重</Select.Option>
-              <Select.Option value="without_weights">不带权重</Select.Option>
-            </Select>
-          </Form.Item>
+          <Space style={{ width: '100%' }} size="middle">
+            <Form.Item name="modelSource" label="模型来源" initialValue="with_weights">
+              <Select style={{ width: 140 }}>
+                <Select.Option value="with_weights">带权重</Select.Option>
+                <Select.Option value="without_weights">不带权重</Select.Option>
+              </Select>
+            </Form.Item>
+            <Form.Item name="modelName" label="模型名称">
+              <Input placeholder="Qwen3-7B-Instruct" style={{ width: 180 }} />
+            </Form.Item>
+          </Space>
           <Form.Item name="modelIdOrPath" label="模型路径" initialValue="/models">
             <Input placeholder="/models/qwen3" />
           </Form.Item>
-          <Form.Item name="vllmImage" label="vLLM 镜像" initialValue="vllm/vllm-openai:latest">
-            <Input placeholder="vllm/vllm-openai:latest" />
+          <Form.Item name="command" label="启动命令（可选）">
+            <Input placeholder="python -m vllm.entrypoints.openai.api_server" />
           </Form.Item>
-          <Form.Item name="hostModelPath" label="宿主机模型路径（可选）">
-            <Input placeholder="/data/models/Qwen3" />
+          <Form.Item name="args" label="启动参数（可选）">
+            <Input placeholder="--model /models --host 0.0.0.0 --port 8000" />
           </Form.Item>
         </Form>
       </Modal>

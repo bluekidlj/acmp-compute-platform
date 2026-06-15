@@ -62,6 +62,7 @@ JWT 中携带 `userId / username / role / resourcePoolIds`，由 `JwtAuthenticat
 | **物理集群** | POST | `/api/v1/admin/physical-clusters` | PLATFORM_ADMIN |
 | | GET | `/api/v1/physical-clusters` | PLATFORM_ADMIN |
 | | GET | `/api/v1/physical-clusters/{id}/capacity` | 已认证 |
+| | GET | `/api/v1/physical-clusters/{id}/nodes` | 已认证 |
 | | DELETE | `/api/v1/physical-clusters/{id}` | PLATFORM_ADMIN |
 | **算力规格** | POST | `/api/v1/specs` | PLATFORM_ADMIN |
 | | GET | `/api/v1/specs` | 已认证 |
@@ -70,6 +71,8 @@ JWT 中携带 `userId / username / role / resourcePoolIds`，由 `JwtAuthenticat
 | **逻辑资源池** | POST | `/api/v1/admin/resource-pools` | PLATFORM_ADMIN |
 | | GET | `/api/v1/resource-pools` | PLATFORM_ADMIN / ORG_ADMIN |
 | | GET | `/api/v1/resource-pools/{id}` | 已认证 |
+| | PATCH | `/api/v1/resource-pools/{id}/capacity` | PLATFORM_ADMIN / ORG_ADMIN |
+| | POST | `/api/v1/admin/resource-pools/{poolId}/issue-credential` | PLATFORM_ADMIN |
 | **工作空间** | POST | `/api/v1/workspaces` | PLATFORM_ADMIN / ORG_ADMIN |
 | | PUT | `/api/v1/workspaces/{id}` | PLATFORM_ADMIN / ORG_ADMIN |
 | | DELETE | `/api/v1/workspaces/{id}` | PLATFORM_ADMIN / ORG_ADMIN |
@@ -84,6 +87,16 @@ JWT 中携带 `userId / username / role / resourcePoolIds`，由 `JwtAuthenticat
 | | GET | `/api/v1/workspaces/{workspaceId}/model-deployments/{id}` | 工作空间成员 |
 | | DELETE | `/api/v1/workspaces/{workspaceId}/model-deployments/{id}` | 工作空间成员 |
 | **训练任务** | POST | `/api/v1/workspaces/{workspaceId}/training-jobs` | 工作空间成员 |
+| **HAMi GPU 配置** | POST | `/api/v1/hami-gpu-configs` | PLATFORM_ADMIN |
+| | GET | `/api/v1/hami-gpu-configs` | PLATFORM_ADMIN / ORG_ADMIN |
+| | GET | `/api/v1/hami-gpu-configs/{id}` | PLATFORM_ADMIN / ORG_ADMIN |
+| | PUT | `/api/v1/hami-gpu-configs/{id}` | PLATFORM_ADMIN |
+| | DELETE | `/api/v1/hami-gpu-configs/{id}` | PLATFORM_ADMIN |
+| | GET | `/api/v1/hami-gpu-configs/cluster/{clusterId}` | PLATFORM_ADMIN / ORG_ADMIN |
+| | POST | `/api/v1/hami-gpu-configs/{id}/vgpu-units` | PLATFORM_ADMIN |
+| | GET | `/api/v1/hami-gpu-configs/{id}/vgpu-units` | PLATFORM_ADMIN / ORG_ADMIN |
+| | DELETE | `/api/v1/hami-gpu-configs/{id}/vgpu-units/{unitId}` | PLATFORM_ADMIN |
+| | POST | `/api/v1/hami-gpu-configs/{id}/sync` | PLATFORM_ADMIN |
 
 ---
 
@@ -450,6 +463,183 @@ JWT 中携带 `userId / username / role / resourcePoolIds`，由 `JwtAuthenticat
 响应（201）：
 ```json
 { "jobName": "qwen3-finetune-01", "message": "已提交" }
+```
+
+---
+
+### 2.9 物理集群节点扫描
+
+#### `GET /api/v1/physical-clusters/{id}/nodes`
+
+实时扫描物理集群的 K8s 节点信息，返回节点列表及可用的 `pool` 标签。
+
+响应：
+```json
+{
+  "clusterId": "c1-nvidia-uuid",
+  "nodes": [
+    {
+      "name": "node-nvidia-01",
+      "labels": { "pool": "nvidia-gpu", "nvidia.com/gpu": "true" },
+      "allocatable": { "cpu": "64", "memory": "256Gi", "nvidia.com/gpu": "8" },
+      "capacity": { "cpu": "64", "memory": "256Gi", "nvidia.com/gpu": "8" },
+      "conditions": [{ "type": "Ready", "status": "True" }]
+    }
+  ],
+  "totalNodes": 1,
+  "readyNodes": 1
+}
+```
+
+---
+
+### 2.10 资源池容量维护
+
+#### `PATCH /api/v1/resource-pools/{id}/capacity`
+
+手动更新资源池的 GPU/CPU/内存容量信息。
+
+请求：
+```json
+{
+  "gpuSlots": 16,
+  "cpuCores": 128,
+  "memoryGiB": 512
+}
+```
+
+响应：返回当前 `ResourcePoolResponse` 快照。
+
+---
+
+### 2.11 资源池凭证发放
+
+#### `POST /api/v1/admin/resource-pools/{poolId}/issue-credential`
+
+为资源池下唯一的工作空间签发 kubeconfig 凭证。若资源池下有且仅有一个工作空间，自动定位并签发。
+
+请求：
+```json
+{
+  "username": "zhangsan",
+  "expireDays": 30
+}
+```
+
+响应：
+```json
+{
+  "kubeconfig": "apiVersion: v1\nkind: Config\n...",
+  "namespace": "ws-llm-training-a1b2c3d4",
+  "clusterName": "beijing-nvidia-01",
+  "serviceAccountName": "sa-ws-llm-training-a1b2c3d4",
+  "message": "凭证已生成，有效期 30 天，用户: zhangsan"
+}
+```
+
+---
+
+### 2.12 HAMi vGPU 配置管理
+
+HAMi（Heterogeneous AI Computing Virtualization）是 GPU 虚拟化方案，允许将一张物理 GPU 切分为多个 vGPU 单元分配给不同 Pod。
+
+#### `POST /api/v1/hami-gpu-configs`
+
+创建 GPU 切分配置。
+
+请求：
+```json
+{
+  "physicalClusterId": "c1-nvidia-uuid",
+  "gpuType": "NVIDIA",
+  "gpuMemMb": 24576,
+  "gpuCores": 100,
+  "totalVgpuCount": 4,
+  "nodeSelectorKey": "nvidia.com/gpu.product",
+  "nodeSelectorPrefix": "NVIDIA-RTX-4090",
+  "vgpuUnits": [
+    {
+      "vgpuIndex": 0,
+      "vgpuName": "rtx4090-6g",
+      "vgpuMemMb": 6144,
+      "vgpuCores": 25,
+      "nodeSelectorValue": "NVIDIA-RTX-4090",
+      "tolerations": "[{\"key\":\"nvidia.com/gpu\",\"operator\":\"Exists\"}]"
+    }
+  ]
+}
+```
+
+响应（201）：
+```json
+{
+  "id": "hami-config-uuid",
+  "physicalClusterId": "c1-nvidia-uuid",
+  "gpuType": "NVIDIA",
+  "gpuMemMb": 24576,
+  "gpuCores": 100,
+  "totalVgpuCount": 4,
+  "nodeSelectorKey": "nvidia.com/gpu.product",
+  "nodeSelectorPrefix": "NVIDIA-RTX-4090",
+  "createdAt": "2026-05-26T08:00:00Z"
+}
+```
+
+#### `GET /api/v1/hami-gpu-configs`
+
+返回所有 HAMi GPU 配置列表。
+
+#### `GET /api/v1/hami-gpu-configs/{id}`
+
+返回单个配置详情。
+
+#### `PUT /api/v1/hami-gpu-configs/{id}`
+
+更新配置的 GPU 显存、算力、切分数量等参数。
+
+#### `DELETE /api/v1/hami-gpu-configs/{id}`
+
+删除配置及所有关联的 vGPU 单元。
+
+#### `GET /api/v1/hami-gpu-configs/cluster/{clusterId}`
+
+按物理集群 ID 查询其下所有 HAMi GPU 配置。
+
+#### `POST /api/v1/hami-gpu-configs/{id}/vgpu-units`
+
+为已有配置添加 vGPU 切分单元。
+
+请求：
+```json
+{
+  "vgpuIndex": 1,
+  "vgpuName": "rtx4090-12g",
+  "vgpuMemMb": 12288,
+  "vgpuCores": 50,
+  "nodeSelectorValue": "NVIDIA-RTX-4090",
+  "tolerations": "[{\"key\":\"nvidia.com/gpu\",\"operator\":\"Exists\"}]",
+  "availableCount": 4
+}
+```
+
+#### `GET /api/v1/hami-gpu-configs/{id}/vgpu-units`
+
+返回配置下的所有 vGPU 单元。
+
+#### `DELETE /api/v1/hami-gpu-configs/{id}/vgpu-units/{unitId}`
+
+删除指定 vGPU 切分单元。
+
+#### `POST /api/v1/hami-gpu-configs/{id}/sync`
+
+同步 vGPU 单元的可用数量（从 K8s 集群实时获取）。
+
+请求：
+```json
+{
+  "clusterId": "c1-nvidia-uuid",
+  "vgpuUnitId": "vgpu-unit-uuid"
+}
 ```
 
 ---

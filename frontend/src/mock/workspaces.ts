@@ -34,9 +34,9 @@ export const mockWorkspaceApi = {
       specQuotas: (data.specQuotas || []).map((q) => ({
         specId: 'spec-' + q.specName,
         specName: q.specName,
-        maxQuota: q.maxQuota,
-        usedQuota: 0,
-        availableQuota: q.maxQuota,
+        maxNodes: q.maxQuota,
+        usedNodes: 0,
+        availableNodes: q.maxQuota,
       })),
       createdAt: new Date().toISOString(),
     };

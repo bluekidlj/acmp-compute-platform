@@ -7,163 +7,267 @@
 
 ## 1. 一句话定位
 
-> **ACMP = K8s 原生对象（Namespace / ResourceQuota / Node 标签污点 / RBAC / VolcanoQueue）的"语义化包装层"。**
+> **ACMP = K8s 原生对象的"语义化包装层"。**
 > 平台不发明新调度器，而是把"用户、部门、规格、配额"翻译成 K8s 已经能听懂的对象。
 
 ---
 
-## 2. 主思维导图（系统全景）
+## 2. 系统设计七模块
 
 ```mermaid
 mindmap
   root((ACMP<br/>异构算力管理平台))
-    设计哲学
-      物理属性归物理池
-      标准定义归规格
-      逻辑池只存关联关系
-      平台层代理 K8s 层 SA
-      隔离收敛到 Namespace + ResourceQuota
-    三层资源模型
-      物理集群<br/>K8s Cluster
-        Node + label + taint
-        kubeconfig AES 加密存储
-        总容量实时从 Node.allocatable 上报
-      逻辑资源池<br/>纯 DB 聚合容器
-        M to N 关联物理集群
-        按规格 total quota 分配
-        不创建任何 K8s 资源
-      工作空间<br/>K8s Namespace
-        1 to 1 Namespace
-        ResourceQuota 按 platform.io 限流
-        SA + Role + RoleBinding
-        Volcano Queue
-    算力规格 ComputeSpec
-      gpuBrand
-        NVIDIA → nvidia.com/gpu
-        HYGON → amd.com/dcu
-        HUAWEI_ASCEND → huawei.com/ascend910
-      nodeSelector
-        翻译为 Pod.nodeSelector
-        用来选物理集群
-      tolerations
-        翻译为 Pod.tolerations
-        穿透物理池污点
-      resourceQuotaKey
-        platform.io/{specName}
-        让 ResourceQuota 真生效
-    双层配额体系
-      L1 池级
+    模块一<br/>资源池管理
+      逻辑资源池
+        面向用户的配额单元
+        定义池基本信息
+        支持规格类型
+        不创建 K8s 资源
+      物理集群
+        实际 K8s Cluster
+        节点标签（GPU 类型）
+        污点配置
+        资源上限
+      同构模式
+        一个逻辑池
+        绑定一个物理集群
+      异构模式
+        一个逻辑池
+        绑定多个物理集群
+        按 GPU 类型路由
+    模块二<br/>部署服务
+      ComputeSpec
+        资源规格模板
+        存储在 DB
+        每副本资源配置
+      用户只需指定
+        GPU 类型
+        GPU 数量
+      平台自动推导
+        显存大小
+        算力比例
+        CPU / 内存
+      规格名称规则
+        auto-{GPU类型}
+        -{GPU数量}g
+        -{CPU}c
+        -{内存}g
+    模块三<br/>调度器模式
+      同构调度器
+        直接定位唯一集群
+        GPU 类型校验
+      异构调度器
+        按 GPU 类型路由
+        遍历集群匹配标签
+      统一接口
+        pickCluster
+        validateDeployment
+    模块四<br/>部署预校验
+      第一重
+        GPU 类型校验
+        是否在池支持范围
+      第二重
+        CPU 上限校验
+        内存上限校验
+      第三重
+        L1 池级配额
+        L2 工作空间配额
+      错误前置
+        校验失败
+        提前拒绝
+        不扣配额
+    模块五<br/>配额管理
+      L1 池级配额
         resource_pool_spec_quota
-        total / allocated
-        防止部门超额
-      L2 工作空间级
+        total 总量
+        allocated 已分配
+      L2 工作空间配额
         workspace_pool_spec_quota
-        max / used
-        防止项目超额
-      K8s 层兜底
-        ResourceQuota.hard
-        按 platform.io/spec 限 used
-    权限链
-      JWT 平台层认证
-        UserPrincipal
-        id role poolIds
-      workspace_member 平台层授权
-        校验 user 属于 workspace
-      K8s SA 层鉴权
-        1 ws 1 SA
-        平台代理调用
-        不建 per-user SA
-    异构硬件抽象
-      NVIDIA GPU
-        device plugin
-        HAMi vGPU
-      Hygon DCU
-        amd.com/dcu
-      华为昇腾
-        huawei.com/ascend910
-    回滚保护
-      部署失败 双层配额回退
-      删除部署 释放 L2 used
-      删除工作空间 释放 L1 allocated 并删 ns
+        max 最大
+        used 已使用
+      双层校验
+        先扣 L1
+        再扣 L2
+      双层释放
+        逐层回滚
+    模块六<br/>K8s 资源构建
+      ComputeSpec
+        翻译为 K8s 资源
+      生成内容
+        Deployment
+          limits
+            nvidia.com/gpu
+            nvidia.com/gpumem
+            nvidia.com/gpucores
+            cpu / memory
+            platform.io/{spec}
+        nodeSelector
+        tolerations
+        Service
+      提交目标
+        物理集群
+        Namespace
+    模块七<br/>节点管理
+      节点扫描
+        获取节点信息
+        GPU 类型 / 卡数
+        显存 / 算力
+        CPU / 内存
+        支持的切分规格
+      自动同步
+        填充资源上限
+        maxCpuCores
+        maxMemoryGib
+      前端展示
+        供用户选择
+        资源池支持类型
 ```
 
 ---
 
-## 3. 三层资源模型对照表
+## 3. 资源池两种模式
 
 ```mermaid
-flowchart TB
-    subgraph PHY["① 物理资源池 (K8s Cluster)"]
-        direction LR
-        N1["node-nvidia<br/>labels: pool=nvidia-gpu<br/>taints: nvidia.com/gpu=present"]
-        N2["node-dcu<br/>labels: pool=hygon-dcu<br/>taints: amd.com/dcu=present"]
-    end
-
-    subgraph SPEC["② 算力规格 (ComputeSpec)"]
-        S1["nvidia-rtx4090-24g<br/>nodeSelector pool=nvidia-gpu<br/>quotaKey platform.io/nvidia-rtx4090-24g"]
-        S2["hygon-dcu-32g<br/>nodeSelector pool=hygon-dcu<br/>quotaKey platform.io/hygon-dcu-32g"]
-    end
-
-    subgraph POOL["③ 逻辑资源池 (DB)"]
-        P1["算法部资源池<br/>关联: 两个物理集群<br/>spec_quota<br/>nvidia-rtx4090-24g total 1<br/>hygon-dcu-32g     total 1"]
-    end
-
-    subgraph WS["④ 工作空间 (K8s Namespace)"]
-        W1["llm-training<br/>ResourceQuota<br/>platform.io/nvidia-rtx4090-24g = 1"]
-        W2["cv-training<br/>ResourceQuota<br/>platform.io/hygon-dcu-32g = 1"]
-    end
-
-    subgraph TASK["⑤ Pod (用户任务)"]
-        T1["vllm-qwen3-svc<br/>limits<br/>nvidia.com/gpu 1<br/>platform.io/nvidia-rtx4090-24g 1<br/>nodeSelector pool=nvidia-gpu<br/>tolerations nvidia.com/gpu"]
-    end
-
-    PHY -.cluster 关联.-> POOL
-    SPEC -.翻译模板.-> POOL
-    POOL --切分配额--> WS
-    SPEC --驱动构建--> TASK
-    WS --提供 namespace--> TASK
-    T1 --调度命中--> N1
+mindmap
+  root((资源池))
+    同构模式 HOMOGENEOUS
+      一个逻辑池
+      绑定一个物理集群
+      直接定位
+      适合简单场景
+    异构模式 HETEROGENEOUS
+      一个逻辑池
+      绑定多个物理集群
+      按 GPU 类型路由
+      适合混合算力场景
 ```
 
 ---
 
-## 4. 资源量流转链路（9 步）
+## 4. 部署流程总览
 
 ```mermaid
 flowchart LR
-    A[1 物理机上架<br/>kubectl label/taint node] --> B[2 注册物理集群<br/>POST /admin/physical-clusters]
-    B --> C[3 定义算力规格<br/>POST /specs]
-    C --> D[4 创建逻辑池<br/>POST /admin/resource-pools<br/>+ spec_quota.total]
-    D --> E[5 创建工作空间<br/>POST /workspaces<br/>L1 校验 → 选集群 → K8s ns + ResourceQuota]
-    E --> F[6 提交任务<br/>POST /model-deployments<br/>L1+L2 校验 → 预扣 → 注入 spec → K8s Deployment]
-    F --> G[7 K8s Scheduler<br/>nodeSelector + taint 匹配节点]
-    G --> H[8 Kubelet + Cgroup<br/>容器隔离 GPU 卡限制<br/>ResourceQuota.used += 1]
-    H --> I[9 删除/失败<br/>双层配额回滚<br/>ResourceQuota.used -= 1]
+    A[用户提交部署请求] --> B[部署预校验]
+    B --> C[GPU 类型校验]
+    B --> D[资源上限校验]
+    B --> E[配额校验]
+    C --> F{通过?}
+    D --> F
+    E --> F
+    F --否--> X[拒绝请求]
+    F --是--> G[ComputeSpec 自动生成]
+    G --> H[配额预扣]
+    H --> I[调度器选集群]
+    I --> J[同构直接返回]
+    I --> K[异构按类型路由]
+    J --> L[K8s 资源构建]
+    K --> L
+    L --> M[提交 Deployment + Service]
 
-    style A fill:#e3f2fd
-    style E fill:#fff3e0
-    style F fill:#fff3e0
-    style I fill:#ffebee
+    style X fill:#f44336,color:#fff
+    style M fill:#4caf50,color:#fff
 ```
 
 ---
 
-## 5. 隔离链的关键 — "为什么 ResourceQuota 能真生效"
+## 5. 用户视角：极简输入
 
 ```mermaid
 flowchart TB
-    SPEC["ComputeSpec<br/>name = nvidia-rtx4090-24g<br/>resourceQuotaKey = platform.io/nvidia-rtx4090-24g"]
+    USER[用户只需填写<br/>GPU 类型 = A100-80GB（1/4 切分）<br/>GPU 数量 = 2] --> PLATFORM
+
+    subgraph PLATFORM[平台自动处理]
+        A[查切分规格表<br/>1/4 A100 → 20GB / 25%]
+        B[生成规格名称<br/>auto-nvidia-a100-80g-1/4-2g-4c-16g]
+        C[查 DB<br/>有则复用 无则新建]
+        D[生成 K8s 资源清单<br/>GPU 2卡 + 显存 40GB<br/>+ 算力 50% + CPU 4核 + 内存 16Gi]
+    end
+
+    PLATFORM --> K8S[K8s Deployment]
+
+    style USER fill:#e3f2fd
+    style K8S fill:#e8f5e9
+```
+
+---
+
+## 6. 三层资源模型
+
+```mermaid
+flowchart TB
+    subgraph PHY["① 物理集群 (K8s Cluster)"]
+        direction LR
+        N1["node-nvidia<br/>labels: pool=nvidia-a100-80g-1/4<br/>maxCpu / maxMem"]
+        N2["node-dcu<br/>labels: pool=hygon-dcu-32g-1/4"]
+    end
+
+    subgraph SPEC["② 算力规格 (ComputeSpec)"]
+        S1["nvidia-a100-80g-1/4<br/>gpumemMb: 20480<br/>gpucores: 25"]
+        S2["hygon-dcu-32g-1/4<br/>gpumemMb: 8192<br/>gpucores: 25"]
+    end
+
+    subgraph POOL["③ 逻辑资源池"]
+        P1["算法部资源池<br/>poolMode: HETEROGENEOUS<br/>关联: 两个物理集群"]
+    end
+
+    subgraph WS["④ 工作空间 (K8s Namespace)"]
+        W1["llm-training<br/>ResourceQuota<br/>platform.io/nvidia-a100-80g-1/4 = N"]
+    end
+
+    PHY -.cluster 关联.-> POOL
+    SPEC --被引用--> POOL
+    POOL --切配合额--> WS
+    SPEC --驱动构建--> TASK
+    WS --提供 namespace--> TASK
+
+    TASK["Pod Deployment<br/>limits 含 platform.io/*<br/>nodeSelector 匹配节点"]
+```
+
+---
+
+## 7. 双层配额体系
+
+```mermaid
+flowchart LR
+    subgraph L1["L1 池级配额"]
+        Q1["resource_pool_spec_quota"]
+        Q1 --> T1["total 总量"]
+        Q1 --> A1["allocated 已分配"]
+    end
+
+    subgraph L2["L2 工作空间配额"]
+        Q2["workspace_pool_spec_quota"]
+        Q2 --> M2["max 最大"]
+        Q2 --> U2["used 已使用"]
+    end
+
+    subgraph K8S["K8s 层兜底"]
+        RQ["ResourceQuota.hard<br/>platform.io/{spec}<br/>按 used 计数"]
+    end
+
+    L1 --> L2
+    L2 --> K8S
+```
+
+---
+
+## 8. 隔离链关键 — ResourceQuota 真生效
+
+```mermaid
+flowchart TB
+    SPEC["ComputeSpec<br/>name = nvidia-a100-80g-1/4<br/>resourceQuotaKey = platform.io/nvidia-a100-80g-1/4"]
 
     subgraph WSC["工作空间创建时"]
-        RQ["ResourceQuota.hard<br/>platform.io/nvidia-rtx4090-24g = 1"]
+        RQ["ResourceQuota.hard<br/>platform.io/nvidia-a100-80g-1/4 = N"]
     end
 
     subgraph POD["Pod 创建时"]
-        POD_LIMITS["Container.resources.limits<br/>nvidia.com/gpu = 1<br/>platform.io/nvidia-rtx4090-24g = 1  ← 这条是关键"]
+        POD_LIMITS["Container.resources.limits<br/>nvidia.com/gpu = 1<br/>platform.io/nvidia-a100-80g-1/4 = 1  ← 关键"]
     end
 
     subgraph K8S["K8s 内置控制器"]
-        QC["ResourceQuota Admission<br/>看到 Pod limits 含 platform.io/* 字段<br/>累加到 ResourceQuota.used"]
+        QC["ResourceQuota Admission<br/>拦截 Pod limits 含 platform.io/*<br/>累加到 ResourceQuota.used"]
     end
 
     SPEC --写入 hard 上限--> RQ
@@ -176,217 +280,89 @@ flowchart TB
     style BLOCK fill:#f44336,color:#fff
 ```
 
-> **关键洞察**：旧实现只给 ResourceQuota 设了 `platform.io/{spec}=1`，但没给 Pod 加这个字段 → K8s 永远计 0 → 隔离失效。修复后 Pod limits 必须**同时**带 `platform.io/{spec}=1`，ResourceQuota 才会累加 used，超额时由 K8s **API Server 拒绝**新 Pod。
-
 ---
 
-## 6. 双层配额工作时序（以部署为例）
+## 9. 部署时序
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant U as 用户 (zhangsan)
+    participant U as 用户
     participant API as ACMP API
     participant DB as DB
     participant K as K8s
 
-    U->>API: POST /resource-pools/{p}/workspaces/{ws}/model-deployments<br/>{specName, replicas=1}
-    API->>DB: workspace_member 校验 zhangsan ∈ ws ?
-    DB-->>API: ✅
-    API->>DB: 读 compute_spec by name
-    DB-->>API: spec(brand, nodeSelector, tolerations, quotaKey)
+    U->>API: POST /resource-pools/{poolId}/deploy<br/>{gpuType, gpuCount, cpuCores, memoryGib}
+    rect rgb(255, 243, 224)
+    Note over API,DB: 预校验阶段
+    API->>API: validateDeployment(gpuType, cpuCores, memoryGib)
+    end
+    API->>DB: ensureComputeSpec(request)
+    DB-->>API: ComputeSpec (auto-xxx)
 
     rect rgb(255, 243, 224)
-    Note over API,DB: ① L1 池级配额校验
-    API->>DB: resource_pool_spec_quota.allocated + 1 ≤ total ?
-    DB-->>API: ✅
-    Note over API,DB: ② L2 工作空间级配额校验
-    API->>DB: workspace_pool_spec_quota.used + 1 ≤ max ?
-    DB-->>API: ✅
+    Note over API,DB: L1 + L2 配额校验
+    API->>DB: quotaService.validateBothLevelQuotas()
+    API->>DB: quotaService.deductBothLevelQuotas()
     end
 
-    rect rgb(232, 245, 233)
-    Note over API,DB: ③ 双层预扣
-    API->>DB: L1.allocated += 1
-    API->>DB: L2.used += 1
-    end
+    API->>DB: pickCluster(poolId, spec)
+    DB-->>API: PhysicalCluster
 
-    Note over API: 构建 YAML<br/>limits: nvidia.com/gpu=1, platform.io/{spec}=1<br/>nodeSelector: pool=nvidia-gpu<br/>tolerations: nvidia.com/gpu=present
+    Note over API: K8sResourceBuilder.buildDeployment(spec)
     API->>K: client.apply(Deployment + Service)
 
     alt K8s 成功
         K-->>API: 201 Created
-        API->>DB: deployment.status = running
-        API-->>U: 201 + serviceUrl
+        API-->>U: 成功
     else K8s 失败
-        K-->>API: 拒绝（如 ResourceQuota 超额）
-        rect rgb(255, 235, 238)
-        API->>DB: L1.allocated -= 1
-        API->>DB: L2.used -= 1
-        end
-        API->>DB: deployment.status = failed
-        API-->>U: 500 + 失败原因
+        K-->>API: 失败
+        API->>DB: 回滚 L1 + L2 配额
+        API-->>U: 错误信息
     end
 ```
 
 ---
 
-## 7. 数据模型（精简 ER）
+## 10. 数据模型
 
 ```mermaid
 erDiagram
     physical_cluster ||--o{ resource_pool_physical_cluster : "M to N"
     resource_pool    ||--o{ resource_pool_physical_cluster : "M to N"
-    resource_pool    ||--o{ resource_pool_spec_quota       : "按规格"
+    resource_pool    ||--o{ resource_pool_spec_quota       : "按规格 L1"
     compute_spec     ||--o{ resource_pool_spec_quota       : "被引用"
     resource_pool    ||--o{ workspace                      : "1 to N"
     workspace        ||--|| workspace_resource_pool        : "绑定"
     workspace        ||--o{ workspace_pool_spec_quota      : "L2 配额"
     compute_spec     ||--o{ workspace_pool_spec_quota      : "被引用"
-    workspace        ||--o{ workspace_member               : "成员"
-    users            ||--o{ workspace_member               : "属于多 ws"
     workspace        ||--o{ model_deployment               : "部署"
-    workspace        ||--o{ training_job_record            : "训练"
-    compute_spec     ||--o{ model_deployment               : "记录使用规格"
-    compute_spec     ||--o{ training_job_record            : "记录使用规格"
-
-    physical_cluster {
-        string id PK
-        string name
-        clob   kubeconfig_encrypted
-        string node_labels "JSON 节点标签"
-        string taints       "JSON 污点"
-    }
-    compute_spec {
-        string id PK
-        string name "nvidia-rtx4090-24g"
-        string gpu_brand "NVIDIA/HYGON/HUAWEI_ASCEND"
-        string node_selector
-        string tolerations
-        string resource_quota_key "platform.io/{name}"
-    }
-    resource_pool {
-        string id PK
-        string department_code
-        string status
-    }
-    resource_pool_spec_quota {
-        string resource_pool_id PK
-        string spec_id PK
-        int    total_quota
-        int    allocated_quota "L1"
-    }
-    workspace {
-        string id PK
-        string resource_pool_id FK
-        string namespace UK "K8s NS"
-        string service_account_name
-        string primary_cluster_id
-    }
-    workspace_pool_spec_quota {
-        string workspace_id PK
-        string resource_pool_id PK
-        string spec_id PK
-        int    max_quota
-        int    used_quota "L2"
-    }
 ```
 
 ---
 
-## 8. 权限链（三道关卡）
+## 11. 演示讲稿建议（3 分钟串词）
 
-```mermaid
-flowchart TB
-    REQ([用户 zhangsan 携 JWT 请求<br/>POST /workspaces/ws-llm/model-deployments])
-
-    subgraph G1["关卡 ① 平台认证（JwtAuthenticationFilter）"]
-        J["解 JWT → UserPrincipal<br/>id=zhangsan role=TRAINING_USER"]
-    end
-
-    subgraph G2["关卡 ② 平台授权（Service 内）"]
-        M["workspace_member 表查询<br/>zhangsan ∈ ws-llm ?"]
-    end
-
-    subgraph G3["关卡 ③ K8s 鉴权（K8s API Server）"]
-        SA["KubernetesClient 用平台 SA 发请求<br/>K8s 检查 SA 在 ns-llm 的 Role 权限"]
-        RQ["ResourceQuota Admission<br/>platform.io/{spec} 计量是否超 hard ?"]
-    end
-
-    REQ --> J
-    J --token 有效--> M
-    M --是成员--> SA
-    SA --RBAC 通过--> RQ
-    RQ --used 未超--> OK([创建 Deployment])
-
-    J -.token 无效.-> X1([401])
-    M -.非成员.-> X2([403])
-    SA -.RBAC 拒.-> X3([403 from K8s])
-    RQ -.超额.-> X4([Forbidden by K8s ResourceQuota])
-
-    style OK fill:#4caf50,color:#fff
-    style X1 fill:#f44336,color:#fff
-    style X2 fill:#f44336,color:#fff
-    style X3 fill:#f44336,color:#fff
-    style X4 fill:#f44336,color:#fff
-```
+> 1. **定位**（30 秒）：平台是 K8s 原生对象的语义化包装层，不发明新调度器，把"用户、规格、配额"翻译成 K8s 能听懂的对象。
+> 2. **结构**（60 秒）：七模块设计 — 资源池管理（同构/异构）/ 部署服务（ComputeSpec 自动生成）/ 调度器模式 / 部署预校验 / 配额管理 / K8s 资源构建 / 节点管理。
+> 3. **核心简化**（60 秒）：用户只告诉平台"要几张什么类型的卡"，平台自动查切分规格表算显存算力，生成 ComputeSpec，提交 K8s。
+> 4. **隔离机制**（30 秒）：ResourceQuota 用 `platform.io/{spec}` 计量，Pod limits 必须带这个字段，K8s 内置 Admission 接管限流，超额由 API Server 拒绝。
+> 5. **价值结句**：跨厂商、跨集群、跨部门，统一一套 API，统一一套配额。
 
 ---
 
-## 9. 异构硬件抽象（一图看懂"为啥能跨厂商"）
-
-```mermaid
-flowchart LR
-    USER[用户提交 specName=hygon-dcu-32g]
-
-    subgraph TRANS["平台翻译层 (K8sResourceBuilder)"]
-        BR{spec.gpuBrand?}
-        K1["limits.nvidia.com/gpu = N"]
-        K2["limits.amd.com/dcu = N"]
-        K3["limits.huawei.com/ascend910 = N"]
-        PKEY["+ limits.platform.io/hygon-dcu-32g = 1"]
-        NS["+ nodeSelector pool=hygon-dcu"]
-        TOL["+ tolerations amd.com/dcu=present"]
-    end
-
-    subgraph K["K8s 集群"]
-        ND[node-dcu 上的 amd.com/dcu device plugin]
-        SCH[Scheduler 仅匹配满足标签+容忍的节点]
-    end
-
-    USER --> BR
-    BR --NVIDIA--> K1
-    BR --HYGON--> K2
-    BR --HUAWEI_ASCEND--> K3
-    K2 --> PKEY --> NS --> TOL --> SCH
-    SCH --命中--> ND
-
-    style BR fill:#fff3e0
-    style PKEY fill:#ffeb3b
-```
-
----
-
-## 10. 演示讲稿建议（3 分钟串词）
-
-> 1. **痛点**（30 秒）：企业有 NVIDIA、海光、昇腾混合卡，多个部门混着用，怎么"既隔离又共享"？
-> 2. **结构**（60 秒）：用三层资源模型 — 物理池（K8s Cluster）/逻辑池（DB 聚合）/工作空间（K8s NS）。物理池存"硬件事实"，逻辑池存"分配契约"，工作空间是"团队的隔离边界"。
-> 3. **关键发明**（60 秒）：算力规格（ComputeSpec）作为唯一翻译层 —— **任何用户请求只指定 specName，平台自动翻译成 K8s 标准对象**（设备资源键、节点选择器、容忍、计量键）。一处定义、处处对齐。
-> 4. **隔离链怎么真生效**（30 秒）：ResourceQuota 用 `platform.io/{spec}` 而不是 `nvidia.com/gpu`，Pod limits 同样带这个键 —— **K8s 内置 ResourceQuota Admission 接管限流**，超额由 API Server 拒绝，平台无需自己实现"调度器"。
-> 5. **价值结句**：跨厂商、跨集群、跨部门，统一一套 API，统一一套配额，统一一套权限。
-
----
-
-## 11. 一图记住整个系统
+## 12. 一图记住整个系统
 
 ```
                   ┌──────────────────────────────────────────────┐
-                  │       ComputeSpec  (唯一翻译中枢)             │
+                  │       ComputeSpec  (平台翻译中枢)             │
                   │                                              │
                   │  gpuBrand     → nvidia.com/gpu | amd.com/dcu │
+                  │  gpumemMb     → nvidia.com/gpumem            │
+                  │  gpucores     → nvidia.com/gpucores           │
                   │  nodeSelector → Pod.nodeSelector             │
-                  │  tolerations  → Pod.tolerations              │
-                  │  quotaKey     → platform.io/{name}           │
+                  │  tolerations  → Pod.tolerations               │
+                  │  quotaKey     → platform.io/{name}            │
                   └─────────────────────┬────────────────────────┘
                                         │ 翻译
         ┌───────────────────────────────┼───────────────────────────────┐
@@ -395,9 +371,10 @@ flowchart LR
   ┌──────────┐                  ┌──────────────┐                ┌──────────────┐
   │ 物理池   │ M:N              │ 逻辑池       │ 1:N            │ 工作空间      │
   │ Cluster  │ ◄─────────────── │ DB 聚合      │ ──────────────► │ Namespace    │
-  │ labels   │                  │ spec_quota   │                │ ResourceQuota │
-  │ taints   │                  │ total /      │                │ platform.io/* │
-  │          │                  │ allocated L1 │                │ used / hard   │
+  │ labels   │                  │ poolMode     │                │ ResourceQuota │
+  │ taints   │                  │ 同构/异构    │                │ platform.io/* │
+  │ maxCpu   │                  │              │                │               │
+  │ maxMem   │                  │              │                │               │
   └──────────┘                  └──────────────┘                └──────┬───────┘
                                                                        │
                                                                        ▼

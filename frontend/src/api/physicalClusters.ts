@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { PhysicalCluster, PhysicalClusterCreateRequest, PhysicalClusterCapacity } from '../types';
+import type { PhysicalCluster, PhysicalClusterCreateRequest, PhysicalClusterCapacity, NodeScanResponse } from '../types';
 import { USE_MOCK } from '../mock';
 import { mockPhysicalClusterApi } from '../mock/physicalClusters';
 
@@ -9,6 +9,8 @@ const realApi = {
     apiClient.post<PhysicalCluster>('/admin/physical-clusters', data),
   capacity: (id: string) =>
     apiClient.get<PhysicalClusterCapacity>(`/physical-clusters/${id}/capacity`),
+  nodes: (id: string) =>
+    apiClient.get<NodeScanResponse>(`/physical-clusters/${id}/nodes`),
   delete: (id: string) =>
     apiClient.delete<{ message: string }>(`/physical-clusters/${id}`),
 };

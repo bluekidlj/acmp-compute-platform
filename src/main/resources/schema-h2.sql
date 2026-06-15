@@ -226,6 +226,22 @@ CREATE TABLE IF NOT EXISTS workspace_pool_cluster (
 );
 
 -- ============================================
+-- 模型广场（模型文件元信息，支持多存储后端）
+-- ============================================
+CREATE TABLE IF NOT EXISTS model (
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(128) NOT NULL UNIQUE,
+    display_name VARCHAR(255),
+    description VARCHAR(512),
+    model_source VARCHAR(32) NOT NULL DEFAULT 'with_weights',
+    storage_backend VARCHAR(32) NOT NULL DEFAULT 'nfs',
+    storage_path VARCHAR(512) NOT NULL,
+    file_size_mb BIGINT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================
 -- vLLM 模型服务部署记录
 -- ============================================
 CREATE TABLE IF NOT EXISTS model_deployment (

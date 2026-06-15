@@ -1,20 +1,20 @@
 import { mockResponse } from './index';
 import { mockDeployments } from './data';
-import type { ModelDeployment, VllmDeployRequest } from '../types';
+import type { ModelDeployment, ModelDeploymentRequest } from '../types';
 
 export const mockModelDeploymentApi = {
-  deploy: async (_poolId: string, workspaceId: string, data: VllmDeployRequest) => {
+  deploy: async (_poolId: string, workspaceId: string, data: ModelDeploymentRequest) => {
     const newDep: ModelDeployment = {
       id: 'dep-' + Math.random().toString(36).slice(2, 10),
       workspaceId,
       resourcePoolId: _poolId,
-      specId: 'spec-' + data.specName,
+      specId: 'spec-auto-' + data.gpuType,
       name: data.name,
       modelName: data.modelName,
       modelSource: data.modelSource,
       modelIdOrPath: data.modelIdOrPath || '/models',
-      vllmImage: data.vllmImage || 'vllm/vllm-openai:latest',
-      gpuPerReplica: 1,
+      vllmImage: data.image,
+      gpuPerReplica: data.gpuCount,
       replicas: data.replicas,
       k8sDeploymentName: 'vllm-' + data.name.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
       k8sServiceName: 'vllm-' + data.name.toLowerCase().replace(/[^a-z0-9-]/g, '-') + '-svc',
@@ -24,6 +24,7 @@ export const mockModelDeploymentApi = {
       readyReplicas: data.replicas,
       createdBy: 'current-user',
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
     mockDeployments.push(newDep);
     return mockResponse<ModelDeployment>(newDep, 600);
