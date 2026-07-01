@@ -9,6 +9,7 @@ import com.acmp.compute.exception.BadRequestException;
 import com.acmp.compute.exception.ResourceNotFoundException;
 import com.acmp.compute.k8s.KubernetesClientManager;
 import com.acmp.compute.mapper.ComputeSpecMapper;
+import com.acmp.compute.mapper.PoolCardMapper;
 import com.acmp.compute.mapper.ProjectResourceQuotaMapper;
 import com.acmp.compute.mapper.ResourcePoolMapper;
 import com.acmp.compute.mapper.WorkspaceMapper;
@@ -38,6 +39,7 @@ public class ResourcePoolService {
     private final WorkspaceMapper workspaceMapper;
     private final ComputeSpecMapper specMapper;
     private final ProjectResourceQuotaMapper projectQuotaMapper;
+    private final PoolCardMapper poolCardMapper;
     private final KubernetesClientManager clientManager;
 
     public List<ResourcePoolResponse> listByWorkspace(String workspaceId) {
@@ -62,13 +64,6 @@ public class ResourcePoolService {
         Workspace ws = workspaceMapper.findById(pool.getWorkspaceId())
                 .orElseThrow(() -> new ResourceNotFoundException("工作空间不存在: " + pool.getWorkspaceId()));
 
-        // 校验：totalNodes 不能小于已分配
-        int allocated = pool.getAllocatedNodes() != null ? pool.getAllocatedNodes() : 0;
-        if (req.getTotalNodes() < allocated) {
-            throw new BadRequestException(String.format(
-                    "池总容量(%d)不能小于已分配(%d)", req.getTotalNodes(), allocated));
-        }
-
         // 校验 specs（如果传了）：必须与 pool.poolType 一致
         if (req.getSpecs() != null) {
             for (String specId : req.getSpecs()) {
@@ -82,9 +77,6 @@ public class ResourcePoolService {
             }
         }
 
-        // 写容量
-        poolMapper.updateCapacity(id, req.getTotalNodes());
-
         // 写规格关联（覆盖式）
         if (req.getSpecs() != null) {
             specMapper.deleteResourcePoolSpecsByPool(id);
@@ -93,24 +85,26 @@ public class ResourcePoolService {
             }
         }
 
-        // 同步 K8s ResourceQuota
+        // 同步 K8s ResourceQuota（按 spec 维度，hard[platform.io/{spec}] = sum(pool_card.slots)）
         try {
             Map<String, String> specLimits = new LinkedHashMap<>();
             List<ComputeSpec> specs = specMapper.findByResourcePoolId(id);
             for (ComputeSpec s : specs) {
-                specLimits.put(s.getResourceQuotaKey(), String.valueOf(req.getTotalNodes()));
+                int slots = poolCardMapper.sumActiveSlotsByPoolAndSpec(id, s.getId());
+                specLimits.put(s.getResourceQuotaKey(), String.valueOf(slots));
             }
+            int total = pool.getTotalNodes() != null ? pool.getTotalNodes() : 0;
             if (!specLimits.isEmpty()) {
                 clientManager.createResourceQuotaBySpec(
                         pool.getPrimaryClusterId(), ws.getNamespace(),
                         "quota-" + pool.getPoolType().toLowerCase() + "-" + id.substring(0, 8),
-                        specLimits, Math.max(50, req.getTotalNodes() * 10));
+                        specLimits, Math.max(50, total * 10));
             }
         } catch (Exception e) {
             log.warn("K8s ResourceQuota 同步失败（继续）: {}", e.getMessage());
         }
 
-        log.info("✓ 池 {} 已更新: totalNodes={}, specs={}", id, req.getTotalNodes(),
+        log.info("✓ 池 {} 已更新: totalNodes={}（自动累加）, specs={}", id, pool.getTotalNodes(),
                 req.getSpecs() != null ? req.getSpecs().size() : "(未变)");
         return toResponse(poolMapper.findById(id).orElseThrow());
     }

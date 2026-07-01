@@ -28,4 +28,14 @@ public interface ProjectResourceQuotaMapper {
 
     int deleteById(@Param("id") String id);
     int deleteByProjectId(@Param("projectId") String projectId);
+
+    int sumTotalByPoolSpecAndProject(@Param("projectId") String projectId,
+                                    @Param("resourcePoolId") String resourcePoolId,
+                                    @Param("specId") String specId);
+    int sumUsedByPoolAndSpec(@Param("resourcePoolId") String resourcePoolId,
+                             @Param("specId") String specId);
+    int capUsedByPoolAndSpec(@Param("resourcePoolId") String resourcePoolId,
+                             @Param("specId") String specId,
+                             @Param("newUsed") int newUsed);
+    int sumTotalByPool(@Param("resourcePoolId") String resourcePoolId);
 }

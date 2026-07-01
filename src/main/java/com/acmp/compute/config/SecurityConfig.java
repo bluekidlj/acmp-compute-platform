@@ -40,6 +40,10 @@ public class SecurityConfig {
                 .and()
                 .headers().frameOptions().sameOrigin()
                 .and()
+                .exceptionHandling()
+                    .authenticationEntryPoint((req, res, ex) -> res.sendError(401, "Unauthorized"))
+                    .accessDeniedHandler((req, res, ex) -> res.sendError(403, "Forbidden"))
+                .and()
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

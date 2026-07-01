@@ -15,7 +15,10 @@ import com.acmp.compute.exception.ResourceNotFoundException;
 import com.acmp.compute.k8s.K8sResourceBuilder;
 import com.acmp.compute.k8s.KubernetesClientManager;
 import com.acmp.compute.mapper.ComputeSpecMapper;
+import io.kubernetes.client.openapi.models.V1Deployment;
+import io.kubernetes.client.openapi.models.V1Service;
 import com.acmp.compute.mapper.ModelDeploymentMapper;
+import com.acmp.compute.mapper.PoolCardMapper;
 import com.acmp.compute.mapper.ProjectMapper;
 import com.acmp.compute.mapper.ProjectResourceQuotaMapper;
 import com.acmp.compute.mapper.ResourcePoolMapper;
@@ -58,6 +61,7 @@ public class ModelDeploymentService {
     private final ResourcePoolMapper poolMapper;
     private final ComputeSpecMapper specMapper;
     private final ProjectResourceQuotaMapper projectQuotaMapper;
+    private final PoolCardMapper poolCardMapper;
     private final KubernetesClientManager clientManager;
     private final ModelService modelService;
 
@@ -163,17 +167,23 @@ public class ModelDeploymentService {
         // 超分池跳过 K8s 提交
         if ("OVERSELL".equals(spec.getPoolType())) {
             deploymentMapper.updateStatus(id, "running", null);
+            ModelDeployment refreshed = deploymentMapper.findById(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("部署不存在: " + id));
             log.info("✅ 超分占位部署完成（未提交 K8s）: id={}, project={}, spec={}", id, projectId, spec.getName());
-            return toResponse(record, null);
+            return toResponse(refreshed, null);
         }
 
         try {
-            String yaml = K8sResourceBuilder.buildVllmDeploymentAndService(
-                    deploymentName, serviceName, ws.getNamespace(),
+            List<String> preferredNodes = poolCardMapper.findNodeNamesByPoolAndSpec(
+                pool.getId(), spec.getId());
+            V1Deployment deployment = K8sResourceBuilder.buildVllmDeployment(
+                    deploymentName, ws.getNamespace(),
                     image, modelPath, spec, replicas, hostModelPath,
                     spec.getNodeSelector(), spec.getTolerations(),
-                    req.getEnvVars(), req.getCommand(), req.getArgs());
-            clientManager.createVllmDeploymentAndService(clusterId, ws.getNamespace(), yaml);
+                    req.getEnvVars(), req.getCommand(), req.getArgs(),
+                    preferredNodes);
+            V1Service service = K8sResourceBuilder.buildVllmService(serviceName, ws.getNamespace(), deploymentName);
+            clientManager.createVllmDeploymentAndService(clusterId, ws.getNamespace(), deployment, service);
             deploymentMapper.updateActualClusterId(id, clusterId);
 
             String serviceUrl = String.format("http://%s.%s.svc.cluster.local:8000", serviceName, ws.getNamespace());
@@ -183,8 +193,7 @@ public class ModelDeploymentService {
 
             log.info("✅ vLLM 部署完成: id={}, project={}, spec={}, url={}", id, projectId, spec.getName(), serviceUrl);
         } catch (Exception err) {
-            log.warn("⚠️ K8s 提交失败，回滚配额: {}", err.getMessage(), err);
-            // 回滚 project.used
+            log.error("❌ K8s 提交失败，回滚 prq.used: id={}, err={}", id, err.getMessage(), err);
             projectQuotaMapper.updateUsedNodes(quota.getId(), used);
             deploymentMapper.updateStatus(id, "failed", null);
             record.setStatus("failed");

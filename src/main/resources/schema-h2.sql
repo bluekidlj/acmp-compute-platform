@@ -109,13 +109,14 @@ CREATE TABLE IF NOT EXISTS workspace_member (
 CREATE TABLE IF NOT EXISTS resource_pool (
     id                  VARCHAR(64) PRIMARY KEY,
     workspace_id        VARCHAR(64) NOT NULL,
-    pool_type           VARCHAR(20) NOT NULL,    -- EXCLUSIVE / SHARED / OVERSELL
+    pool_type           VARCHAR(20) NOT NULL,
     name                VARCHAR(128) NOT NULL,
     description         VARCHAR(512),
     primary_cluster_id  VARCHAR(64) NOT NULL,
-    total_nodes         INT NOT NULL DEFAULT 0,   -- 池总容量（卡数 / vGPU 数 / 超分单元数）
-    allocated_nodes     INT NOT NULL DEFAULT 0,   -- 已分配给各 Project 之和
+    total_nodes         INT NOT NULL DEFAULT 0,
+    allocated_nodes     INT NOT NULL DEFAULT 0,
     status              VARCHAR(20) DEFAULT 'active',
+    capacity_strategy   VARCHAR(32) DEFAULT 'SUM_SLOTS',
     created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (workspace_id, pool_type)
@@ -128,6 +129,24 @@ CREATE TABLE IF NOT EXISTS resource_pool_spec (
     spec_id             VARCHAR(64) NOT NULL,
     PRIMARY KEY (resource_pool_id, spec_id)
 );
+
+CREATE TABLE IF NOT EXISTS pool_card (
+    id              VARCHAR(64) PRIMARY KEY,
+    pool_id         VARCHAR(64) NOT NULL,
+    gpu_brand       VARCHAR(32) NOT NULL,
+    gpu_model       VARCHAR(64) NOT NULL,
+    node_name       VARCHAR(128),
+    serial_no       VARCHAR(128),
+    spec_id         VARCHAR(64) NOT NULL,
+    slots           INT NOT NULL,
+    status          VARCHAR(20) DEFAULT 'active',
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (pool_id, node_name, serial_no, spec_id)
+);
+CREATE INDEX IF NOT EXISTS idx_pool_card_pool ON pool_card(pool_id);
+CREATE INDEX IF NOT EXISTS idx_pool_card_spec ON pool_card(spec_id);
+CREATE INDEX IF NOT EXISTS idx_pool_card_node  ON pool_card(node_name);
 
 -- ─────────── 项目（WS 内的子租户）───────────
 CREATE TABLE IF NOT EXISTS project (
@@ -170,7 +189,7 @@ CREATE TABLE IF NOT EXISTS model_deployment (
     workspace_id            VARCHAR(64) NOT NULL,
     resource_pool_id        VARCHAR(64) NOT NULL,
     spec_id                 VARCHAR(64) NOT NULL,
-    pool_type               VARCHAR(20) NOT NULL,        -- EXCLUSIVE / SHARED / OVERSELL
+    pool_type               VARCHAR(20) NOT NULL,
     name                    VARCHAR(255) NOT NULL,
     model_name              VARCHAR(255),
     model_source            VARCHAR(32),
@@ -185,12 +204,16 @@ CREATE TABLE IF NOT EXISTS model_deployment (
     status                  VARCHAR(32) NOT NULL DEFAULT 'pending',
     service_url             VARCHAR(512),
     actual_cluster_id       VARCHAR(64),
+    pool_card_id            VARCHAR(64),
+    resource_key            VARCHAR(128),
     created_by              VARCHAR(64),
     created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_md_project ON model_deployment(project_id);
 CREATE INDEX IF NOT EXISTS idx_md_workspace ON model_deployment(workspace_id);
+ALTER TABLE model_deployment ADD COLUMN IF NOT EXISTS pool_card_id VARCHAR(64);
+ALTER TABLE model_deployment ADD COLUMN IF NOT EXISTS resource_key VARCHAR(128);
 
 -- ─────────── 模型广场 ───────────
 CREATE TABLE IF NOT EXISTS model_source (
@@ -225,54 +248,54 @@ CREATE TABLE IF NOT EXISTS training_job_record (
 -- 预置数据：7 条标准规格
 -- ===================================================================
 MERGE INTO compute_spec (id, name, display_name, gpu_brand, spec_type, pool_type,
-    default_gpu_count, default_cpu_cores, default_memory_gib,
+    default_gpu_count, default_gpumem_mb, default_gpucores, default_cpu_cores, default_memory_gib,
     node_selector, tolerations, resource_quota_key, memory_gb)
 KEY(id) VALUES
 ('spec-exclusive-a100', 'exclusive-nvidia-a100-80g', 'NVIDIA A100 80GB (独占整卡)', 'NVIDIA',
  'PHYSICAL', 'EXCLUSIVE',
- 1, 8, 32,
- '{"pool":"exclusive-nvidia-a100-80g"}',
+ 1, 0, 0, 8, 32,
+ '{}',
  '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
  'platform.io/exclusive-nvidia-a100-80g', 80),
 
 ('spec-exclusive-h100', 'exclusive-nvidia-h100-80g', 'NVIDIA H100 80GB (独占整卡)', 'NVIDIA',
  'PHYSICAL', 'EXCLUSIVE',
- 1, 8, 32,
- '{"pool":"exclusive-nvidia-h100-80g"}',
+ 1, 0, 0, 8, 32,
+ '{}',
  '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
  'platform.io/exclusive-nvidia-h100-80g', 80),
 
 ('spec-exclusive-dcu', 'exclusive-hygon-dcu', 'Hygon DCU (独占整卡)', 'HYGON',
  'PHYSICAL', 'EXCLUSIVE',
- 1, 8, 32,
- '{"pool":"exclusive-hygon-dcu"}',
+ 1, 0, 0, 8, 32,
+ '{}',
  '[{"key":"amd.com/dcu","operator":"Exists","effect":"NoSchedule"}]',
  'platform.io/exclusive-hygon-dcu', 32),
 
 ('spec-shared-a100-12', 'shared-hami-a100-1/2', 'A100 80GB 1/2 卡 (HAMi 切分)', 'NVIDIA',
  'VIRTUAL', 'SHARED',
- 1, 4, 16,
- '{"pool":"shared-hami-a100-1/2"}',
+ 1, 40960, 50, 4, 16,
+ '{}',
  '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
- 'platform.io/shared-hami-a100-1/2', 40),
+ 'platform.io/shared-hami-a100-1-2', 40),
 
 ('spec-shared-a100-14', 'shared-hami-a100-1/4', 'A100 80GB 1/4 卡 (HAMi 切分)', 'NVIDIA',
  'VIRTUAL', 'SHARED',
- 1, 2, 8,
- '{"pool":"shared-hami-a100-1/4"}',
+ 1, 20480, 25, 2, 8,
+ '{}',
  '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
- 'platform.io/shared-hami-a100-1/4', 20),
+ 'platform.io/shared-hami-a100-1-4', 20),
 
 ('spec-shared-a100-18', 'shared-hami-a100-1/8', 'A100 80GB 1/8 卡 (HAMi 切分)', 'NVIDIA',
  'VIRTUAL', 'SHARED',
- 1, 1, 4,
- '{"pool":"shared-hami-a100-1/8"}',
+ 1, 10240, 12, 1, 4,
+ '{}',
  '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
- 'platform.io/shared-hami-a100-1/8', 10),
+ 'platform.io/shared-hami-a100-1-8', 10),
 
 ('spec-oversell-a100', 'oversell-a100-mig-1/2', 'A100 MIG 1/2 (超分占位)', 'NVIDIA',
  'OVERSELL', 'OVERSELL',
- 1, 4, 16,
- '{"pool":"oversell-a100-mig-1/2"}',
+ 1, 0, 0, 4, 16,
+ '{}',
  '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
- 'platform.io/oversell-a100-mig-1/2', 40);
+ 'platform.io/oversell-a100-mig-1-2', 40);

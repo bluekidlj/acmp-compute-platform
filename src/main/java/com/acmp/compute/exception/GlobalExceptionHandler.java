@@ -33,6 +33,11 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
     }
 
+    @ExceptionHandler(BadRequestException.class)
+    public ResponseEntity<Map<String, Object>> handleBadRequestCustom(BadRequestException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleOther(Exception e) {
         log.error("未处理异常", e);

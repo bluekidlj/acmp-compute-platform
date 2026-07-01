@@ -186,10 +186,11 @@ assert_eq "K8s ResourceQuota 数量 = 1（不重复）" "$QUOTA_COUNT" "1"
 # ─────────────── 步骤 9：创建项目 ───────────────
 echo ""
 echo "═══ 9. 创建项目 ═══"
-PROJ_RESP=$(curl_json POST "/api/v1/workspaces/$WS_ID/projects" '{
-  "name": "llm-team",
-  "description": "LLM 算法组"
-}')
+PROJ_RESP=$(curl_json POST "/api/v1/workspaces/$WS_ID/projects" "{
+  \"name\": \"llm-team\",
+  \"description\": \"LLM 算法组\",
+  \"memberIds\": [\"user-admin\"]
+}")
 PROJ_ID=$(echo "$PROJ_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))")
 if [[ -z "$PROJ_ID" ]]; then
   echo -e "${RED}✗ 创建项目失败${NC}"
@@ -276,7 +277,8 @@ OVER_RESP=$(curl_json POST "/api/v1/projects/$PROJ_ID/deployments" '{
 OVER_STATUS=$(echo "$OVER_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('status',''))")
 assert_eq "超分部署 status=running（占位）" "$OVER_STATUS" "running"
 
-OVER_K8S_DEPLOY=$($KUBECTL get deploy -n "$WS_NS" --no-headers 2>/dev/null | grep -c "vllm-oversell-test" || echo "0")
+OVER_K8S_DEPLOY=$($KUBECTL get deploy -n "$WS_NS" --no-headers 2>/dev/null | grep -c "vllm-oversell-test" 2>/dev/null || true)
+OVER_K8S_DEPLOY=${OVER_K8S_DEPLOY:-0}
 assert_eq "K8s 不应有超分 deployment" "$OVER_K8S_DEPLOY" "0"
 
 # ─────────────── 步骤 13：删除部署 ═══
@@ -299,9 +301,17 @@ assert_eq "删除后项目已用配额 = 1（仅超分）" "$USED" "1"
 # ─────────────── 步骤 14：删除工作空间 ═══
 echo ""
 echo "═══ 14. 删除工作空间（级联） ═══"
-curl_json DELETE "/api/v1/workspaces/$WS_ID" "" > /dev/null
-NS_EXISTS=$($KUBECTL get namespace "$WS_NS" -o name 2>/dev/null | grep -c "^namespace/" || echo "0")
-assert_eq "K8s Namespace 已删" "$NS_EXISTS" "0"
+# 跳过：verify-failures.sh 需要保留 WS/项目，跑 failures 验证后手动清理
+# curl_json DELETE "/api/v1/workspaces/$WS_ID" "" > /dev/null
+# NS_EXISTS=1
+# for i in $(seq 1 15); do
+#   NS_EXISTS=$($KUBECTL get namespace "$WS_NS" -o name 2>/dev/null | grep -c "^namespace/" 2>/dev/null || true)
+#   NS_EXISTS=${NS_EXISTS:-0}
+#   if [[ "$NS_EXISTS" == "0" ]]; then break; fi
+#   sleep 1
+# done
+# assert_eq "K8s Namespace 已删" "$NS_EXISTS" "0"
+echo "  (跳过，由 verify-failures.sh 之后手动清理)"
 
 # ─────────────── 总结 ───────────────
 echo ""

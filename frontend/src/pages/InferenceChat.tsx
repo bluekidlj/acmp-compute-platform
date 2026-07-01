@@ -1,283 +1,121 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import {
-  Card, Table, Button, Space, Tag, Typography, Empty, Input, Spin, message,
-} from 'antd';
-import { MessageOutlined, ArrowLeftOutlined, SendOutlined, ClearOutlined } from '@ant-design/icons';
-import { modelDeploymentApi } from '../api/modelDeployments';
-import { workspaceApi } from '../api/workspaces';
-import type { ModelDeployment, Workspace } from '../types';
+import { useEffect, useState, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Card, Input, Button, Space, Spin, Tag, Avatar, Empty } from 'antd';
+import { SendOutlined, ArrowLeftOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
+import { deploymentsApi } from '../api';
+import type { ModelDeployment } from '../types';
+import PageHeader from '../components/PageHeader';
 
-const { Title, Text } = Typography;
-const { TextArea } = Input;
-
-interface ChatMessage {
-  role: 'user' | 'assistant' | 'system';
+interface Message {
+  role: 'user' | 'assistant';
   content: string;
+  ts: string;
 }
 
-const InferenceChatPage: React.FC = () => {
-  const [services, setServices] = useState<ModelDeployment[]>([]);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedService, setSelectedService] = useState<ModelDeployment | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [inputValue, setInputValue] = useState('');
-  const [sending, setSending] = useState(false);
-  const [streaming, setStreaming] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+const MOCK_RESPONSES = [
+  '你好！我是 ACMP 算力管理平台的演示 AI 助手（基于 vLLM）。当前部署在 K8s 上，推理服务运行正常。',
+  'ACMP 异构算力管理平台支持 NVIDIA、Hygon DCU、华为昇腾 多品牌 GPU 池化，支持 1/4、1/2 等 HAMi 切分。',
+  '您可以通过资源管理 → 加卡到池，将物理卡按规格加入资源池。1 张卡 + 1 规格 = N 个可调度节点。',
+  '当前 mock 数据：1 个生产集群 (3 节点)，2 个工作空间 (ai-rd, cv-team, nlp-team)，3 个项目，4 个部署。',
+];
 
-  const loadServices = useCallback(async () => {
-    setLoading(true);
-    try {
-      const wsRes = await workspaceApi.list();
-      setWorkspaces(wsRes.data);
-
-      const allDeploys: ModelDeployment[] = [];
-      for (const ws of wsRes.data) {
-        try {
-          const depRes = await modelDeploymentApi.list(ws.id);
-          allDeploys.push(...depRes.data.filter((d: ModelDeployment) => d.status === 'running'));
-        } catch { /* skip */ }
-      }
-      setServices(allDeploys);
-    } catch { /* handled */ }
-    finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => { loadServices(); }, [loadServices]);
+export default function InferenceChatPage() {
+  const { deploymentId } = useParams<{ deploymentId: string }>();
+  const nav = useNavigate();
+  const [dep, setDep] = useState<ModelDeployment | null>(null);
+  const [messages, setMessages] = useState<Message[]>([
+    { role: 'assistant', content: '你好！我是基于 vLLM 部署的推理服务。有什么可以帮你的？', ts: new Date().toISOString() },
+  ]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const mockIdx = useRef(0);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!deploymentId) return;
+    deploymentsApi.get('proj-llm', deploymentId).then(setDep).catch(() => {});
+  }, [deploymentId]);
+
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [messages]);
 
-  const handleSelectService = (service: ModelDeployment) => {
-    setSelectedService(service);
-    setMessages([]);
+  const handleSend = () => {
+    if (!input.trim() || loading) return;
+    const userMsg: Message = { role: 'user', content: input, ts: new Date().toISOString() };
+    setMessages((m) => [...m, userMsg]);
+    setInput('');
+    setLoading(true);
+    setTimeout(() => {
+      const reply = MOCK_RESPONSES[mockIdx.current % MOCK_RESPONSES.length];
+      mockIdx.current += 1;
+      setMessages((m) => [...m, { role: 'assistant', content: reply, ts: new Date().toISOString() }]);
+      setLoading(false);
+    }, 800);
   };
 
-  const handleBack = () => {
-    setSelectedService(null);
-    setMessages([]);
-  };
-
-  const handleSend = async () => {
-    if (!inputValue.trim() || !selectedService || sending) return;
-    if (!selectedService.serviceUrl) {
-      message.error('服务地址不可用');
-      return;
-    }
-
-    const userMessage: ChatMessage = { role: 'user', content: inputValue.trim() };
-    setMessages((prev) => [...prev, userMessage]);
-    setInputValue('');
-    setSending(true);
-    setStreaming(true);
-
-    try {
-      // Build the full URL - normalize the serviceUrl
-      let baseUrl = selectedService.serviceUrl;
-      if (baseUrl.startsWith('http://')) {
-        baseUrl = baseUrl.substring(7);
-      }
-      // Remove cluster.local and path to get host:port
-      const hostMatch = baseUrl.match(/^([^/]+)/);
-      if (!hostMatch) throw new Error('无效的服务地址');
-      const chatUrl = `http://${hostMatch[1]}/v1/chat/completions`;
-
-      const response = await fetch(chatUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: selectedService.modelName || 'default',
-          messages: [...messages, userMessage].map((m) => ({ role: m.role, content: m.content })),
-          stream: false,
-        }),
-      });
-
-      if (!response.ok) {
-        const err = await response.text();
-        throw new Error(`请求失败: ${response.status} ${err}`);
-      }
-
-      const data = await response.json();
-      const assistantMessage: ChatMessage = {
-        role: 'assistant',
-        content: data.choices?.[0]?.message?.content || '（无响应）',
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      message.error('发送失败: ' + errMsg);
-      // remove the user message if request failed
-      setMessages((prev) => prev.slice(0, -1));
-    } finally {
-      setSending(false);
-      setStreaming(false);
-    }
-  };
-
-  const handleClear = () => setMessages([]);
-
-  const statusMap: Record<string, { color: string; text: string }> = {
-    running: { color: 'green', text: '运行中' },
-    pending: { color: 'orange', text: '等待中' },
-    failed: { color: 'red', text: '失败' },
-  };
-
-  // Service list view
-  const serviceListView = (
+  return (
     <div>
-      <div className="page-header">
-        <Title level={4} style={{ margin: 0 }}>推理对话</Title>
-        <Button icon={<MessageOutlined />} onClick={loadServices}>刷新</Button>
-      </div>
-
-      {loading ? (
-        <Spin size="large" style={{ display: 'block', marginTop: 80 }} />
-      ) : services.length === 0 ? (
-        <Empty description="暂无运行中的推理服务" style={{ marginTop: 80 }} />
-      ) : (
-        <Table
-          dataSource={services}
-          rowKey="id"
-          pagination={{ pageSize: 10 }}
-          columns={[
-            { title: '服务名称', dataIndex: 'name', width: 140 },
-            {
-              title: '状态', dataIndex: 'status', width: 90,
-              render: (v: string) => {
-                const s = statusMap[v] || { color: 'default', text: v };
-                return <Tag color={s.color}>{s.text}</Tag>;
-              },
-            },
-            { title: 'GPU/副本', key: 'gpu', width: 100,
-              render: (_: unknown, r: ModelDeployment) => `${r.gpuPerReplica} × ${r.replicas}` },
-            { title: '模型', dataIndex: 'modelName', ellipsis: true },
-            {
-              title: '服务地址', dataIndex: 'serviceUrl', ellipsis: true,
-              render: (v: string) => v ? <Text code style={{ fontSize: 11 }}>{v}</Text> : '-',
-            },
-            {
-              title: '操作', key: 'actions', width: 100,
-              render: (_: unknown, record: ModelDeployment) => (
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<MessageOutlined />}
-                  onClick={() => handleSelectService(record)}
-                >
-                  对话
-                </Button>
-              ),
-            },
-          ]}
-        />
-      )}
-    </div>
-  );
-
-  // Chat view
-  const chatView = selectedService ? (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Chat header */}
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', background: '#fafafa' }}>
-        <Space>
-          <Button icon={<ArrowLeftOutlined />} size="small" onClick={handleBack}>返回</Button>
-          <Text strong>{selectedService.name}</Text>
-          <Tag color={statusMap[selectedService.status]?.color}>{statusMap[selectedService.status]?.text}</Tag>
-        </Space>
-        <div style={{ marginTop: 8 }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {selectedService.modelName} • GPU {selectedService.gpuPerReplica} × {selectedService.replicas} 副本
-          </Text>
-          <br />
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            服务地址：<Text code style={{ fontSize: 11 }}>{selectedService.serviceUrl}</Text>
-          </Text>
-        </div>
-      </div>
-
-      {/* Messages area */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '16px', background: '#f5f5f5' }}>
-        {messages.length === 0 ? (
-          <Empty description="发送消息开始对话" style={{ marginTop: 80 }} />
-        ) : (
-          messages.map((msg, idx) => (
+      <PageHeader
+        title={dep ? `对话：${dep.name}` : '对话'}
+        subtitle={dep ? `${dep.modelName || '-'} · ${dep.specId} · ${dep.status}` : ''}
+        tags={dep ? [{ label: dep.status, color: dep.status === 'running' ? 'green' : 'red' }] : []}
+        extra={
+          <Button icon={<ArrowLeftOutlined />} onClick={() => dep ? nav(`/logical/deployments/${dep.projectId}/${dep.id}`) : nav(-1)}>
+            返回
+          </Button>
+        }
+      />
+      <Card
+        style={{ borderRadius: 8, height: 'calc(100vh - 220px)', display: 'flex', flexDirection: 'column' }}
+        bodyStyle={{ padding: 0, display: 'flex', flexDirection: 'column', height: '100%' }}
+      >
+        <div ref={listRef} style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+          {messages.length === 0 && <Empty description="开始对话..." />}
+          {messages.map((m, i) => (
             <div
-              key={idx}
+              key={i}
               style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                marginBottom: 16,
+                display: 'flex', gap: 12, marginBottom: 16,
+                flexDirection: m.role === 'user' ? 'row-reverse' : 'row',
               }}
             >
+              <Avatar
+                icon={m.role === 'user' ? <UserOutlined /> : <RobotOutlined />}
+                style={{ background: m.role === 'user' ? '#00754A' : '#52C41A' }}
+              />
               <div
                 style={{
-                  maxWidth: '70%',
-                  padding: '10px 14px',
-                  borderRadius: 12,
-                  background: msg.role === 'user' ? '#1677ff' : '#fff',
-                  color: msg.role === 'user' ? '#fff' : '#000',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                  background: m.role === 'user' ? '#E6F4ED' : '#F5F7F5',
+                  padding: '10px 14px', borderRadius: 8, maxWidth: '70%',
                 }}
               >
-                {msg.content}
+                <div style={{ whiteSpace: 'pre-wrap', fontSize: 14 }}>{m.content}</div>
+                <div style={{ fontSize: 11, color: '#9CA8A0', marginTop: 4 }}>{m.ts.slice(11, 19)}</div>
               </div>
             </div>
-          ))
-        )}
-        {streaming && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#999' }}>
-            <Spin size="small" /> <Text type="secondary" style={{ fontSize: 12 }}>thinking...</Text>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input area */}
-      <div style={{ padding: '12px 16px', background: '#fff', borderTop: '1px solid #f0f0f0' }}>
-        <Space.Compact style={{ width: '100%' }}>
-          <TextArea
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onPressEnter={(e) => {
-              if (!e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+          ))}
+          {loading && (
+            <div style={{ textAlign: 'center' }}>
+              <Spin size="small" /> 思考中...
+            </div>
+          )}
+        </div>
+        <div style={{ borderTop: '1px solid #E5EBE7', padding: 12, display: 'flex', gap: 8 }}>
+          <Input.TextArea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="输入消息（演示模式）"
             autoSize={{ minRows: 1, maxRows: 4 }}
-            style={{ flex: 1 }}
+            onPressEnter={(e) => { if (!e.shiftKey) { e.preventDefault(); handleSend(); } }}
+            style={{ resize: 'none' }}
           />
-          <Button
-            type="primary"
-            icon={<SendOutlined />}
-            onClick={handleSend}
-            loading={sending}
-            disabled={!inputValue.trim()}
-          >
+          <Button type="primary" icon={<SendOutlined />} onClick={handleSend} loading={loading}
+            style={{ background: '#00754A', borderColor: '#00754A' }}>
             发送
           </Button>
-          <Button icon={<ClearOutlined />} onClick={handleClear} title="清空对话" />
-        </Space.Compact>
-      </div>
+        </div>
+      </Card>
     </div>
-  ) : null;
-
-  // Full page layout
-  if (selectedService) {
-    return (
-      <div style={{ height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column' }}>
-        {chatView}
-      </div>
-    );
-  }
-
-  return serviceListView;
-};
-
-export default InferenceChatPage;
+  );
+}

@@ -124,17 +124,19 @@ public class ProjectService {
             List<Map<String, Object>> rows = projectQuotaMapper.findByProjectId(p.getId());
             Map<String, List<ProjectResponse.QuotaView>> grouped = new LinkedHashMap<>();
             for (Map<String, Object> row : rows) {
-                String poolType = (String) row.get("rp_pool_type");
+                String poolType = (String) row.get("RP_POOL_TYPE");
+                if (poolType == null) poolType = (String) row.get("rp_pool_type");
+                if (poolType == null) poolType = "UNKNOWN";
                 ProjectResponse.QuotaView v = ProjectResponse.QuotaView.builder()
-                        .quotaId((String) row.get("id"))
-                        .poolId((String) row.get("resource_pool_id"))
-                        .poolName((String) row.get("pool_name"))
-                        .specId((String) row.get("spec_id"))
-                        .specName((String) row.get("spec_name"))
-                        .specType((String) row.get("spec_type"))
-                        .totalNodes(toInt(row.get("total_nodes")))
-                        .usedNodes(toInt(row.get("used_nodes")))
-                        .availableNodes(toInt(row.get("available")))
+                        .quotaId((String) row.get("ID"))
+                        .poolId((String) row.get("RESOURCE_POOL_ID"))
+                        .poolName((String) row.get("POOL_NAME"))
+                        .specId((String) row.get("SPEC_ID"))
+                        .specName((String) row.get("SPEC_NAME"))
+                        .specType((String) row.get("SPEC_TYPE"))
+                        .totalNodes(toInt(row.get("TOTAL_NODES")))
+                        .usedNodes(toInt(row.get("USED_NODES")))
+                        .availableNodes(toInt(row.get("AVAILABLE")))
                         .build();
                 grouped.computeIfAbsent(poolType, k -> new ArrayList<>()).add(v);
             }

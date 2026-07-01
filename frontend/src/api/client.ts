@@ -1,5 +1,8 @@
-import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
-import { message } from 'antd';
+// API 客户端 + Mock 切换
+import axios from 'axios';
+
+// Mock 开关：true = 演示模式，false = 接真实后端
+export const USE_MOCK = true;
 
 const apiClient = axios.create({
   baseURL: '/api/v1',
@@ -7,32 +10,33 @@ const apiClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// 请求拦截器：自动附加 JWT
-apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+apiClient.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
-  if (token && config.headers) {
-    config.headers.Authorization = `Bearer ${token}`;
+  if (token) {
+    config.headers = config.headers ?? {};
+    (config.headers as any).Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-// 响应拦截器：统一错误处理
 apiClient.interceptors.response.use(
-  (response) => response,
-  (error: AxiosError<{ message?: string; error?: string }>) => {
-    const data = error.response?.data;
-    const msg = data?.message || data?.error || error.message || '请求失败';
-
-    if (error.response?.status === 401) {
+  (r) => r,
+  (err) => {
+    if (err.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
-      return Promise.reject(error);
     }
-
-    message.error(msg);
-    return Promise.reject(error);
+    return Promise.reject(err);
   },
 );
 
 export default apiClient;
+export { apiClient };
+
+// 通用：调用真实后端
+export async function callApi<T>(fn: () => Promise<{ data: T }>): Promise<T> {
+  if (USE_MOCK) throw new Error('USE_MOCK=true, 应走 mock');
+  const r = await fn();
+  return r.data;
+}

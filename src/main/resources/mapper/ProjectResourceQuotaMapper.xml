@@ -64,4 +64,24 @@
 
     <delete id="deleteById">DELETE FROM project_resource_quota WHERE id = #{id}</delete>
     <delete id="deleteByProjectId">DELETE FROM project_resource_quota WHERE project_id = #{projectId}</delete>
+
+    <select id="sumTotalByPoolSpecAndProject" resultType="int">
+        SELECT COALESCE(SUM(total_nodes), 0) FROM project_resource_quota
+        WHERE project_id = #{projectId} AND resource_pool_id = #{resourcePoolId} AND spec_id = #{specId}
+    </select>
+
+    <select id="sumUsedByPoolAndSpec" resultType="int">
+        SELECT COALESCE(SUM(used_nodes), 0) FROM project_resource_quota
+        WHERE resource_pool_id = #{resourcePoolId} AND spec_id = #{specId}
+    </select>
+
+    <update id="capUsedByPoolAndSpec">
+        UPDATE project_resource_quota
+        SET used_nodes = #{newUsed}, updated_at = CURRENT_TIMESTAMP
+        WHERE resource_pool_id = #{resourcePoolId} AND spec_id = #{specId} AND used_nodes &gt; #{newUsed}
+    </update>
+
+    <select id="sumTotalByPool" resultType="int">
+        SELECT COALESCE(SUM(total_nodes), 0) FROM project_resource_quota WHERE resource_pool_id = #{resourcePoolId}
+    </select>
 </mapper>

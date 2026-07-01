@@ -21,16 +21,45 @@ echo "▶ 给节点 $NODE_NAME 注入 nvidia.com/gpu allocatable（测试用）"
 # 这里直接 patch node 状态，模拟 device plugin 的行为
 kubectl patch node "$NODE_NAME" --subresource=status --type=json \
   -p='[{"op": "add", "path": "/status/allocatable/nvidia.com~1gpu", "value": "1"}]' \
-  || echo "  ↳ 字段可能已存在"
-
-# CPU / Memory
-kubectl patch node "$NODE_NAME" --subresource=status --type=json \
-  -p='[{"op": "add", "path": "/status/allocatable/cpu", "value": "16"}]' \
-  || echo "  ↳ cpu 已存在"
+  2>/dev/null || echo "  ↳ 字段可能已存在"
 
 kubectl patch node "$NODE_NAME" --subresource=status --type=json \
-  -p='[{"op": "add", "path": "/status/allocatable/memory", "value": "64Gi"}]' \
-  || echo "  ↳ memory 已存在"
+  -p='[{"op": "add", "path": "/status/allocatable/cpu", "value": "4"}]' \
+  2>/dev/null || true
+
+kubectl patch node "$NODE_NAME" --subresource=status --type=json \
+  -p='[{"op": "add", "path": "/status/allocatable/memory", "value": "16Gi"}]' \
+  2>/dev/null || true
+
+# kubelet 会周期性上报 status.allocatable 覆盖回真实硬件能力，
+# 启动一个后台 watcher 每 8s 重 patch 一次保证 allocatable 持续存在
+WATCH_PID_FILE="/tmp/opencode/acmp-verify/nvidia-watch.pid"
+WATCHER_SCRIPT="/tmp/opencode/acmp-verify/nvidia-watch.sh"
+if [[ -f "$WATCH_PID_FILE" ]]; then
+  kill "$(cat "$WATCH_PID_FILE")" 2>/dev/null || true
+  rm -f "$WATCH_PID_FILE"
+fi
+mkdir -p /tmp/opencode/acmp-verify
+cat > "$WATCHER_SCRIPT" <<EOF
+#!/usr/bin/env bash
+NODE="$NODE_NAME"
+while true; do
+  kubectl patch node "\$NODE" --subresource=status --type=json \
+    -p='[{"op": "add", "path": "/status/allocatable/nvidia.com~1gpu", "value": "1"}]' \
+    >/dev/null 2>&1 || true
+  kubectl patch node "\$NODE" --subresource=status --type=json \
+    -p='[{"op": "add", "path": "/status/allocatable/cpu", "value": "4"}]' \
+    >/dev/null 2>&1 || true
+  kubectl patch node "\$NODE" --subresource=status --type=json \
+    -p='[{"op": "add", "path": "/status/allocatable/memory", "value": "16Gi"}]' \
+    >/dev/null 2>&1 || true
+  sleep 8
+done
+EOF
+chmod +x "$WATCHER_SCRIPT"
+nohup "$WATCHER_SCRIPT" > /tmp/opencode/acmp-verify/nvidia-watch.log 2>&1 &
+echo $! > "$WATCH_PID_FILE"
+echo "  ↳ 启动 nvidia allocatable watcher PID=$(cat $WATCH_PID_FILE)"
 
 echo "▶ 节点 allocatable 现状："
 kubectl get node "$NODE_NAME" -o jsonpath='{.status.allocatable}' | tr ',' '\n'

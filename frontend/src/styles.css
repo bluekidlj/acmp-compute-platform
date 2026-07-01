@@ -1,0 +1,84 @@
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.mono {
+  font-family: "SF Mono", "Monaco", "Cascadia Mono", "Roboto Mono", Consolas, "Courier New", monospace;
+  font-size: 12px;
+}
+
+.psbc-section {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  border: 1px solid #E5EBE7;
+}
+
+.psbc-card-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.psbc-card-stat .label {
+  color: #6B7768;
+  font-size: 13px;
+}
+
+.psbc-card-stat .value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1F2A24;
+  line-height: 1.2;
+}
+
+.psbc-card-stat .delta {
+  font-size: 12px;
+  color: #1A8A50;
+}
+
+.psbc-progress-track {
+  background: #E5EBE7;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.psbc-progress-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.psbc-bar-green { background: #52C41A; }
+.psbc-bar-orange { background: #FAAD14; }
+.psbc-bar-red { background: #FF4D4F; }
+.psbc-bar-gray { background: #BFBFBF; }
+
+.psbc-pool-card {
+  background: #fff;
+  border: 1px solid #E5EBE7;
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-bottom: 12px;
+  transition: box-shadow 0.2s;
+}
+
+.psbc-pool-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 117, 74, 0.08);
+}
+
+.psbc-divider-h {
+  height: 1px;
+  background: #E5EBE7;
+  margin: 16px 0;
+}

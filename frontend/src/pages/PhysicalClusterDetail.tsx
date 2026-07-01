@@ -1,157 +1,134 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import {
-  Tabs, Card, Descriptions, Tag, Typography, Spin, Table, Space, Button, Empty,
-} from 'antd';
-import {
-  ArrowLeftOutlined, CloudServerOutlined,
-} from '@ant-design/icons';
-import { physicalClusterApi } from '../api/physicalClusters';
-import type { PhysicalCluster, PhysicalClusterCapacity, ClusterNodeInfo } from '../types';
+import { Card, Tabs, Table, Tag, Spin, Empty, Button, Space, Statistic, Row, Col, Descriptions, Progress, message } from 'antd';
+import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
+import { clustersApi } from '../api/clusters';
+import { mockGpus, mockGpuSplits, mockNodes } from '../mock/data';
+import type { ClusterNode, ClusterGpu, ClusterGpuSplit, ScanResult } from '../types';
+import PageHeader from '../components/PageHeader';
+import { PSBC_COLORS } from '../theme';
 
-const { Title, Text } = Typography;
+const BRAND_COLORS: Record<string, string> = { NVIDIA: 'green', HYGON: 'purple', HUAWEI_ASCEND: 'magenta' };
 
-const PhysicalClusterDetailPage: React.FC = () => {
+export default function PhysicalClusterDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-
-  const [cluster, setCluster] = useState<PhysicalCluster | null>(null);
-  const [capacity, setCapacity] = useState<PhysicalClusterCapacity | null>(null);
-  const [nodes, setNodes] = useState<ClusterNodeInfo[]>([]);
-  const [totalNodes, setTotalNodes] = useState(0);
-  const [readyNodes, setReadyNodes] = useState(0);
+  const nav = useNavigate();
+  const [nodes, setNodes] = useState<ClusterNode[]>([]);
+  const [gpus, setGpus] = useState<ClusterGpu[]>([]);
+  const [splits, setSplits] = useState<ClusterGpuSplit[]>([]);
+  const [capacity, setCapacity] = useState<{ gpuSlots: number; cpu: string; memory: string } | null>(null);
+  const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
 
-  useEffect(() => {
+  const load = async () => {
     if (!id) return;
-    (async () => {
-      try {
-        // We don't have a single GET endpoint for cluster detail, use list and filter
-        const listRes = await physicalClusterApi.list();
-        const found = listRes.data.find((c) => c.id === id);
-        if (found) setCluster(found);
+    setLoading(true);
+    try {
+      const [n, g, s, c] = await Promise.all([
+        clustersApi.nodes(id),
+        clustersApi.gpus(id),
+        clustersApi.gpuSplits(id),
+        clustersApi.capacity(id),
+      ]);
+      setNodes(n); setGpus(g); setSplits(s); setCapacity(c);
+    } finally { setLoading(false); }
+  };
 
-        const [capRes, nodesRes] = await Promise.all([
-          physicalClusterApi.capacity(id),
-          physicalClusterApi.nodes(id),
-        ]);
-        setCapacity(capRes.data);
-        setNodes(nodesRes.data.nodes || []);
-        setTotalNodes(nodesRes.data.totalNodes);
-        setReadyNodes(nodesRes.data.readyNodes);
-      } catch { /* handled */ }
-      finally { setLoading(false); }
-    })();
-  }, [id]);
+  useEffect(() => { load(); }, [id]);
 
-  if (loading) return <Spin size="large" style={{ display: 'block', marginTop: 120 }} />;
-  if (!cluster) return <Empty description="集群不存在" />;
+  const handleScan = async () => {
+    setScanning(true);
+    try {
+      const r = await clustersApi.scan(id!);
+      setScanResult(r);
+      message.success(`扫描完成：${r.nodeCount} 节点, ${r.gpuModelCount} GPU 型号, ${r.splitCount} 切分`);
+    } catch (e: any) { message.error(e?.message || '扫描失败'); }
+    finally { setScanning(false); }
+  };
 
-  const gpuResourceKey = cluster.gpuTypes === 'HYGON' ? 'amd.com/dcu'
-    : cluster.gpuTypes === 'HUAWEI_ASCEND' ? 'huawei.com/ascend910'
-    : 'nvidia.com/gpu';
-
-  const nodeColumns = [
-    { title: '节点名称', dataIndex: 'name', key: 'name', render: (v: string) => <Text code>{v}</Text> },
-    {
-      title: '状态', key: 'status', width: 80,
-      render: (_: unknown, record: ClusterNodeInfo) => {
-        const ready = record.conditions?.some((c) => c.type === 'Ready' && c.status === 'True');
-        return <Tag color={ready ? 'green' : 'red'}>{ready ? '就绪' : '未就绪'}</Tag>;
-      },
-    },
-    {
-      title: 'GPU', key: 'gpu', width: 100,
-      render: (_: unknown, record: ClusterNodeInfo) =>
-        record.allocatable?.[gpuResourceKey] || '-',
-    },
-    {
-      title: 'CPU', key: 'cpu', width: 80,
-      render: (_: unknown, record: ClusterNodeInfo) => record.allocatable?.cpu || '-',
-    },
-    {
-      title: '内存', key: 'memory', width: 120,
-      render: (_: unknown, record: ClusterNodeInfo) => record.allocatable?.memory || '-',
-    },
-    {
-      title: '标签', dataIndex: 'labels', key: 'labels', ellipsis: true,
-      render: (labels: Record<string, string>) =>
-        labels ? Object.entries(labels).map(([k, v]) => (
-          <Tag key={k}>{k}={v}</Tag>
-        )) : '-',
-    },
-  ];
-
-  const overviewTab = (
-    <div>
-      <Card title={<Title level={5} style={{ margin: 0 }}>集群基本信息</Title>} style={{ borderRadius: 10, marginBottom: 16 }}>
-        <Descriptions column={2} bordered size="small">
-          <Descriptions.Item label="集群 ID"><Text code>{cluster.id}</Text></Descriptions.Item>
-          <Descriptions.Item label="状态">
-            <Tag color={cluster.status === 'active' ? 'green' : 'red'}>
-              {cluster.status === 'active' ? '正常' : '停用'}
-            </Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="GPU 类型">{cluster.gpuTypes}</Descriptions.Item>
-          <Descriptions.Item label="位置">{cluster.location}</Descriptions.Item>
-          <Descriptions.Item label="GPU 总槽位">{cluster.totalGpuSlots}</Descriptions.Item>
-          <Descriptions.Item label="创建时间">{cluster.createdAt}</Descriptions.Item>
-          <Descriptions.Item label="描述" span={2}>{cluster.description || '-'}</Descriptions.Item>
-        </Descriptions>
-      </Card>
-
-      {capacity && (
-        <Card title="实时容量" style={{ borderRadius: 10, marginBottom: 16 }}>
-          <Descriptions column={3} bordered size="small">
-            <Descriptions.Item label="GPU 槽位">{capacity.gpuSlots}</Descriptions.Item>
-            <Descriptions.Item label="CPU 核心">{capacity.cpu}</Descriptions.Item>
-            <Descriptions.Item label="内存 (bytes)">{capacity.memory}</Descriptions.Item>
-          </Descriptions>
-        </Card>
-      )}
-    </div>
-  );
-
-  const nodesTab = (
-    <Card
-      title={
-        <Space>
-          <CloudServerOutlined />
-          <span>节点列表</span>
-          <Tag color="blue">共 {totalNodes} 个</Tag>
-          <Tag color="green">{readyNodes} 个就绪</Tag>
-        </Space>
-      }
-      style={{ borderRadius: 10 }}
-    >
-      <Table
-        columns={nodeColumns}
-        dataSource={nodes}
-        rowKey="name"
-        pagination={false}
-        size="small"
-      />
-    </Card>
-  );
+  if (loading) return <div style={{ padding: 80, textAlign: 'center' }}><Spin size="large" /></div>;
 
   return (
     <div>
-      <Space style={{ marginBottom: 16 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/physical-clusters')}>
-          返回列表
-        </Button>
-      </Space>
+      <PageHeader
+        title={id!}
+        subtitle="物理集群详情：节点 + GPU + HAMi 切分 + 容量"
+        tags={[{ label: 'active', color: 'green' }]}
+        extra={
+          <Space>
+            <Button type="primary" icon={<ReloadOutlined />} onClick={handleScan} loading={scanning}
+              style={{ background: PSBC_COLORS.primary, borderColor: PSBC_COLORS.primary }}>
+              Scan
+            </Button>
+            <Button icon={<ArrowLeftOutlined />} onClick={() => nav('/clusters')}>返回</Button>
+          </Space>
+        }
+      />
+      {scanResult && (
+        <Card style={{ marginBottom: 16, background: PSBC_COLORS.primaryLight, borderColor: PSBC_COLORS.primary }}>
+          <Row gutter={16}>
+            <Col span={6}><Statistic title="节点" value={scanResult.nodeCount} /></Col>
+            <Col span={6}><Statistic title="GPU 型号" value={scanResult.gpuModelCount} /></Col>
+            <Col span={6}><Statistic title="HAMi 切分" value={scanResult.splitCount} /></Col>
+            <Col span={6}><Statistic title="扫描时间" value={scanResult.scannedAt?.slice(11, 19)} /></Col>
+          </Row>
+        </Card>
+      )}
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col span={8}><Card><Statistic title="GPU 卡总数" value={capacity?.gpuSlots ?? 0} valueStyle={{ color: PSBC_COLORS.primary }} /></Card></Col>
+        <Col span={8}><Card><Statistic title="CPU" value={capacity?.cpu ?? 0} /></Card></Col>
+        <Col span={8}><Card><Statistic title="内存" value={capacity?.memory ?? 0} /></Card></Col>
+      </Row>
 
-      <Card title={<Title level={4} style={{ margin: 0 }}>{cluster.name}</Title>} style={{ borderRadius: 10, marginBottom: 16 }}>
-        <Tabs
-          items={[
-            { key: 'overview', label: '概览', children: overviewTab },
-            { key: 'nodes', label: '节点列表', children: nodesTab },
-          ]}
-        />
-      </Card>
+      <Tabs
+        defaultActiveKey="nodes"
+        items={[
+          {
+            key: 'nodes', label: `节点 (${nodes.length})`,
+            children: (
+              <Card style={{ borderRadius: 8 }}>
+                <Table dataSource={nodes} rowKey="name" pagination={false} size="small" columns={[
+                  { title: '节点名', dataIndex: 'name', render: (v) => <code className="mono">{v}</code> },
+                  { title: 'CPU', dataIndex: 'allocatable', width: 80, render: (a) => a?.cpu ?? '-' },
+                  { title: '内存', dataIndex: 'allocatable', width: 100, render: (a) => a?.memory ?? '-' },
+                  { title: 'NVIDIA', dataIndex: 'allocatable', width: 90, render: (a) => a?.['nvidia.com/gpu'] ?? '-' },
+                  { title: 'DCU', dataIndex: 'allocatable', width: 70, render: (a) => a?.['amd.com/dcu'] ?? '-' },
+                  { title: '状态', dataIndex: 'status', width: 80, render: (v) => <Tag color="green">{v}</Tag> },
+                ]} />
+              </Card>
+            ),
+          },
+          {
+            key: 'gpus', label: `GPU 型号 (${gpus.length})`,
+            children: (
+              <Card style={{ borderRadius: 8 }}>
+                <Table dataSource={gpus} rowKey="model" pagination={false} size="small" columns={[
+                  { title: '型号', dataIndex: 'model' },
+                  { title: '显存', dataIndex: 'memoryMb', render: (v) => `${v / 1024} GB` },
+                  { title: '节点数', dataIndex: 'nodeCount', width: 100 },
+                  { title: '总卡数', dataIndex: 'totalCards', width: 100, render: (v) => <Tag color="green">{v}</Tag> },
+                  { title: '所在节点', dataIndex: 'nodeNames', render: (v) => v.map((n: string) => <Tag key={n}>{n}</Tag>) },
+                ]} />
+              </Card>
+            ),
+          },
+          {
+            key: 'splits', label: `HAMi 切分 (${splits.length})`,
+            children: (
+              <Card style={{ borderRadius: 8 }}>
+                <Table dataSource={splits} rowKey="poolLabel" pagination={false} size="small" columns={[
+                  { title: '标签', dataIndex: 'poolLabel', render: (v) => <code className="mono">{v}</code> },
+                  { title: '显存 (MiB)', dataIndex: 'memMb' },
+                  { title: '算力 %', dataIndex: 'coresPct', render: (v) => `${v}%` },
+                  { title: '节点数', dataIndex: 'nodeCount', width: 100 },
+                  { title: '所在节点', dataIndex: 'nodeNames', render: (v) => v.map((n: string) => <Tag key={n}>{n}</Tag>) },
+                ]} />
+              </Card>
+            ),
+          },
+        ]}
+      />
     </div>
   );
-};
-
-export default PhysicalClusterDetailPage;
+}

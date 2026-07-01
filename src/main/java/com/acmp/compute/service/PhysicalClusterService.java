@@ -8,9 +8,10 @@ import com.acmp.compute.exception.ResourceNotFoundException;
 import com.acmp.compute.k8s.KubernetesClientManager;
 import com.acmp.compute.mapper.PhysicalClusterMapper;
 import com.acmp.compute.security.EncryptionService;
-import io.fabric8.kubernetes.api.model.Node;
-import io.fabric8.kubernetes.api.model.Quantity;
-import io.fabric8.kubernetes.client.KubernetesClient;
+import io.kubernetes.client.openapi.ApiException;
+import io.kubernetes.client.openapi.apis.CoreV1Api;
+import io.kubernetes.client.openapi.models.V1Node;
+import io.kubernetes.client.openapi.models.V1NodeList;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -69,17 +71,22 @@ public class PhysicalClusterService {
     }
 
     public CapacityResponse getCapacity(String id) {
-        KubernetesClient client = clientManager.getClient(id);
         AtomicLong gpuTotal = new AtomicLong(0);
         AtomicLong cpuTotal = new AtomicLong(0);
         AtomicLong memoryTotal = new AtomicLong(0);
-        List<Node> nodes = client.nodes().list().getItems();
-        for (Node node : nodes) {
-            if (node.getStatus() == null || node.getStatus().getAllocatable() == null) continue;
-            var alloc = node.getStatus().getAllocatable();
-            gpuTotal.addAndGet(parseQuantity(alloc.get("nvidia.com/gpu")));
-            cpuTotal.addAndGet(parseQuantity(alloc.get("cpu")));
-            memoryTotal.addAndGet(parseQuantity(alloc.get("memory")));
+        try {
+            V1NodeList nodeList = new CoreV1Api(clientManager.getClient(id)).listNode().execute();
+            List<V1Node> nodes = nodeList != null && nodeList.getItems() != null ? nodeList.getItems() : List.of();
+            for (V1Node node : nodes) {
+                if (node.getStatus() == null || node.getStatus().getAllocatable() == null) continue;
+                Map<String, io.kubernetes.client.custom.Quantity> alloc = node.getStatus().getAllocatable();
+                gpuTotal.addAndGet(parseQuantity(alloc.get("nvidia.com/gpu")));
+                cpuTotal.addAndGet(parseQuantity(alloc.get("cpu")));
+                memoryTotal.addAndGet(parseQuantity(alloc.get("memory")));
+            }
+        } catch (ApiException e) {
+            log.error("getCapacity listNode 失败: {}", e.getResponseBody(), e);
+            throw new RuntimeException("读 K8s 节点失败: " + e.getResponseBody(), e);
         }
         return CapacityResponse.builder()
                 .gpuSlots(gpuTotal.get())
@@ -105,14 +112,13 @@ public class PhysicalClusterService {
         catch (Exception e) { return s; }
     }
 
-    private long parseQuantity(Quantity q) {
+    private long parseQuantity(io.kubernetes.client.custom.Quantity q) {
         if (q == null) return 0L;
         try {
-            Object amount = q.getAmount();
-            if (amount instanceof Number) return ((Number) amount).longValue();
-        } catch (Exception ignored) {}
-        try { return Quantity.getAmountInBytes(q).longValue(); } catch (Exception ignored) {}
-        return 0L;
+            return q.getNumber() != null ? q.getNumber().longValue() : 0L;
+        } catch (Exception e) {
+            return 0L;
+        }
     }
 
     private PhysicalClusterResponse toResponse(PhysicalCluster c) {

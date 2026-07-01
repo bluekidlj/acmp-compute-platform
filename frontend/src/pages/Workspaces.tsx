@@ -1,188 +1,119 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import {
-  Table, Button, Modal, Form, Input, Select, Space, Tag, Typography, message, InputNumber,
-} from 'antd';
-import { PlusOutlined, ReloadOutlined, EyeOutlined } from '@ant-design/icons';
+import { useEffect, useState } from 'react';
+import { Card, Table, Tag, Button, Space, Empty, Spin, Modal, Form, Input, InputNumber, message, Select } from 'antd';
+import { PlusOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { workspaceApi } from '../api/workspaces';
-import { resourcePoolApi } from '../api/resourcePools';
-import { specApi } from '../api/specs';
-import type { Workspace, WorkspaceCreateRequest, ResourcePool, ComputeSpec } from '../types';
-import { useAuth } from '../contexts/AuthContext';
+import { workspacesApi, clustersApi, projectsApi } from '../api';
+import type { Workspace, PhysicalCluster, Project } from '../types';
+import PageHeader from '../components/PageHeader';
+import { PSBC_COLORS } from '../theme';
 
-const { Title, Text } = Typography;
-
-const WorkspacesPage: React.FC = () => {
-  const { isAdmin } = useAuth();
-  const navigate = useNavigate();
+export default function WorkspacesPage() {
+  const nav = useNavigate();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [allPools, setAllPools] = useState<ResourcePool[]>([]);
-  const [allSpecs, setAllSpecs] = useState<ComputeSpec[]>([]);
-  const [selectedPoolSpecs, setSelectedPoolSpecs] = useState<ComputeSpec[]>([]);
+  const [clusters, setClusters] = useState<PhysicalCluster[]>([]);
+  const [projectCounts, setProjectCounts] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
   const [form] = Form.useForm();
 
-  const load = useCallback(async () => {
+  const load = async () => {
     setLoading(true);
     try {
-      const res = await workspaceApi.list();
-      setWorkspaces(res.data);
-    } catch { /* handled */ }
-    finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  const openCreate = async () => {
-    setCreateOpen(true);
-    try {
-      const [pools, specs] = await Promise.all([
-        resourcePoolApi.list(),
-        specApi.list(),
-      ]);
-      setAllPools(pools.data);
-      setAllSpecs(specs.data);
-    } catch { /* ignore */ }
+      const [ws, cs] = await Promise.all([workspacesApi.list(), clustersApi.list()]);
+      setWorkspaces(ws);
+      setClusters(cs);
+      const counts: Record<string, number> = {};
+      for (const w of ws) {
+        const ps = await projectsApi.listByWorkspace(w.id);
+        counts[w.id] = ps.length;
+      }
+      setProjectCounts(counts);
+    } finally { setLoading(false); }
   };
 
-  const handlePoolChange = async (poolId: string) => {
-    if (!poolId) return;
-    try {
-      const res = await resourcePoolApi.get(poolId);
-      const poolSpecNames = res.data.specQuotas?.map((q) => q.specName) || [];
-      const matched = allSpecs.filter((s) => poolSpecNames.includes(s.name));
-      setSelectedPoolSpecs(matched);
-    } catch { setSelectedPoolSpecs([]); }
-  };
+  useEffect(() => { load(); }, []);
 
   const handleCreate = async () => {
-    const values = await form.validateFields();
-    const data: WorkspaceCreateRequest = {
-      ...values,
-      specQuotas: values.specQuotas || [],
-    };
-    await workspaceApi.create(data);
-    message.success('工作空间创建成功');
-    setCreateOpen(false);
-    form.resetFields();
-    setSelectedPoolSpecs([]);
-    load();
+    const v = await form.validateFields();
+    try {
+      const w = await workspacesApi.create({
+        name: v.name, description: v.description, clusterId: v.clusterId, maxPods: v.maxPods,
+        memberIds: v.memberIds || [],
+      });
+      message.success('工作空间创建成功');
+      setOpen(false);
+      form.resetFields();
+      load();
+      nav(`/logical/workspaces/${w.id}`);
+    } catch (e: any) { message.error(e?.message || '创建失败'); }
   };
 
-  const columns = [
-    { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
-    { title: '所属资源池', dataIndex: 'resourcePoolName', key: 'resourcePoolName', width: 140 },
-    {
-      title: 'Namespace', dataIndex: 'namespace', key: 'namespace', width: 220, ellipsis: true,
-      render: (v: string) => <Text code className="mono">{v}</Text>,
-    },
-    {
-      title: '状态', dataIndex: 'status', key: 'status', width: 80,
-      render: (v: string) => v === 'active' ? <Tag color="green">活跃</Tag> : <Tag color="red">停用</Tag>,
-    },
-    {
-      title: '规格配额', dataIndex: 'specQuotas', key: 'specQuotas', width: 200,
-      render: (quotas: Workspace['specQuotas']) =>
-        quotas?.map((q) => (
-          <Tag key={q.specId} color={q.availableNodes > 0 ? 'green' : 'red'}>
-            {q.specName}: {q.usedNodes}/{q.maxNodes}
-          </Tag>
-        )),
-    },
-    {
-      title: '最大 Pod', dataIndex: 'maxPods', key: 'maxPods', width: 90,
-    },
-    {
-      title: '操作', key: 'actions', width: 100,
-      render: (_: unknown, record: Workspace) => (
-        <Button
-          size="small"
-          type="link"
-          icon={<EyeOutlined />}
-          onClick={() => navigate(`/workspaces/${record.id}`)}
-        >
-          详情
-        </Button>
-      ),
-    },
-  ];
+  if (loading) return <div style={{ padding: 80, textAlign: 'center' }}><Spin size="large" /></div>;
 
   return (
     <div>
-      <div className="page-header">
-        <Title level={4} style={{ margin: 0 }}>工作空间管理</Title>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
-          {isAdmin && (
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-              创建工作空间
-            </Button>
-          )}
-        </Space>
-      </div>
-
-      <Table
-        columns={columns}
-        dataSource={workspaces}
-        rowKey="id"
-        loading={loading}
-        pagination={false}
+      <PageHeader
+        title="工作空间"
+        subtitle="租户级 · 每个 WS 自动建 3 类池 · 含项目与配额"
+        tags={[{ label: `${workspaces.length} WS`, color: 'green' }]}
+        extra={
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}
+            style={{ background: PSBC_COLORS.primary, borderColor: PSBC_COLORS.primary }}>
+            新建工作空间
+          </Button>
+        }
       />
 
-      <Modal
-        title="创建工作空间"
-        open={createOpen}
-        onOk={handleCreate}
-        onCancel={() => { setCreateOpen(false); form.resetFields(); setSelectedPoolSpecs([]); }}
-        okText="创建"
-        width={600}
-      >
+      {workspaces.length === 0 ? (
+        <Empty description="暂无工作空间" />
+      ) : (
+        <Card style={{ borderRadius: 8 }}>
+          <Table
+            dataSource={workspaces}
+            rowKey="id"
+            pagination={false}
+            columns={[
+              { title: '名称', dataIndex: 'name', render: (v, r) => (
+                <a onClick={() => nav(`/logical/workspaces/${r.id}`)} style={{ fontWeight: 500 }}>{v}</a>
+              )},
+              { title: 'Namespace', dataIndex: 'namespace', render: (v) => <code className="mono">{v}</code> },
+              { title: '所属集群', dataIndex: 'primaryClusterName' },
+              { title: '项目数', width: 100, render: (_, r) => <Tag color="blue">{projectCounts[r.id] ?? 0}</Tag> },
+              { title: '成员', dataIndex: 'memberIds', render: (v: string[]) => v.length },
+              { title: '3 类池', render: (_, r) => (
+                <Space>
+                  {r.pools.map((p) => (
+                    <Tag key={p.id} color={p.totalNodes > 0 ? 'cyan' : 'default'}>
+                      {p.poolType.slice(0, 4)}: {p.totalNodes}
+                    </Tag>
+                  ))}
+                </Space>
+              )},
+              { title: '状态', dataIndex: 'status', width: 80, render: (v) => <Tag color="green">{v}</Tag> },
+            ]}
+          />
+        </Card>
+      )}
+
+      <Modal title="新建工作空间" open={open} onOk={handleCreate} onCancel={() => setOpen(false)} okText="创建" width={560}>
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="工作空间名称" rules={[{ required: true }]}>
-            <Input placeholder="如 llm-training" />
+          <Form.Item name="name" label="名称（唯一）" rules={[{ required: true, pattern: /^[a-z0-9-]+$/, message: '小写字母/数字/中划线' }]}>
+            <Input placeholder="e.g. cv-team" />
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={2} />
           </Form.Item>
-          <Form.Item name="resourcePoolId" label="所属资源池" rules={[{ required: true }]}>
-            <Select placeholder="选择资源池" onChange={handlePoolChange}>
-              {allPools.map((p) => (
-                <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
-              ))}
-            </Select>
+          <Form.Item name="clusterId" label="物理集群" rules={[{ required: true }]}>
+            <Select options={clusters.map((c) => ({ value: c.id, label: `${c.name} (${c.location || '?'})` }))} />
           </Form.Item>
           <Form.Item name="maxPods" label="最大 Pod 数" initialValue={50}>
-            <InputNumber min={1} max={500} style={{ width: '100%' }} />
+            <InputNumber min={1} max={1000} style={{ width: '100%' }} />
           </Form.Item>
-          <Form.List name="specQuotas">
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map(({ key, name, ...rest }) => (
-                  <Space key={key} align="baseline">
-                    <Form.Item {...rest} name={[name, 'specName']} rules={[{ required: true }]}>
-                      <Select placeholder="选择规格" style={{ width: 220 }}>
-                        {selectedPoolSpecs.map((s) => (
-                          <Select.Option key={s.id} value={s.name}>{s.displayName}</Select.Option>
-                        ))}
-                      </Select>
-                    </Form.Item>
-                    <Form.Item {...rest} name={[name, 'maxQuota']} rules={[{ required: true }]}>
-                      <InputNumber min={1} placeholder="最大配额" style={{ width: 100 }} />
-                    </Form.Item>
-                    <Button size="small" danger onClick={() => remove(name)}>移除</Button>
-                  </Space>
-                ))}
-                <Button type="dashed" onClick={() => add()} block disabled={selectedPoolSpecs.length === 0}>
-                  + 添加规格配额
-                </Button>
-              </>
-            )}
-          </Form.List>
+          <Form.Item name="memberIds" label="初始成员">
+            <Select mode="tags" placeholder="输入用户 ID（可多个）" />
+          </Form.Item>
         </Form>
       </Modal>
     </div>
   );
-};
-
-export default WorkspacesPage;
+}

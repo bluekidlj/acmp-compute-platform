@@ -1,572 +1,442 @@
-/**
- * Mock 数据集 —— 所有假数据集中于此，覆盖 API v2.0 全量接口。
- */
+// ============================================================
+// 演示数据 — 严格按后端 1.0 字段定义
+// 故事线：AI 部门"ai-rd"组织
+// ============================================================
+
 import type {
-  PhysicalCluster, ComputeSpec, ResourcePool, Workspace, ModelDeployment,
-  ClusterNodeInfo, NodeScanResponse, HamiGpuConfig, HamiVgpuUnit, Model,
+  PhysicalCluster, ClusterNode, ClusterGpu, ClusterGpuSplit, ScanResult,
+  ComputeSpec, ResourcePool, PoolCard,
+  Workspace, Project, ProjectQuota, ModelDeployment, Model,
+  ClusterCapacity,
 } from '../types';
 
-// ============================================================
-// 物理集群
-// ============================================================
+// ── 时间戳辅助 ──
+const now = () => new Date().toISOString();
+const daysAgo = (d: number) => new Date(Date.now() - d * 86400000).toISOString();
+
+// ── 物理集群 ──
 export const mockClusters: PhysicalCluster[] = [
   {
-    id: 'c1-nvidia-uuid',
-    name: 'beijing-nvidia-01',
-    description: '北京 NVIDIA RTX4090 集群',
+    id: 'cluster-bj-01',
+    name: '北京生产 K8s 集群',
+    description: 'K8s 1.28.5, 3 节点 (2 GPU + 1 CPU)',
     status: 'active',
-    totalGpuSlots: 16,
+    gpuTypes: 'NVIDIA,HYGON',
+    hamiSplits: JSON.stringify([
+      { poolLabel: 'nvidia-7b', memMb: 6000, coresPct: 16 },
+      { poolLabel: 'nvidia-14b', memMb: 12000, coresPct: 33 },
+      { poolLabel: 'nvidia-28b', memMb: 24000, coresPct: 50 },
+    ]),
+    location: '北京-亦庄',
+    nodeLabels: null,
+    taints: null,
+    maxCpuCores: 40,
+    maxMemoryGib: 256,
+    createdAt: daysAgo(30),
+    updatedAt: daysAgo(1),
+  },
+  {
+    id: 'cluster-sh-01',
+    name: '上海测试 K8s 集群',
+    description: 'K8s 1.28.5, 1 节点 (NVIDIA H100 x2)',
+    status: 'active',
     gpuTypes: 'NVIDIA',
-    location: 'beijing',
-    nodeLabels: '{"pool":"nvidia-gpu"}',
-    taints: '[{"key":"nvidia.com/gpu","value":"present","effect":"NoSchedule"}]',
-    maxCpuCores: 64,
-    maxMemoryGib: 256,
-    createdAt: '2026-05-20T08:00:00Z',
-  },
-  {
-    id: 'c2-dcu-uuid',
-    name: 'beijing-dcu-01',
-    description: '北京海光 DCU 集群',
-    status: 'active',
-    totalGpuSlots: 8,
-    gpuTypes: 'HYGON',
-    location: 'beijing',
-    nodeLabels: '{"pool":"hygon-dcu"}',
-    taints: '[{"key":"amd.com/dcu","value":"present","effect":"NoSchedule"}]',
-    maxCpuCores: 64,
-    maxMemoryGib: 256,
-    createdAt: '2026-05-21T10:00:00Z',
-  },
-  {
-    id: 'c3-ascend-uuid',
-    name: 'shenzhen-ascend-01',
-    description: '深圳华为昇腾 910B 集群',
-    status: 'active',
-    totalGpuSlots: 32,
-    gpuTypes: 'HUAWEI_ASCEND',
-    location: 'shenzhen',
-    nodeLabels: '{"pool":"huawei-ascend"}',
-    taints: '[{"key":"huawei.com/ascend910","value":"present","effect":"NoSchedule"}]',
-    maxCpuCores: 64,
-    maxMemoryGib: 512,
-    createdAt: '2026-05-22T14:00:00Z',
+    hamiSplits: JSON.stringify([
+      { poolLabel: 'nvidia-70b', memMb: 40000, coresPct: 50 },
+    ]),
+    location: '上海-张江',
+    nodeLabels: null,
+    taints: null,
+    maxCpuCores: 24,
+    maxMemoryGib: 128,
+    createdAt: daysAgo(15),
+    updatedAt: daysAgo(2),
   },
 ];
 
-// ============================================================
-// 算力规格
-// ============================================================
+export const mockNodes: ClusterNode[] = [
+  {
+    name: 'gpu-node-01',
+    labels: { 'kubernetes.io/hostname': 'gpu-node-01', 'nvidia.com/gpu.product': 'NVIDIA-A100-SXM4-80GB' },
+    annotations: { 'nvidia.com/gpu-memory': '81920', 'nvidia.com/gpu.family': 'a100' },
+    allocatable: { 'cpu': '16', 'memory': '64Gi', 'nvidia.com/gpu': '4', 'amd.com/dcu': '1', 'pods': '110' },
+    capacity: { 'cpu': '16', 'memory': '64Gi', 'nvidia.com/gpu': '4', 'amd.com/dcu': '1', 'pods': '110' },
+    status: 'Ready',
+  },
+  {
+    name: 'gpu-node-02',
+    labels: { 'kubernetes.io/hostname': 'gpu-node-02', 'nvidia.com/gpu.product': 'NVIDIA-H100-SXM5-80GB' },
+    annotations: { 'nvidia.com/gpu-memory': '81920', 'nvidia.com/gpu.family': 'h100' },
+    allocatable: { 'cpu': '24', 'memory': '128Gi', 'nvidia.com/gpu': '2', 'pods': '110' },
+    capacity: { 'cpu': '24', 'memory': '128Gi', 'nvidia.com/gpu': '2', 'pods': '110' },
+    status: 'Ready',
+  },
+  {
+    name: 'cpu-node-01',
+    labels: { 'kubernetes.io/hostname': 'cpu-node-01' },
+    annotations: {},
+    allocatable: { 'cpu': '32', 'memory': '128Gi', 'pods': '110' },
+    capacity: { 'cpu': '32', 'memory': '128Gi', 'pods': '110' },
+    status: 'Ready',
+  },
+];
+
+export const mockGpus: ClusterGpu[] = [
+  { model: 'NVIDIA-A100-SXM4-80GB', memoryMb: 81920, nodeCount: 1, totalCards: 4, nodeNames: ['gpu-node-01'] },
+  { model: 'NVIDIA-H100-SXM5-80GB', memoryMb: 81920, nodeCount: 1, totalCards: 2, nodeNames: ['gpu-node-02'] },
+  { model: 'HYGON-DCU', memoryMb: 16384, nodeCount: 1, totalCards: 1, nodeNames: ['gpu-node-01'] },
+];
+
+export const mockGpuSplits: ClusterGpuSplit[] = [
+  { poolLabel: 'nvidia-7b', memMb: 6000, coresPct: 16, nodeCount: 1, nodeNames: ['gpu-node-01'] },
+  { poolLabel: 'nvidia-14b', memMb: 12000, coresPct: 33, nodeCount: 1, nodeNames: ['gpu-node-01'] },
+  { poolLabel: 'nvidia-28b', memMb: 24000, coresPct: 50, nodeCount: 1, nodeNames: ['gpu-node-01'] },
+];
+
+export const mockScan: ScanResult = {
+  scannedAt: now(),
+  nodeCount: 3,
+  gpuModelCount: 3,
+  splitCount: 3,
+  maxCpuCores: 40,
+  maxMemoryGib: 256,
+  gpuTypes: ['NVIDIA-A100-SXM4-80GB', 'NVIDIA-H100-SXM5-80GB', 'HYGON-DCU'],
+  splits: mockGpuSplits,
+};
+
+export const mockCapacity: ClusterCapacity = {
+  gpuSlots: 7,
+  cpu: '72',
+  memory: '320Gi',
+};
+
+// ── 算力规格（与后端预置 7 条一致）──
 export const mockSpecs: ComputeSpec[] = [
   {
-    id: 'spec-nvidia-a100-80g',
-    name: 'nvidia-a100-80g',
-    displayName: 'NVIDIA A100 80GB',
-    gpuBrand: 'NVIDIA',
-    memoryGb: 80,
-    defaultGpuCount: 1,
-    defaultCpuCores: 16,
-    defaultMemoryGib: 128,
-    defaultGpumemMb: 81920,
-    nodeSelector: '{"pool":"nvidia-gpu"}',
-    tolerations: '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
-    resourceQuotaKey: 'platform.io/nvidia-a100-80g',
-    description: '顶级训练卡',
-    createdAt: '2026-05-01T00:00:00Z',
+    id: 'spec-exclusive-a100', name: 'exclusive-nvidia-a100-80g', displayName: 'NVIDIA A100 80GB (独占整卡)',
+    gpuBrand: 'NVIDIA', specType: 'PHYSICAL', poolType: 'EXCLUSIVE',
+    defaultGpuCount: 1, defaultGpumemMb: 0, defaultGpucores: 0, defaultCpuCores: 8, defaultMemoryGib: 32,
+    nodeSelector: '{}', tolerations: '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
+    resourceQuotaKey: 'platform.io/exclusive-nvidia-a100-80g', memoryGb: 80,
+    description: 'NVIDIA A100 80GB 整卡独占', createdAt: daysAgo(30), updatedAt: daysAgo(30),
   },
   {
-    id: 'spec-nvidia-a100-40g',
-    name: 'nvidia-a100-40g',
-    displayName: 'NVIDIA A100 40GB',
-    gpuBrand: 'NVIDIA',
-    memoryGb: 40,
-    defaultGpuCount: 1,
-    defaultCpuCores: 12,
-    defaultMemoryGib: 96,
-    defaultGpumemMb: 40960,
-    nodeSelector: '{"pool":"nvidia-gpu"}',
-    tolerations: '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
-    resourceQuotaKey: 'platform.io/nvidia-a100-40g',
-    createdAt: '2026-05-01T00:00:00Z',
+    id: 'spec-exclusive-h100', name: 'exclusive-nvidia-h100-80g', displayName: 'NVIDIA H100 80GB (独占整卡)',
+    gpuBrand: 'NVIDIA', specType: 'PHYSICAL', poolType: 'EXCLUSIVE',
+    defaultGpuCount: 1, defaultGpumemMb: 0, defaultGpucores: 0, defaultCpuCores: 8, defaultMemoryGib: 32,
+    nodeSelector: '{}', tolerations: '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
+    resourceQuotaKey: 'platform.io/exclusive-nvidia-h100-80g', memoryGb: 80,
+    description: 'NVIDIA H100 80GB 整卡独占', createdAt: daysAgo(30), updatedAt: daysAgo(30),
   },
   {
-    id: 'spec-nvidia-rtx4090-24g',
-    name: 'nvidia-rtx4090-24g',
-    displayName: 'NVIDIA RTX 4090 24GB',
-    gpuBrand: 'NVIDIA',
-    memoryGb: 24,
-    defaultGpuCount: 1,
-    defaultCpuCores: 8,
-    defaultMemoryGib: 32,
-    defaultGpumemMb: 24576,
-    nodeSelector: '{"pool":"nvidia-gpu"}',
-    tolerations: '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
-    resourceQuotaKey: 'platform.io/nvidia-rtx4090-24g',
-    description: '性价比推理卡',
-    createdAt: '2026-05-01T00:00:00Z',
+    id: 'spec-exclusive-dcu', name: 'exclusive-hygon-dcu', displayName: '海光 DCU (独占整卡)',
+    gpuBrand: 'HYGON', specType: 'PHYSICAL', poolType: 'EXCLUSIVE',
+    defaultGpuCount: 1, defaultGpumemMb: 0, defaultGpucores: 0, defaultCpuCores: 8, defaultMemoryGib: 32,
+    nodeSelector: '{}', tolerations: '[{"key":"amd.com/dcu","operator":"Exists","effect":"NoSchedule"}]',
+    resourceQuotaKey: 'platform.io/exclusive-hygon-dcu', memoryGb: 16,
+    description: '海光 DCU 整卡独占', createdAt: daysAgo(30), updatedAt: daysAgo(30),
   },
   {
-    id: 'spec-hygon-dcu-32g',
-    name: 'hygon-dcu-32g',
-    displayName: '海光 DCU 32GB',
-    gpuBrand: 'HYGON',
-    memoryGb: 32,
-    defaultGpuCount: 1,
-    defaultCpuCores: 8,
-    defaultMemoryGib: 32,
-    defaultGpumemMb: 32768,
-    nodeSelector: '{"pool":"hygon-dcu"}',
-    tolerations: '[{"key":"amd.com/dcu","operator":"Exists","effect":"NoSchedule"}]',
-    resourceQuotaKey: 'platform.io/hygon-dcu-32g',
-    createdAt: '2026-05-01T00:00:00Z',
+    id: 'spec-shared-a100-12', name: 'shared-hami-a100-1/2', displayName: 'A100 80GB 1/2 卡 (HAMi 切分)',
+    gpuBrand: 'NVIDIA', specType: 'VIRTUAL', poolType: 'SHARED',
+    defaultGpuCount: 1, defaultGpumemMb: 40960, defaultGpucores: 50, defaultCpuCores: 4, defaultMemoryGib: 16,
+    nodeSelector: '{}', tolerations: '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
+    resourceQuotaKey: 'platform.io/shared-hami-a100-1-2', memoryGb: 40,
+    description: 'A100 80GB 切 1/2 = 40GB', createdAt: daysAgo(30), updatedAt: daysAgo(30),
   },
   {
-    id: 'spec-huawei-ascend-910b',
-    name: 'huawei-ascend-910b',
-    displayName: '华为昇腾 910B',
-    gpuBrand: 'HUAWEI_ASCEND',
-    memoryGb: 64,
-    defaultGpuCount: 1,
-    defaultCpuCores: 16,
-    defaultMemoryGib: 64,
-    defaultGpumemMb: 65536,
-    nodeSelector: '{"pool":"huawei-ascend"}',
-    tolerations: '[{"key":"huawei.com/ascend910","operator":"Exists","effect":"NoSchedule"}]',
-    resourceQuotaKey: 'platform.io/huawei-ascend-910b',
-    createdAt: '2026-05-01T00:00:00Z',
+    id: 'spec-shared-a100-14', name: 'shared-hami-a100-1/4', displayName: 'A100 80GB 1/4 卡 (HAMi 切分)',
+    gpuBrand: 'NVIDIA', specType: 'VIRTUAL', poolType: 'SHARED',
+    defaultGpuCount: 1, defaultGpumemMb: 20480, defaultGpucores: 25, defaultCpuCores: 2, defaultMemoryGib: 8,
+    nodeSelector: '{}', tolerations: '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
+    resourceQuotaKey: 'platform.io/shared-hami-a100-1-4', memoryGb: 20,
+    description: 'A100 80GB 切 1/4 = 20GB', createdAt: daysAgo(30), updatedAt: daysAgo(30),
+  },
+  {
+    id: 'spec-shared-a100-18', name: 'shared-hami-a100-1/8', displayName: 'A100 80GB 1/8 卡 (HAMi 切分)',
+    gpuBrand: 'NVIDIA', specType: 'VIRTUAL', poolType: 'SHARED',
+    defaultGpuCount: 1, defaultGpumemMb: 10240, defaultGpucores: 12, defaultCpuCores: 1, defaultMemoryGib: 4,
+    nodeSelector: '{}', tolerations: '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
+    resourceQuotaKey: 'platform.io/shared-hami-a100-1-8', memoryGb: 10,
+    description: 'A100 80GB 切 1/8 = 10GB', createdAt: daysAgo(30), updatedAt: daysAgo(30),
+  },
+  {
+    id: 'spec-oversell-a100', name: 'oversell-a100-mig-1/2', displayName: 'A100 MIG 1/2 (超分占位)',
+    gpuBrand: 'NVIDIA', specType: 'OVERSELL', poolType: 'OVERSELL',
+    defaultGpuCount: 1, defaultGpumemMb: 0, defaultGpucores: 0, defaultCpuCores: 4, defaultMemoryGib: 16,
+    nodeSelector: '{}', tolerations: '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
+    resourceQuotaKey: 'platform.io/oversell-a100-mig-1-2', memoryGb: 40,
+    description: 'A100 MIG 1/2 超分占位（1.0 不实际提交 K8s）', createdAt: daysAgo(30), updatedAt: daysAgo(30),
   },
 ];
 
-// ============================================================
-// 逻辑资源池
-// ============================================================
+// ── 异构卡（1.5 新增）──
+export const mockPoolCards: PoolCard[] = [
+  // 4 张 A100 → shared 池 (1/4 切分 → slots=4/张)
+  { id: 'pcard-a100-1', poolId: 'pool-ai-rd-shared', gpuBrand: 'NVIDIA', gpuModel: 'NVIDIA-A100-SXM4-80GB', nodeName: 'gpu-node-01', serialNo: 'GPU-A100-001', specId: 'spec-shared-a100-14', slots: 4, status: 'active', createdAt: daysAgo(7), updatedAt: daysAgo(7) },
+  { id: 'pcard-a100-2', poolId: 'pool-ai-rd-shared', gpuBrand: 'NVIDIA', gpuModel: 'NVIDIA-A100-SXM4-80GB', nodeName: 'gpu-node-01', serialNo: 'GPU-A100-002', specId: 'spec-shared-a100-14', slots: 4, status: 'active', createdAt: daysAgo(7), updatedAt: daysAgo(7) },
+  { id: 'pcard-a100-3', poolId: 'pool-ai-rd-shared', gpuBrand: 'NVIDIA', gpuModel: 'NVIDIA-A100-SXM4-80GB', nodeName: 'gpu-node-01', serialNo: 'GPU-A100-003', specId: 'spec-shared-a100-14', slots: 4, status: 'active', createdAt: daysAgo(7), updatedAt: daysAgo(7) },
+  { id: 'pcard-a100-4', poolId: 'pool-ai-rd-shared', gpuBrand: 'NVIDIA', gpuModel: 'NVIDIA-A100-SXM4-80GB', nodeName: 'gpu-node-01', serialNo: 'GPU-A100-004', specId: 'spec-shared-a100-14', slots: 4, status: 'active', createdAt: daysAgo(7), updatedAt: daysAgo(7) },
+  // 1 张 A100 → shared 池 (1/2 切分 → slots=2)
+  { id: 'pcard-a100-5', poolId: 'pool-ai-rd-shared', gpuBrand: 'NVIDIA', gpuModel: 'NVIDIA-A100-SXM4-80GB', nodeName: 'gpu-node-01', serialNo: 'GPU-A100-005', specId: 'spec-shared-a100-12', slots: 2, status: 'active', createdAt: daysAgo(5), updatedAt: daysAgo(5) },
+  // 1 张 DCU → exclusive 池 (整卡 → slots=1)
+  { id: 'pcard-dcu-1', poolId: 'pool-ai-rd-exclusive', gpuBrand: 'HYGON', gpuModel: 'DCU', nodeName: 'gpu-node-01', serialNo: 'DCU-001', specId: 'spec-exclusive-dcu', slots: 1, status: 'active', createdAt: daysAgo(7), updatedAt: daysAgo(7) },
+];
+
+// ── 物理资源池（3 类，totalNodes 由 poolCards 自动累加）──
 export const mockPools: ResourcePool[] = [
   {
-    id: 'pool-algo-uuid',
-    name: '算法部资源池',
-    description: '算法部跨硬件统一资源池',
-    departmentCode: 'algo',
-    departmentName: '算法部',
-    status: 'active',
-    poolMode: 'HETEROGENEOUS',
-    physicalClusterIds: ['c1-nvidia-uuid', 'c2-dcu-uuid'],
-    specQuotas: [
-      { specId: 'spec-nvidia-rtx4090-24g', specName: 'nvidia-rtx4090-24g', totalNodes: 4, allocatedNodes: 2, availableNodes: 2 },
-      { specId: 'spec-hygon-dcu-32g', specName: 'hygon-dcu-32g', totalNodes: 2, allocatedNodes: 1, availableNodes: 1 },
-    ],
-    createdAt: '2026-05-23T08:00:00Z',
+    id: 'pool-ai-rd-exclusive', workspaceId: 'ws-ai-rd',
+    poolType: 'EXCLUSIVE', name: 'ai-rd-exclusive', description: 'ai-rd 的 EXCLUSIVE 池',
+    primaryClusterId: 'cluster-bj-01',
+    totalNodes: 1, allocatedNodes: 1, status: 'active', capacityStrategy: 'SUM_SLOTS',
+    createdAt: daysAgo(10), updatedAt: daysAgo(7),
   },
   {
-    id: 'pool-infra-uuid',
-    name: '基础架构部资源池',
-    description: '基础架构部专用于推理服务',
-    departmentCode: 'infra',
-    departmentName: '基础架构部',
-    status: 'active',
-    poolMode: 'HOMOGENEOUS',
-    physicalClusterIds: ['c1-nvidia-uuid'],
-    specQuotas: [
-      { specId: 'spec-nvidia-a100-40g', specName: 'nvidia-a100-40g', totalNodes: 8, allocatedNodes: 3, availableNodes: 5 },
-      { specId: 'spec-nvidia-rtx4090-24g', specName: 'nvidia-rtx4090-24g', totalNodes: 6, allocatedNodes: 0, availableNodes: 6 },
-    ],
-    createdAt: '2026-05-24T09:00:00Z',
+    id: 'pool-ai-rd-shared', workspaceId: 'ws-ai-rd',
+    poolType: 'SHARED', name: 'ai-rd-shared', description: 'ai-rd 的 SHARED 池',
+    primaryClusterId: 'cluster-bj-01',
+    totalNodes: 18, allocatedNodes: 6, status: 'active', capacityStrategy: 'SUM_SLOTS',
+    createdAt: daysAgo(10), updatedAt: daysAgo(2),
   },
   {
-    id: 'pool-ai-lab-uuid',
-    name: 'AI Lab 资源池',
-    description: 'AI Lab 多架构研究资源池',
-    departmentCode: 'ailab',
-    departmentName: 'AI Lab',
-    status: 'active',
-    poolMode: 'HETEROGENEOUS',
-    physicalClusterIds: ['c1-nvidia-uuid', 'c3-ascend-uuid'],
-    specQuotas: [
-      { specId: 'spec-nvidia-a100-80g', specName: 'nvidia-a100-80g', totalNodes: 2, allocatedNodes: 0, availableNodes: 2 },
-      { specId: 'spec-huawei-ascend-910b', specName: 'huawei-ascend-910b', totalNodes: 4, allocatedNodes: 0, availableNodes: 4 },
-    ],
-    createdAt: '2026-05-25T11:00:00Z',
+    id: 'pool-ai-rd-oversell', workspaceId: 'ws-ai-rd',
+    poolType: 'OVERSELL', name: 'ai-rd-oversell', description: 'ai-rd 的 OVERSELL 池',
+    primaryClusterId: 'cluster-bj-01',
+    totalNodes: 0, allocatedNodes: 0, status: 'active', capacityStrategy: 'SUM_SLOTS',
+    createdAt: daysAgo(10), updatedAt: daysAgo(10),
+  },
+  {
+    id: 'pool-cv-exclusive', workspaceId: 'ws-cv',
+    poolType: 'EXCLUSIVE', name: 'cv-exclusive', description: 'cv-team 的 EXCLUSIVE 池',
+    primaryClusterId: 'cluster-bj-01',
+    totalNodes: 0, allocatedNodes: 0, status: 'active', capacityStrategy: 'SUM_SLOTS',
+    createdAt: daysAgo(8), updatedAt: daysAgo(8),
+  },
+  {
+    id: 'pool-cv-shared', workspaceId: 'ws-cv',
+    poolType: 'SHARED', name: 'cv-shared', description: 'cv-team 的 SHARED 池',
+    primaryClusterId: 'cluster-bj-01',
+    totalNodes: 0, allocatedNodes: 0, status: 'active', capacityStrategy: 'SUM_SLOTS',
+    createdAt: daysAgo(8), updatedAt: daysAgo(8),
+  },
+  {
+    id: 'pool-cv-oversell', workspaceId: 'ws-cv',
+    poolType: 'OVERSELL', name: 'cv-oversell', description: 'cv-team 的 OVERSELL 池',
+    primaryClusterId: 'cluster-bj-01',
+    totalNodes: 0, allocatedNodes: 0, status: 'active', capacityStrategy: 'SUM_SLOTS',
+    createdAt: daysAgo(8), updatedAt: daysAgo(8),
   },
 ];
 
-// ============================================================
-// 工作空间
-// ============================================================
+// ── 工作空间 ──
 export const mockWorkspaces: Workspace[] = [
   {
-    id: 'ws-llm-uuid',
-    name: 'llm-training',
-    description: 'Qwen3 大模型微调工作空间',
-    resourcePoolId: 'pool-algo-uuid',
-    resourcePoolName: '算法部资源池',
-    namespace: 'ws-llm-training-a1b2c3d4',
-    volcanoQueueName: 'queue-ws-llm-training-a1b2c3d4',
-    primaryClusterId: 'c1-nvidia-uuid',
-    maxPods: 30,
-    createdBy: 'admin',
-    status: 'active',
-    specQuotas: [
-      { specId: 'spec-nvidia-rtx4090-24g', specName: 'nvidia-rtx4090-24g', maxNodes: 2, usedNodes: 1, availableNodes: 1 },
+    id: 'ws-ai-rd', name: 'ai-rd', description: 'AI 算法研发部门',
+    primaryClusterId: 'cluster-bj-01', primaryClusterName: '北京生产 K8s 集群',
+    namespace: 'ws-ai-rd-1a2b3c4d', serviceAccountName: 'sa-ws-ai-rd-1a2b3c4d',
+    volcanoQueueName: 'queue-ws-ai-rd-1a2b3c4d', maxPods: 100,
+    createdBy: 'user-admin', status: 'active',
+    pools: [
+      { id: 'pool-ai-rd-exclusive', poolType: 'EXCLUSIVE', name: 'ai-rd-exclusive', description: 'ai-rd 的 EXCLUSIVE 池', totalNodes: 1, allocatedNodes: 1, availableNodes: 0, specCount: 1 },
+      { id: 'pool-ai-rd-shared', poolType: 'SHARED', name: 'ai-rd-shared', description: 'ai-rd 的 SHARED 池', totalNodes: 18, allocatedNodes: 6, availableNodes: 12, specCount: 2 },
+      { id: 'pool-ai-rd-oversell', poolType: 'OVERSELL', name: 'ai-rd-oversell', description: 'ai-rd 的 OVERSELL 池', totalNodes: 0, allocatedNodes: 0, availableNodes: 0, specCount: 0 },
     ],
-    createdAt: '2026-05-25T14:00:00Z',
+    memberIds: ['user-admin', 'user-alice', 'user-bob'],
+    createdAt: daysAgo(10), updatedAt: daysAgo(1),
   },
   {
-    id: 'ws-cv-uuid',
-    name: 'cv-training',
-    description: 'CV 模型训练（DCU）',
-    resourcePoolId: 'pool-algo-uuid',
-    resourcePoolName: '算法部资源池',
-    namespace: 'ws-cv-training-e5f6g7h8',
-    volcanoQueueName: 'queue-ws-cv-training-e5f6g7h8',
-    primaryClusterId: 'c2-dcu-uuid',
-    maxPods: 20,
-    createdBy: 'admin',
-    status: 'active',
-    specQuotas: [
-      { specId: 'spec-hygon-dcu-32g', specName: 'hygon-dcu-32g', maxNodes: 1, usedNodes: 0, availableNodes: 1 },
+    id: 'ws-cv', name: 'cv-team', description: '计算机视觉组',
+    primaryClusterId: 'cluster-bj-01', primaryClusterName: '北京生产 K8s 集群',
+    namespace: 'ws-cv-2b3c4d5e', serviceAccountName: 'sa-ws-cv-2b3c4d5e',
+    volcanoQueueName: 'queue-ws-cv-2b3c4d5e', maxPods: 50,
+    createdBy: 'user-admin', status: 'active',
+    pools: [
+      { id: 'pool-cv-exclusive', poolType: 'EXCLUSIVE', name: 'cv-exclusive', description: 'cv-team 的 EXCLUSIVE 池', totalNodes: 0, allocatedNodes: 0, availableNodes: 0, specCount: 0 },
+      { id: 'pool-cv-shared', poolType: 'SHARED', name: 'cv-shared', description: 'cv-team 的 SHARED 池', totalNodes: 0, allocatedNodes: 0, availableNodes: 0, specCount: 0 },
+      { id: 'pool-cv-oversell', poolType: 'OVERSELL', name: 'cv-oversell', description: 'cv-team 的 OVERSELL 池', totalNodes: 0, allocatedNodes: 0, availableNodes: 0, specCount: 0 },
     ],
-    createdAt: '2026-05-25T15:30:00Z',
+    memberIds: ['user-admin', 'user-carol'],
+    createdAt: daysAgo(8), updatedAt: daysAgo(8),
   },
   {
-    id: 'ws-inference-uuid',
-    name: 'inference-svc',
-    description: '在线推理服务空间（多模型）',
-    resourcePoolId: 'pool-infra-uuid',
-    resourcePoolName: '基础架构部资源池',
-    namespace: 'ws-inference-svc-i9j0k1l2',
-    volcanoQueueName: 'queue-ws-inference-svc-i9j0k1l2',
-    primaryClusterId: 'c1-nvidia-uuid',
-    maxPods: 50,
-    createdBy: 'admin',
-    status: 'active',
-    specQuotas: [
-      { specId: 'spec-nvidia-a100-40g', specName: 'nvidia-a100-40g', maxNodes: 2, usedNodes: 1, availableNodes: 1 },
-      { specId: 'spec-nvidia-rtx4090-24g', specName: 'nvidia-rtx4090-24g', maxNodes: 0, usedNodes: 0, availableNodes: 0 },
+    id: 'ws-nlp', name: 'nlp-team', description: '自然语言处理组',
+    primaryClusterId: 'cluster-bj-01', primaryClusterName: '北京生产 K8s 集群',
+    namespace: 'ws-nlp-3c4d5e6f', serviceAccountName: 'sa-ws-nlp-3c4d5e6f',
+    volcanoQueueName: 'queue-ws-nlp-3c4d5e6f', maxPods: 50,
+    createdBy: 'user-admin', status: 'active',
+    pools: [
+      { id: 'pool-nlp-exclusive', poolType: 'EXCLUSIVE', name: 'nlp-exclusive', description: 'nlp 的 EXCLUSIVE 池', totalNodes: 0, allocatedNodes: 0, availableNodes: 0, specCount: 0 },
+      { id: 'pool-nlp-shared', poolType: 'SHARED', name: 'nlp-shared', description: 'nlp 的 SHARED 池', totalNodes: 0, allocatedNodes: 0, availableNodes: 0, specCount: 0 },
+      { id: 'pool-nlp-oversell', poolType: 'OVERSELL', name: 'nlp-oversell', description: 'nlp 的 OVERSELL 池', totalNodes: 0, allocatedNodes: 0, availableNodes: 0, specCount: 0 },
     ],
-    createdAt: '2026-05-26T09:00:00Z',
+    memberIds: ['user-admin', 'user-dave'],
+    createdAt: daysAgo(6), updatedAt: daysAgo(6),
   },
 ];
 
-// ============================================================
-// 工作空间成员
-// ============================================================
-export const mockMembers: Record<string, string[]> = {
-  'ws-llm-uuid': ['user-admin-uuid', 'user-zhangsan-uuid'],
-  'ws-cv-uuid': ['user-admin-uuid', 'user-lisi-uuid'],
-  'ws-inference-uuid': ['user-admin-uuid', 'user-zhangsan-uuid', 'user-wangwu-uuid'],
-};
+// ── 项目配额 ──
+export const mockQuotas: ProjectQuota[] = [
+  // llm-team：shared 1/4 切分 4 节点（used 1）
+  { id: 'prq-llm-1', projectId: 'proj-llm', poolId: 'pool-ai-rd-shared', specId: 'spec-shared-a100-14', totalNodes: 4, usedNodes: 1, availableNodes: 3, createdAt: daysAgo(5), updatedAt: daysAgo(1) },
+  // llm-team：shared 1/2 切分 2 节点（used 0）
+  { id: 'prq-llm-2', projectId: 'proj-llm', poolId: 'pool-ai-rd-shared', specId: 'spec-shared-a100-12', totalNodes: 2, usedNodes: 0, availableNodes: 2, createdAt: daysAgo(5), updatedAt: daysAgo(5) },
+  // llm-team：exclusive DCU 1 节点（used 0）
+  { id: 'prq-llm-3', projectId: 'proj-llm', poolId: 'pool-ai-rd-exclusive', specId: 'spec-exclusive-dcu', totalNodes: 1, usedNodes: 0, availableNodes: 1, createdAt: daysAgo(5), updatedAt: daysAgo(5) },
+  // cv-team：shared 1/4 切分 2 节点
+  { id: 'prq-cv-1', projectId: 'proj-cv', poolId: 'pool-cv-shared', specId: 'spec-shared-a100-14', totalNodes: 2, usedNodes: 0, availableNodes: 2, createdAt: daysAgo(3), updatedAt: daysAgo(3) },
+  // nlp-team：oversell 占位 3
+  { id: 'prq-nlp-1', projectId: 'proj-nlp', poolId: 'pool-nlp-oversell', specId: 'spec-oversell-a100', totalNodes: 3, usedNodes: 1, availableNodes: 2, createdAt: daysAgo(4), updatedAt: daysAgo(2) },
+];
 
-// ============================================================
-// 模型部署
-// ============================================================
+// ── 项目 ──
+export const mockProjects: Project[] = [
+  {
+    id: 'proj-llm', workspaceId: 'ws-ai-rd',
+    name: 'llm-team', description: 'LLM 推理服务组', createdBy: 'user-admin', status: 'active',
+    memberIds: ['user-admin', 'user-alice'],
+    quotaByPoolType: {
+      SHARED: [
+        { quotaId: 'prq-llm-1', poolId: 'pool-ai-rd-shared', poolName: 'ai-rd-shared', specId: 'spec-shared-a100-14', specName: 'shared-hami-a100-1/4', specType: 'VIRTUAL', totalNodes: 4, usedNodes: 1, availableNodes: 3 },
+        { quotaId: 'prq-llm-2', poolId: 'pool-ai-rd-shared', poolName: 'ai-rd-shared', specId: 'spec-shared-a100-12', specName: 'shared-hami-a100-1/2', specType: 'VIRTUAL', totalNodes: 2, usedNodes: 0, availableNodes: 2 },
+      ],
+      EXCLUSIVE: [
+        { quotaId: 'prq-llm-3', poolId: 'pool-ai-rd-exclusive', poolName: 'ai-rd-exclusive', specId: 'spec-exclusive-dcu', specName: 'exclusive-hygon-dcu', specType: 'PHYSICAL', totalNodes: 1, usedNodes: 0, availableNodes: 1 },
+      ],
+    },
+    createdAt: daysAgo(5), updatedAt: daysAgo(1),
+  },
+  {
+    id: 'proj-cv', workspaceId: 'ws-cv',
+    name: 'cv-team', description: 'CV 模型训练与推理', createdBy: 'user-admin', status: 'active',
+    memberIds: ['user-admin', 'user-carol'],
+    quotaByPoolType: {
+      SHARED: [
+        { quotaId: 'prq-cv-1', poolId: 'pool-cv-shared', poolName: 'cv-shared', specId: 'spec-shared-a100-14', specName: 'shared-hami-a100-1/4', specType: 'VIRTUAL', totalNodes: 2, usedNodes: 0, availableNodes: 2 },
+      ],
+    },
+    createdAt: daysAgo(3), updatedAt: daysAgo(3),
+  },
+  {
+    id: 'proj-nlp', workspaceId: 'ws-nlp',
+    name: 'nlp-team', description: 'NLP 训练', createdBy: 'user-admin', status: 'active',
+    memberIds: ['user-admin', 'user-dave'],
+    quotaByPoolType: {
+      OVERSELL: [
+        { quotaId: 'prq-nlp-1', poolId: 'pool-nlp-oversell', poolName: 'nlp-oversell', specId: 'spec-oversell-a100', specName: 'oversell-a100-mig-1/2', specType: 'OVERSELL', totalNodes: 3, usedNodes: 1, availableNodes: 2 },
+      ],
+    },
+    createdAt: daysAgo(4), updatedAt: daysAgo(2),
+  },
+];
+
+// ── 模型部署 ──
 export const mockDeployments: ModelDeployment[] = [
   {
-    id: 'dep-qwen3-uuid',
-    workspaceId: 'ws-llm-uuid',
-    resourcePoolId: 'pool-algo-uuid',
-    specId: 'spec-nvidia-rtx4090-24g',
-    name: 'qwen3-svc',
-    modelName: 'Qwen3-7B-Instruct',
-    modelSource: 'with_weights',
-    modelIdOrPath: '/models/qwen3',
-    vllmImage: 'vllm/vllm-openai:latest',
-    gpuPerReplica: 1,
-    replicas: 1,
-    k8sDeploymentName: 'vllm-qwen3-svc',
-    k8sServiceName: 'vllm-qwen3-svc-svc',
+    id: 'dep-1', projectId: 'proj-llm', workspaceId: 'ws-ai-rd',
+    resourcePoolId: 'pool-ai-rd-shared', specId: 'spec-shared-a100-14', poolType: 'SHARED',
+    name: 'qwen3-svc', modelName: 'Qwen3-14B', modelSource: 'with_weights', modelIdOrPath: '/mnt/nfs/models/qwen3-14b',
+    vllmImage: 'vllm/vllm-openai:latest', gpuPerReplica: 1, gpumemMb: 20480, gpucores: 25, replicas: 1,
+    k8sDeploymentName: 'vllm-qwen3-svc', k8sServiceName: 'vllm-qwen3-svc-svc',
     status: 'running',
-    serviceUrl: 'http://vllm-qwen3-svc-svc.ws-llm-training-a1b2c3d4.svc.cluster.local:8000',
-    readyReplicas: 1,
-    createdBy: 'user-zhangsan-uuid',
-    createdAt: '2026-05-26T10:00:00Z',
-    updatedAt: '2026-05-26T10:00:00Z',
+    serviceUrl: 'http://vllm-qwen3-svc-svc.ws-ai-rd-1a2b3c4d.svc.cluster.local:8000',
+    readyReplicas: 1, actualClusterId: 'cluster-bj-01', poolCardId: 'pcard-a100-1', resourceKey: 'platform.io/shared-hami-a100-1-4',
+    createdBy: 'user-admin', createdAt: daysAgo(3), updatedAt: daysAgo(1),
   },
   {
-    id: 'dep-deepseek-uuid',
-    workspaceId: 'ws-inference-uuid',
-    resourcePoolId: 'pool-infra-uuid',
-    specId: 'spec-nvidia-a100-40g',
-    name: 'deepseek-r1-svc',
-    modelName: 'DeepSeek-R1-Distill',
-    modelSource: 'with_weights',
-    modelIdOrPath: '/models/deepseek-r1',
-    vllmImage: 'vllm/vllm-openai:latest',
-    gpuPerReplica: 2,
-    replicas: 1,
-    k8sDeploymentName: 'vllm-deepseek-r1-svc',
-    k8sServiceName: 'vllm-deepseek-r1-svc-svc',
+    id: 'dep-2', projectId: 'proj-llm', workspaceId: 'ws-ai-rd',
+    resourcePoolId: 'pool-ai-rd-exclusive', specId: 'spec-exclusive-dcu', poolType: 'EXCLUSIVE',
+    name: 'bert-infer', modelName: 'BERT-Base', modelSource: 'without_weights', modelIdOrPath: '/mnt/nfs/models/bert-base',
+    vllmImage: 'bert-server:latest', gpuPerReplica: 1, gpumemMb: null, gpucores: null, replicas: 1,
+    k8sDeploymentName: 'bert-infer', k8sServiceName: 'bert-infer-svc',
     status: 'running',
-    serviceUrl: 'http://vllm-deepseek-r1-svc-svc.ws-inference-svc-i9j0k1l2.svc.cluster.local:8000',
-    readyReplicas: 1,
-    createdBy: 'user-admin-uuid',
-    createdAt: '2026-05-26T08:30:00Z',
-    updatedAt: '2026-05-26T08:30:00Z',
+    serviceUrl: 'http://bert-infer-svc.ws-ai-rd-1a2b3c4d.svc.cluster.local:8000',
+    readyReplicas: 1, actualClusterId: 'cluster-bj-01', poolCardId: 'pcard-dcu-1', resourceKey: 'platform.io/exclusive-hygon-dcu',
+    createdBy: 'user-alice', createdAt: daysAgo(2), updatedAt: daysAgo(1),
   },
   {
-    id: 'dep-whisper-uuid',
-    workspaceId: 'ws-inference-uuid',
-    resourcePoolId: 'pool-infra-uuid',
-    specId: 'spec-nvidia-rtx4090-24g',
-    name: 'whisper-svc',
-    modelName: 'Whisper-Large-v3',
-    modelSource: 'with_weights',
-    modelIdOrPath: '/models/whisper',
-    vllmImage: 'vllm/vllm-openai:latest',
-    gpuPerReplica: 1,
-    replicas: 2,
-    k8sDeploymentName: 'vllm-whisper-svc',
-    k8sServiceName: 'vllm-whisper-svc-svc',
-    status: 'pending',
-    serviceUrl: undefined,
-    readyReplicas: 0,
-    createdBy: 'user-wangwu-uuid',
-    createdAt: '2026-05-26T11:00:00Z',
-    updatedAt: '2026-05-26T11:00:00Z',
+    id: 'dep-3', projectId: 'proj-nlp', workspaceId: 'ws-nlp',
+    resourcePoolId: 'pool-nlp-oversell', specId: 'spec-oversell-a100', poolType: 'OVERSELL',
+    name: 'stable-diffusion', modelName: 'SDXL-1.0', modelSource: 'with_weights', modelIdOrPath: '/mnt/nfs/models/sdxl-1.0',
+    vllmImage: 'sdxl-server:latest', gpuPerReplica: 1, gpumemMb: null, gpucores: null, replicas: 1,
+    k8sDeploymentName: 'sdxl-svc', k8sServiceName: 'sdxl-svc-svc',
+    status: 'running', serviceUrl: null, readyReplicas: null,
+    actualClusterId: 'cluster-bj-01', poolCardId: null, resourceKey: 'platform.io/oversell-a100-mig-1-2',
+    createdBy: 'user-dave', createdAt: daysAgo(2), updatedAt: daysAgo(2),
   },
   {
-    id: 'dep-llama3-uuid',
-    workspaceId: 'ws-llm-uuid',
-    resourcePoolId: 'pool-algo-uuid',
-    specId: 'spec-nvidia-rtx4090-24g',
-    name: 'llama3-svc',
-    modelName: 'Llama-3-8B-Instruct',
-    modelSource: 'with_weights',
-    modelIdOrPath: '/models/llama3',
-    vllmImage: 'vllm/vllm-openai:latest',
-    gpuPerReplica: 1,
-    replicas: 1,
-    k8sDeploymentName: 'vllm-llama3-svc',
-    k8sServiceName: 'vllm-llama3-svc-svc',
-    status: 'running',
-    serviceUrl: 'http://vllm-llama3-svc-svc.ws-llm-training-a1b2c3d4.svc.cluster.local:8000',
-    readyReplicas: 1,
-    createdBy: 'user-zhangsan-uuid',
-    createdAt: '2026-05-27T09:00:00Z',
-    updatedAt: '2026-05-27T09:00:00Z',
+    id: 'dep-4', projectId: 'proj-llm', workspaceId: 'ws-ai-rd',
+    resourcePoolId: 'pool-ai-rd-shared', specId: 'spec-shared-a100-14', poolType: 'SHARED',
+    name: 'llama3-svc', modelName: 'LLaMA3-70B', modelSource: 'with_weights', modelIdOrPath: '/mnt/nfs/models/llama3-70b',
+    vllmImage: 'vllm/vllm-openai:latest', gpuPerReplica: 1, gpumemMb: 20480, gpucores: 25, replicas: 1,
+    k8sDeploymentName: 'vllm-llama3', k8sServiceName: 'vllm-llama3-svc',
+    status: 'failed', serviceUrl: null, readyReplicas: 0,
+    actualClusterId: 'cluster-bj-01', poolCardId: null, resourceKey: 'platform.io/shared-hami-a100-1-4',
+    createdBy: 'user-admin', createdAt: daysAgo(1), updatedAt: daysAgo(1),
   },
 ];
 
-// ============================================================
-// 容量数据
-// ============================================================
-export const mockCapacities: Record<string, { gpuSlots: number; cpu: string; memory: string }> = {
-  'c1-nvidia-uuid': { gpuSlots: 16, cpu: '128', memory: '549755813888' },
-  'c2-dcu-uuid': { gpuSlots: 8, cpu: '64', memory: '274877906944' },
-  'c3-ascend-uuid': { gpuSlots: 32, cpu: '256', memory: '1099511627776' },
-};
-
-// ============================================================
-// 节点扫描数据
-// ============================================================
-export const mockNodeScans: Record<string, NodeScanResponse> = {
-  'c1-nvidia-uuid': {
-    clusterId: 'c1-nvidia-uuid',
-    nodes: [
-      {
-        name: 'node-nvidia-01',
-        labels: { pool: 'nvidia-gpu', 'nvidia.com/gpu.product': 'NVIDIA-RTX-4090' },
-        allocatable: { cpu: '64', memory: '256Gi', 'nvidia.com/gpu': '8' },
-        capacity: { cpu: '64', memory: '256Gi', 'nvidia.com/gpu': '8' },
-        conditions: [{ type: 'Ready', status: 'True' }],
-      },
-      {
-        name: 'node-nvidia-02',
-        labels: { pool: 'nvidia-gpu', 'nvidia.com/gpu.product': 'NVIDIA-RTX-4090' },
-        allocatable: { cpu: '64', memory: '256Gi', 'nvidia.com/gpu': '8' },
-        capacity: { cpu: '64', memory: '256Gi', 'nvidia.com/gpu': '8' },
-        conditions: [{ type: 'Ready', status: 'True' }],
-      },
-    ],
-    totalNodes: 2,
-    readyNodes: 2,
-  },
-  'c2-dcu-uuid': {
-    clusterId: 'c2-dcu-uuid',
-    nodes: [
-      {
-        name: 'node-dcu-01',
-        labels: { pool: 'hygon-dcu' },
-        allocatable: { cpu: '64', memory: '256Gi', 'amd.com/dcu': '8' },
-        capacity: { cpu: '64', memory: '256Gi', 'amd.com/dcu': '8' },
-        conditions: [{ type: 'Ready', status: 'True' }],
-      },
-    ],
-    totalNodes: 1,
-    readyNodes: 1,
-  },
-  'c3-ascend-uuid': {
-    clusterId: 'c3-ascend-uuid',
-    nodes: [
-      {
-        name: 'node-ascend-01',
-        labels: { pool: 'huawei-ascend' },
-        allocatable: { cpu: '64', memory: '512Gi', 'huawei.com/ascend910': '8' },
-        capacity: { cpu: '64', memory: '512Gi', 'huawei.com/ascend910': '8' },
-        conditions: [{ type: 'Ready', status: 'True' }],
-      },
-      {
-        name: 'node-ascend-02',
-        labels: { pool: 'huawei-ascend' },
-        allocatable: { cpu: '64', memory: '512Gi', 'huawei.com/ascend910': '8' },
-        capacity: { cpu: '64', memory: '512Gi', 'huawei.com/ascend910': '8' },
-        conditions: [{ type: 'Ready', status: 'True' }],
-      },
-      {
-        name: 'node-ascend-03',
-        labels: { pool: 'huawei-ascend' },
-        allocatable: { cpu: '64', memory: '512Gi', 'huawei.com/ascend910': '8' },
-        capacity: { cpu: '64', memory: '512Gi', 'huawei.com/ascend910': '8' },
-        conditions: [{ type: 'Ready', status: 'True' }],
-      },
-      {
-        name: 'node-ascend-04',
-        labels: { pool: 'huawei-ascend' },
-        allocatable: { cpu: '64', memory: '512Gi', 'huawei.com/ascend910': '8' },
-        capacity: { cpu: '64', memory: '512Gi', 'huawei.com/ascend910': '8' },
-        conditions: [{ type: 'Ready', status: 'True' }],
-      },
-    ],
-    totalNodes: 4,
-    readyNodes: 4,
-  },
-};
-
-// ============================================================
-// HAMi GPU 配置数据
-// ============================================================
-const mockVgpuUnits: Record<string, HamiVgpuUnit[]> = {};
-
-export const mockHamiConfigs: HamiGpuConfig[] = [
-  {
-    id: 'hami-nvidia-rtx4090',
-    physicalClusterId: 'c1-nvidia-uuid',
-    gpuType: 'NVIDIA',
-    gpuMemMb: 24576,
-    gpuCores: 100,
-    totalVgpuCount: 4,
-    nodeSelectorKey: 'nvidia.com/gpu.product',
-    nodeSelectorPrefix: 'NVIDIA-RTX-4090',
-    createdAt: '2026-05-20T08:00:00Z',
-  },
-  {
-    id: 'hami-dcu-32g',
-    physicalClusterId: 'c2-dcu-uuid',
-    gpuType: 'HYGON',
-    gpuMemMb: 32768,
-    gpuCores: 100,
-    totalVgpuCount: 2,
-    nodeSelectorKey: 'amd.com/dcu',
-    nodeSelectorPrefix: 'DCU',
-    createdAt: '2026-05-21T10:00:00Z',
-  },
-];
-
-// initialize vgpu units
-mockVgpuUnits['hami-nvidia-rtx4090'] = [
-  {
-    id: 'vgpu-rtx4090-6g',
-    configId: 'hami-nvidia-rtx4090',
-    vgpuIndex: 0,
-    vgpuName: 'rtx4090-6g',
-    vgpuMemMb: 6144,
-    vgpuCores: 25,
-    nodeSelectorValue: 'NVIDIA-RTX-4090',
-    tolerations: '[{"key":"nvidia.com/gpu","operator":"Exists"}]',
-    availableCount: 4,
-    createdAt: '2026-05-20T08:00:00Z',
-  },
-  {
-    id: 'vgpu-rtx4090-12g',
-    configId: 'hami-nvidia-rtx4090',
-    vgpuIndex: 1,
-    vgpuName: 'rtx4090-12g',
-    vgpuMemMb: 12288,
-    vgpuCores: 50,
-    nodeSelectorValue: 'NVIDIA-RTX-4090',
-    tolerations: '[{"key":"nvidia.com/gpu","operator":"Exists"}]',
-    availableCount: 2,
-    createdAt: '2026-05-20T08:00:00Z',
-  },
-];
-
-mockVgpuUnits['hami-dcu-32g'] = [
-  {
-    id: 'vgpu-dcu-16g',
-    configId: 'hami-dcu-32g',
-    vgpuIndex: 0,
-    vgpuName: 'dcu-16g',
-    vgpuMemMb: 16384,
-    vgpuCores: 50,
-    nodeSelectorValue: 'DCU',
-    tolerations: '[{"key":"amd.com/dcu","operator":"Exists"}]',
-    availableCount: 2,
-    createdAt: '2026-05-21T10:00:00Z',
-  },
-];
-
-export const mockVgpuUnitsData = mockVgpuUnits;
-
-// ============================================================
-// 模型广场
-// ============================================================
+// ── 模型广场 ──
 export const mockModels: Model[] = [
-  {
-    id: 'model-qwen3-7b',
-    name: 'qwen3-7b',
-    displayName: 'Qwen3-7B-Instruct',
-    description: '通义千问 7B 指令微调版本',
-    modelSource: 'with_weights',
-    storageBackend: 'nfs',
-    storagePath: '/mnt/nfs/models',
-    fileSizeMb: 14000000,
-    createdAt: '2026-05-20T10:00:00Z',
-    updatedAt: '2026-05-20T10:00:00Z',
+  { id: 'model-1', name: 'qwen3-14b', displayName: '通义千问 Qwen3-14B', description: '阿里通义千问 14B 基础模型', modelSource: 'with_weights', storageBackend: 'nfs', storagePath: '/mnt/nfs/models', fileSizeMb: 28000, createdAt: daysAgo(20), updatedAt: daysAgo(5) },
+  { id: 'model-2', name: 'llama3-70b', displayName: 'Meta LLaMA 3-70B', description: 'Meta 开源 70B 模型', modelSource: 'with_weights', storageBackend: 'nfs', storagePath: '/mnt/nfs/models', fileSizeMb: 140000, createdAt: daysAgo(18), updatedAt: daysAgo(10) },
+  { id: 'model-3', name: 'bert-base', displayName: 'BERT-Base 中文', description: 'BERT 基础模型（无预训练权重）', modelSource: 'without_weights', storageBackend: 'nfs', storagePath: '/mnt/nfs/models', fileSizeMb: null, createdAt: daysAgo(15), updatedAt: daysAgo(15) },
+  { id: 'model-4', name: 'sdxl-1.0', displayName: 'Stable Diffusion XL 1.0', description: 'SDXL 1.0 图像生成模型', modelSource: 'with_weights', storageBackend: 'nfs', storagePath: '/mnt/nfs/models', fileSizeMb: 13000, createdAt: daysAgo(10), updatedAt: daysAgo(8) },
+  { id: 'model-5', name: 'chatglm3-6b', displayName: 'ChatGLM3-6B', description: '清华 ChatGLM3-6B 对话模型', modelSource: 'with_weights', storageBackend: 'nfs', storagePath: '/mnt/nfs/models', fileSizeMb: 12000, createdAt: daysAgo(8), updatedAt: daysAgo(3) },
+];
+
+// ── 监控数据 ──
+export const mockMonitoring = {
+  cluster: {
+    totalCpuCores: 40,
+    usedCpuCores: 23,
+    totalMemoryGib: 256,
+    usedMemoryGib: 130,
+    totalGpuCards: 7,
+    usedGpuCards: 4,
   },
-  {
-    id: 'model-deepseek-r1',
-    name: 'deepseek-r1-distill',
-    displayName: 'DeepSeek-R1-Distill-Qwen-7B',
-    description: 'DeepSeek 推理模型蒸馏版',
-    modelSource: 'with_weights',
-    storageBackend: 'nfs',
-    storagePath: '/mnt/nfs/models',
-    fileSizeMb: 7200000,
-    createdAt: '2026-05-21T14:00:00Z',
-    updatedAt: '2026-05-21T14:00:00Z',
-  },
-  {
-    id: 'model-llama3-8b',
-    name: 'llama3-8b',
-    displayName: 'Llama-3-8B-Instruct',
-    description: 'Meta Llama 3 8B 指令版本',
-    modelSource: 'with_weights',
-    storageBackend: 'nfs',
-    storagePath: '/mnt/nfs/models',
-    fileSizeMb: 16000000,
-    createdAt: '2026-05-22T09:00:00Z',
-    updatedAt: '2026-05-22T09:00:00Z',
-  },
-  {
-    id: 'model-whisper-large',
-    name: 'whisper-large-v3',
-    displayName: 'Whisper Large v3',
-    description: 'OpenAI Whisper 语音识别大模型',
-    modelSource: 'with_weights',
-    storageBackend: 'nfs',
-    storagePath: '/mnt/nfs/models',
-    fileSizeMb: 3100000,
-    createdAt: '2026-05-23T11:00:00Z',
-    updatedAt: '2026-05-23T11:00:00Z',
-  },
-  {
-    id: 'model-baichuan-13b',
-    name: 'baichuan-13b',
-    displayName: '百川 13B',
-    description: '百川智能 13B 大模型',
-    modelSource: 'without_weights',
-    storageBackend: 'nfs',
-    storagePath: '/mnt/nfs/models',
-    fileSizeMb: 26000000,
-    createdAt: '2026-05-24T08:00:00Z',
-    updatedAt: '2026-05-24T08:00:00Z',
-  },
+  nodes: [
+    { name: 'gpu-node-01', cpuUsage: 78, memUsage: 65, gpuUsage: 82, gpuMemUsage: 71, gpuTemp: 84, status: 'Ready' },
+    { name: 'gpu-node-02', cpuUsage: 45, memUsage: 50, gpuUsage: 30, gpuMemUsage: 28, gpuTemp: 62, status: 'Ready' },
+    { name: 'cpu-node-01', cpuUsage: 22, memUsage: 30, gpuUsage: 0, gpuMemUsage: 0, gpuTemp: 0, status: 'Ready' },
+  ],
+};
+
+// ── 告警 ──
+export const mockAlerts = [
+  { id: 'alert-1', level: 'critical', source: 'gpu-node-01', message: 'GPU 温度过高：84°C（阈值 80°C）', firedAt: daysAgo(0.05), status: 'firing' },
+  { id: 'alert-2', level: 'warning', source: 'ws-ai-rd', message: '项目 llm-team 配额使用率 87%（1/4 切分）', firedAt: daysAgo(0.3), status: 'firing' },
+  { id: 'alert-3', level: 'warning', source: 'nfs-models', message: '存储卷 nfs-models 使用率 91%', firedAt: daysAgo(0.5), status: 'firing' },
+  { id: 'alert-4', level: 'info', source: 'cpu-node-01', message: '节点已稳定运行 24 小时', firedAt: daysAgo(1), status: 'resolved' },
+  { id: 'alert-5', level: 'info', source: 'proj-llm', message: '检测到新部署 qwen3-svc', firedAt: daysAgo(3), status: 'resolved' },
+];
+
+// ── 告警规则 ──
+export const mockAlertRules = [
+  { id: 'rule-1', name: 'GPU 高温告警', metric: 'gpu_temperature', condition: '>', threshold: 80, level: 'critical', enabled: true },
+  { id: 'rule-2', name: '配额使用率告警', metric: 'pool_quota_usage', condition: '>', threshold: 80, level: 'warning', enabled: true },
+  { id: 'rule-3', name: 'Pod OOMKilled', metric: 'pod_oom_killed', condition: '>=', threshold: 1, level: 'warning', enabled: false },
+];
+
+// ── 训练任务（mock）──
+export const mockTrainingJobs = [
+  { id: 'train-1', name: 'llama3-finetune', image: 'pytorch/pytorch:2.1.0', replicas: 1, status: 'running', spec: 'shared-hami-a100-1/4', createdBy: 'user-alice', createdAt: daysAgo(2) },
+  { id: 'train-2', name: 'sdxl-train', image: 'pytorch/pytorch:2.1.0', replicas: 4, status: 'pending', spec: 'exclusive-nvidia-a100-80g', createdBy: 'user-dave', createdAt: daysAgo(0.5) },
+  { id: 'train-3', name: 'bert-pretrain', image: 'tensorflow/tensorflow:2.14.0', replicas: 8, status: 'completed', spec: 'shared-hami-a100-1/2', createdBy: 'user-carol', createdAt: daysAgo(5) },
+];
+
+// ── 存储（mock）──
+export const mockStorage = [
+  { id: 'vol-1', name: 'nfs-models', backend: 'NFS', server: '10.0.1.50', path: '/mnt/nfs/models', totalGib: 5000, usedGib: 1200, status: 'active' },
+  { id: 'vol-2', name: 'nfs-datasets', backend: 'NFS', server: '10.0.1.51', path: '/mnt/nfs/datasets', totalGib: 5000, usedGib: 800, status: 'active' },
+  { id: 'vol-3', name: 'nfs-checkpoints', backend: 'NFS', server: '10.0.1.52', path: '/mnt/nfs/checkpoints', totalGib: 5000, usedGib: 2000, status: 'active' },
+];
+
+// ── 演示用户 ──
+export const mockUsers = [
+  { id: 'user-admin', username: 'admin', role: 'PLATFORM_ADMIN' as const, displayName: '系统管理员' },
+  { id: 'user-alice', username: 'alice', role: 'INFERENCE_USER' as const, displayName: 'Alice（LLM 组）' },
+  { id: 'user-bob', username: 'bob', role: 'INFERENCE_USER' as const, displayName: 'Bob（LLM 组）' },
+  { id: 'user-carol', username: 'carol', role: 'INFERENCE_USER' as const, displayName: 'Carol（CV 组）' },
+  { id: 'user-dave', username: 'dave', role: 'INFERENCE_USER' as const, displayName: 'Dave（NLP 组）' },
 ];

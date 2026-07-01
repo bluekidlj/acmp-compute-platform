@@ -13,6 +13,7 @@ import com.acmp.compute.k8s.K8sResourceBuilder;
 import com.acmp.compute.k8s.KubernetesClientManager;
 import com.acmp.compute.mapper.ComputeSpecMapper;
 import com.acmp.compute.mapper.PhysicalClusterMapper;
+import com.acmp.compute.mapper.PoolCardMapper;
 import com.acmp.compute.mapper.ResourcePoolMapper;
 import com.acmp.compute.mapper.WorkspaceMapper;
 import com.acmp.compute.security.UserPrincipal;
@@ -49,6 +50,7 @@ public class WorkspaceService {
     private final ResourcePoolMapper resourcePoolMapper;
     private final PhysicalClusterMapper physicalClusterMapper;
     private final ComputeSpecMapper computeSpecMapper;
+    private final PoolCardMapper poolCardMapper;
     private final KubernetesClientManager clientManager;
 
     private UserPrincipal currentUser() {
@@ -109,7 +111,12 @@ public class WorkspaceService {
             clientManager.createRoleBinding(cluster.getId(), ns, rbName, roleName, sa);
 
             String queueYaml = K8sResourceBuilder.buildVolcanoQueue(queueName, new java.util.LinkedHashMap<>());
-            clientManager.applyClusterScopedYaml(cluster.getId(), queueYaml);
+            try {
+                clientManager.applyClusterScopedYaml(cluster.getId(), queueYaml);
+            } catch (Exception queueEx) {
+                // Volcano CRD 未安装（如 kind/minikube 测试环境）→ 仅 log.warn，不阻断 WS 创建
+                log.warn("Volcano Queue 创建失败（继续）: {}", queueEx.getMessage());
+            }
         } catch (Exception e) {
             log.error("K8s 资源创建失败: {}", e.getMessage(), e);
             throw new RuntimeException("工作空间创建失败（K8s 资源）: " + e.getMessage(), e);
@@ -153,9 +160,9 @@ public class WorkspaceService {
             }
         }
 
-        // 删除三类池（级联 resource_pool_spec）
         List<ResourcePool> pools = resourcePoolMapper.findByWorkspaceId(id);
         for (ResourcePool p : pools) {
+            poolCardMapper.deleteByPoolId(p.getId());
             computeSpecMapper.deleteResourcePoolSpecsByPool(p.getId());
             resourcePoolMapper.deleteById(p.getId());
         }
