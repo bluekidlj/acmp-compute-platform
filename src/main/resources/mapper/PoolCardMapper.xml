@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.acmp.compute.mapper.PoolCardMapper">
+
+    <resultMap id="BaseResultMap" type="com.acmp.compute.entity.PoolCard">
+        <id column="id" property="id"/>
+        <result column="pool_id" property="poolId"/>
+        <result column="gpu_brand" property="gpuBrand"/>
+        <result column="gpu_model" property="gpuModel"/>
+        <result column="node_name" property="nodeName"/>
+        <result column="serial_no" property="serialNo"/>
+        <result column="spec_id" property="specId"/>
+        <result column="slots" property="slots"/>
+        <result column="status" property="status"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO pool_card
+            (id, pool_id, gpu_brand, gpu_model, node_name, serial_no, spec_id, slots, status, created_at, updated_at)
+        VALUES
+            (#{id}, #{poolId}, #{gpuBrand}, #{gpuModel}, #{nodeName}, #{serialNo}, #{specId}, #{slots}, #{status}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    </insert>
+
+    <select id="findById" resultMap="BaseResultMap">SELECT * FROM pool_card WHERE id = #{id}</select>
+
+    <select id="findByPoolId" resultMap="BaseResultMap">SELECT * FROM pool_card WHERE pool_id = #{poolId} ORDER BY created_at</select>
+
+    <select id="exists" resultType="int">
+        SELECT COUNT(*) FROM pool_card
+        WHERE pool_id = #{poolId} AND node_name = #{nodeName}
+          AND COALESCE(serial_no,'') = COALESCE(#{serialNo},'')
+          AND spec_id = #{specId}
+    </select>
+
+    <delete id="deleteById">DELETE FROM pool_card WHERE id = #{id}</delete>
+    <delete id="deleteByPoolId">DELETE FROM pool_card WHERE pool_id = #{poolId}</delete>
+
+    <select id="sumActiveSlotsByPool" resultType="int">
+        SELECT COALESCE(SUM(slots), 0) FROM pool_card WHERE pool_id = #{poolId} AND status = 'active'
+    </select>
+
+    <select id="sumActiveSlotsByPoolAndSpec" resultType="int">
+        SELECT COALESCE(SUM(slots), 0) FROM pool_card
+        WHERE pool_id = #{poolId} AND spec_id = #{specId} AND status = 'active'
+    </select>
+
+    <select id="findNodeNamesByPoolAndSpec" resultType="string">
+        SELECT DISTINCT node_name FROM pool_card
+        WHERE pool_id = #{poolId} AND spec_id = #{specId} AND status = 'active' AND node_name IS NOT NULL
+    </select>
+</mapper>

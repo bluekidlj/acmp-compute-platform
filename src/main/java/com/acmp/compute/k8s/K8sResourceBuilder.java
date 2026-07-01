@@ -4,6 +4,7 @@ import com.acmp.compute.entity.ComputeSpec;
 import com.acmp.compute.entity.GpuBrand;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.kubernetes.client.openapi.models.V1Affinity;
 import io.kubernetes.client.openapi.models.V1Container;
 import io.kubernetes.client.openapi.models.V1ContainerPort;
 import io.kubernetes.client.openapi.models.V1Deployment;
@@ -12,6 +13,10 @@ import io.kubernetes.client.openapi.models.V1EnvVar;
 import io.kubernetes.client.openapi.models.V1HTTPGetAction;
 import io.kubernetes.client.openapi.models.V1HostPathVolumeSource;
 import io.kubernetes.client.openapi.models.V1LabelSelector;
+import io.kubernetes.client.openapi.models.V1NodeAffinity;
+import io.kubernetes.client.openapi.models.V1NodeSelector;
+import io.kubernetes.client.openapi.models.V1NodeSelectorRequirement;
+import io.kubernetes.client.openapi.models.V1NodeSelectorTerm;
 import io.kubernetes.client.openapi.models.V1ObjectMeta;
 import io.kubernetes.client.openapi.models.V1PodSpec;
 import io.kubernetes.client.openapi.models.V1PodTemplateSpec;
@@ -97,7 +102,8 @@ public class K8sResourceBuilder {
             String tolerations,
             Map<String, String> envVars,
             String command,
-            String args) {
+            String args,
+            List<String> preferredNodes) {
 
         int gpuPerReplica = spec.getDefaultGpuCount() != null ? spec.getDefaultGpuCount() : 1;
         int cpuCores = spec.getDefaultCpuCores() != null ? spec.getDefaultCpuCores() : 4;
@@ -162,6 +168,18 @@ public class K8sResourceBuilder {
             podSpec.addVolumesItem(new V1Volume()
                     .name("model-data")
                     .hostPath(new V1HostPathVolumeSource().path(hostModelPath).type("Directory")));
+        }
+
+        if (preferredNodes != null && !preferredNodes.isEmpty()) {
+            V1NodeSelectorRequirement req = new V1NodeSelectorRequirement()
+                .key("kubernetes.io/hostname")
+                .operator("In")
+                .values(preferredNodes);
+            V1NodeSelectorTerm term = new V1NodeSelectorTerm().addMatchExpressionsItem(req);
+            V1NodeSelector nodeSelectorObj = new V1NodeSelector().addNodeSelectorTermsItem(term);
+            V1NodeAffinity nodeAffinity = new V1NodeAffinity()
+                .requiredDuringSchedulingIgnoredDuringExecution(nodeSelectorObj);
+            podSpec.affinity(new V1Affinity().nodeAffinity(nodeAffinity));
         }
 
         String safeSpecName = sanitizeLabel(spec.getName());

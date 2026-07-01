@@ -18,6 +18,7 @@ import com.acmp.compute.mapper.ComputeSpecMapper;
 import io.kubernetes.client.openapi.models.V1Deployment;
 import io.kubernetes.client.openapi.models.V1Service;
 import com.acmp.compute.mapper.ModelDeploymentMapper;
+import com.acmp.compute.mapper.PoolCardMapper;
 import com.acmp.compute.mapper.ProjectMapper;
 import com.acmp.compute.mapper.ProjectResourceQuotaMapper;
 import com.acmp.compute.mapper.ResourcePoolMapper;
@@ -60,6 +61,7 @@ public class ModelDeploymentService {
     private final ResourcePoolMapper poolMapper;
     private final ComputeSpecMapper specMapper;
     private final ProjectResourceQuotaMapper projectQuotaMapper;
+    private final PoolCardMapper poolCardMapper;
     private final KubernetesClientManager clientManager;
     private final ModelService modelService;
 
@@ -172,11 +174,14 @@ public class ModelDeploymentService {
         }
 
         try {
+            List<String> preferredNodes = poolCardMapper.findNodeNamesByPoolAndSpec(
+                pool.getId(), spec.getId());
             V1Deployment deployment = K8sResourceBuilder.buildVllmDeployment(
                     deploymentName, ws.getNamespace(),
                     image, modelPath, spec, replicas, hostModelPath,
                     spec.getNodeSelector(), spec.getTolerations(),
-                    req.getEnvVars(), req.getCommand(), req.getArgs());
+                    req.getEnvVars(), req.getCommand(), req.getArgs(),
+                    preferredNodes);
             V1Service service = K8sResourceBuilder.buildVllmService(serviceName, ws.getNamespace(), deploymentName);
             clientManager.createVllmDeploymentAndService(clusterId, ws.getNamespace(), deployment, service);
             deploymentMapper.updateActualClusterId(id, clusterId);
@@ -188,8 +193,7 @@ public class ModelDeploymentService {
 
             log.info("✅ vLLM 部署完成: id={}, project={}, spec={}, url={}", id, projectId, spec.getName(), serviceUrl);
         } catch (Exception err) {
-            log.warn("⚠️ K8s 提交失败，回滚配额: {}", err.getMessage(), err);
-            // 回滚 project.used
+            log.error("❌ K8s 提交失败，回滚 prq.used: id={}, err={}", id, err.getMessage(), err);
             projectQuotaMapper.updateUsedNodes(quota.getId(), used);
             deploymentMapper.updateStatus(id, "failed", null);
             record.setStatus("failed");

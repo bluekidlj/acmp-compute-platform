@@ -13,6 +13,7 @@ import com.acmp.compute.k8s.K8sResourceBuilder;
 import com.acmp.compute.k8s.KubernetesClientManager;
 import com.acmp.compute.mapper.ComputeSpecMapper;
 import com.acmp.compute.mapper.PhysicalClusterMapper;
+import com.acmp.compute.mapper.PoolCardMapper;
 import com.acmp.compute.mapper.ResourcePoolMapper;
 import com.acmp.compute.mapper.WorkspaceMapper;
 import com.acmp.compute.security.UserPrincipal;
@@ -49,6 +50,7 @@ public class WorkspaceService {
     private final ResourcePoolMapper resourcePoolMapper;
     private final PhysicalClusterMapper physicalClusterMapper;
     private final ComputeSpecMapper computeSpecMapper;
+    private final PoolCardMapper poolCardMapper;
     private final KubernetesClientManager clientManager;
 
     private UserPrincipal currentUser() {
@@ -158,9 +160,9 @@ public class WorkspaceService {
             }
         }
 
-        // 删除三类池（级联 resource_pool_spec）
         List<ResourcePool> pools = resourcePoolMapper.findByWorkspaceId(id);
         for (ResourcePool p : pools) {
+            poolCardMapper.deleteByPoolId(p.getId());
             computeSpecMapper.deleteResourcePoolSpecsByPool(p.getId());
             resourcePoolMapper.deleteById(p.getId());
         }

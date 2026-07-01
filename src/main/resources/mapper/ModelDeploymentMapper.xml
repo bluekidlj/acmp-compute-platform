@@ -23,6 +23,8 @@
         <result column="status" property="status"/>
         <result column="service_url" property="serviceUrl"/>
         <result column="actual_cluster_id" property="actualClusterId"/>
+        <result column="pool_card_id" property="poolCardId"/>
+        <result column="resource_key" property="resourceKey"/>
         <result column="created_by" property="createdBy"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
@@ -33,13 +35,15 @@
             (id, project_id, workspace_id, resource_pool_id, spec_id, pool_type,
              name, model_name, model_source, model_id_or_path, vllm_image,
              gpu_per_replica, gpumem_mb, gpucores, replicas,
-             k8s_deployment_name, k8s_service_name, status, service_url, actual_cluster_id, created_by,
+             k8s_deployment_name, k8s_service_name, status, service_url, actual_cluster_id,
+             pool_card_id, resource_key, created_by,
              created_at, updated_at)
         VALUES
             (#{id}, #{projectId}, #{workspaceId}, #{resourcePoolId}, #{specId}, #{poolType},
              #{name}, #{modelName}, #{modelSource}, #{modelIdOrPath}, #{vllmImage},
              #{gpuPerReplica}, #{gpumemMb}, #{gpucores}, #{replicas},
-             #{k8sDeploymentName}, #{k8sServiceName}, #{status}, #{serviceUrl}, #{actualClusterId}, #{createdBy},
+             #{k8sDeploymentName}, #{k8sServiceName}, #{status}, #{serviceUrl}, #{actualClusterId},
+             #{poolCardId}, #{resourceKey}, #{createdBy},
              CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 

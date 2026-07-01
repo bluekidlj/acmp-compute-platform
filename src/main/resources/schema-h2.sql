@@ -109,13 +109,14 @@ CREATE TABLE IF NOT EXISTS workspace_member (
 CREATE TABLE IF NOT EXISTS resource_pool (
     id                  VARCHAR(64) PRIMARY KEY,
     workspace_id        VARCHAR(64) NOT NULL,
-    pool_type           VARCHAR(20) NOT NULL,    -- EXCLUSIVE / SHARED / OVERSELL
+    pool_type           VARCHAR(20) NOT NULL,
     name                VARCHAR(128) NOT NULL,
     description         VARCHAR(512),
     primary_cluster_id  VARCHAR(64) NOT NULL,
-    total_nodes         INT NOT NULL DEFAULT 0,   -- 池总容量（卡数 / vGPU 数 / 超分单元数）
-    allocated_nodes     INT NOT NULL DEFAULT 0,   -- 已分配给各 Project 之和
+    total_nodes         INT NOT NULL DEFAULT 0,
+    allocated_nodes     INT NOT NULL DEFAULT 0,
     status              VARCHAR(20) DEFAULT 'active',
+    capacity_strategy   VARCHAR(32) DEFAULT 'SUM_SLOTS',
     created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (workspace_id, pool_type)
@@ -128,6 +129,24 @@ CREATE TABLE IF NOT EXISTS resource_pool_spec (
     spec_id             VARCHAR(64) NOT NULL,
     PRIMARY KEY (resource_pool_id, spec_id)
 );
+
+CREATE TABLE IF NOT EXISTS pool_card (
+    id              VARCHAR(64) PRIMARY KEY,
+    pool_id         VARCHAR(64) NOT NULL,
+    gpu_brand       VARCHAR(32) NOT NULL,
+    gpu_model       VARCHAR(64) NOT NULL,
+    node_name       VARCHAR(128),
+    serial_no       VARCHAR(128),
+    spec_id         VARCHAR(64) NOT NULL,
+    slots           INT NOT NULL,
+    status          VARCHAR(20) DEFAULT 'active',
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (pool_id, node_name, serial_no, spec_id)
+);
+CREATE INDEX IF NOT EXISTS idx_pool_card_pool ON pool_card(pool_id);
+CREATE INDEX IF NOT EXISTS idx_pool_card_spec ON pool_card(spec_id);
+CREATE INDEX IF NOT EXISTS idx_pool_card_node  ON pool_card(node_name);
 
 -- ─────────── 项目（WS 内的子租户）───────────
 CREATE TABLE IF NOT EXISTS project (
@@ -170,7 +189,7 @@ CREATE TABLE IF NOT EXISTS model_deployment (
     workspace_id            VARCHAR(64) NOT NULL,
     resource_pool_id        VARCHAR(64) NOT NULL,
     spec_id                 VARCHAR(64) NOT NULL,
-    pool_type               VARCHAR(20) NOT NULL,        -- EXCLUSIVE / SHARED / OVERSELL
+    pool_type               VARCHAR(20) NOT NULL,
     name                    VARCHAR(255) NOT NULL,
     model_name              VARCHAR(255),
     model_source            VARCHAR(32),
@@ -185,12 +204,16 @@ CREATE TABLE IF NOT EXISTS model_deployment (
     status                  VARCHAR(32) NOT NULL DEFAULT 'pending',
     service_url             VARCHAR(512),
     actual_cluster_id       VARCHAR(64),
+    pool_card_id            VARCHAR(64),
+    resource_key            VARCHAR(128),
     created_by              VARCHAR(64),
     created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_md_project ON model_deployment(project_id);
 CREATE INDEX IF NOT EXISTS idx_md_workspace ON model_deployment(workspace_id);
+ALTER TABLE model_deployment ADD COLUMN IF NOT EXISTS pool_card_id VARCHAR(64);
+ALTER TABLE model_deployment ADD COLUMN IF NOT EXISTS resource_key VARCHAR(128);
 
 -- ─────────── 模型广场 ───────────
 CREATE TABLE IF NOT EXISTS model_source (

@@ -1,203 +1,103 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import {
-  Table, Button, Modal, Form, Input, Select, Space, Tag, Typography,
-  Descriptions, Popconfirm, message, Tooltip,
-} from 'antd';
-import { PlusOutlined, ReloadOutlined, DashboardOutlined, EyeOutlined } from '@ant-design/icons';
+import { useEffect, useState } from 'react';
+import { Card, Table, Tag, Button, Space, Empty, Spin, Modal, Form, Input, Select, message, Popconfirm } from 'antd';
+import { PlusOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { physicalClusterApi } from '../api/physicalClusters';
-import type { PhysicalCluster, PhysicalClusterCreateRequest, PhysicalClusterCapacity } from '../types';
-import { useAuth } from '../contexts/AuthContext';
+import { clustersApi } from '../api/clusters';
+import type { PhysicalCluster } from '../types';
+import PageHeader from '../components/PageHeader';
+import { PSBC_COLORS } from '../theme';
 
-const { Title, Text } = Typography;
-const { TextArea } = Input;
-
-const PhysicalClustersPage: React.FC = () => {
-  const { isAdmin } = useAuth();
-  const navigate = useNavigate();
-  const [clusters, setClusters] = useState<PhysicalCluster[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [capacityOpen, setCapacityOpen] = useState<string | null>(null);
-  const [capacity, setCapacity] = useState<PhysicalClusterCapacity | null>(null);
+export default function PhysicalClustersPage() {
+  const nav = useNavigate();
+  const [items, setItems] = useState<PhysicalCluster[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
   const [form] = Form.useForm();
 
-  const load = useCallback(async () => {
+  const load = async () => {
     setLoading(true);
-    try {
-      const res = await physicalClusterApi.list();
-      setClusters(res.data);
-    } catch { /* handled */ }
-    finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  const handleCreate = async () => {
-    const values = await form.validateFields();
-    await physicalClusterApi.create(values as PhysicalClusterCreateRequest);
-    message.success('物理集群注册成功');
-    setCreateOpen(false);
-    form.resetFields();
-    load();
+    try { setItems(await clustersApi.list()); } finally { setLoading(false); }
   };
 
-  const handleViewCapacity = async (id: string) => {
-    setCapacityOpen(id);
+  useEffect(() => { load(); }, []);
+
+  const handleRegister = async () => {
+    const v = await form.validateFields();
     try {
-      const res = await physicalClusterApi.capacity(id);
-      setCapacity(res.data);
-    } catch { setCapacity(null); }
+      // mock：不读真 kubeconfig
+      const fakeKubeconfig = 'fake-' + btoa(v.name).slice(0, 32);
+      await clustersApi.create({ name: v.name, kubeconfigBase64: fakeKubeconfig, gpuTypes: v.gpuTypes, location: v.location });
+      message.success('集群注册成功');
+      setOpen(false); form.resetFields(); load();
+    } catch (e: any) { message.error(e?.message || '注册失败'); }
   };
 
   const handleDelete = async (id: string) => {
-    await physicalClusterApi.delete(id);
-    message.success('已删除');
-    load();
+    try { await clustersApi.remove(id); message.success('已删除'); load(); }
+    catch (e: any) { message.error(e?.message || '删除失败'); }
   };
 
-  const statusTag = (status: string) =>
-    status === 'active' ? <Tag color="green">在线</Tag> : <Tag color="red">离线</Tag>;
-
-  const columns = [
-    { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
-    { title: '位置', dataIndex: 'location', key: 'location', width: 100 },
-    {
-      title: 'GPU 类型', dataIndex: 'gpuTypes', key: 'gpuTypes', width: 120,
-      render: (v: string) => <Tag color="blue">{v}</Tag>,
-    },
-    {
-      title: 'GPU 槽位', dataIndex: 'totalGpuSlots', key: 'totalGpuSlots', width: 100,
-    },
-    {
-      title: '状态', dataIndex: 'status', key: 'status', width: 80,
-      render: (v: string) => statusTag(v),
-    },
-    {
-      title: '操作', key: 'actions', width: 280,
-      render: (_: unknown, record: PhysicalCluster) => (
-        <Space>
-          <Button size="small" type="link" icon={<EyeOutlined />}
-            onClick={() => navigate(`/physical-clusters/${record.id}`)}>
-            详情
-          </Button>
-          <Tooltip title="实时容量">
-            <Button size="small" icon={<DashboardOutlined />} onClick={() => handleViewCapacity(record.id)}>
-              容量
-            </Button>
-          </Tooltip>
-          {isAdmin && (
-            <Popconfirm title="确定删除该物理集群？" onConfirm={() => handleDelete(record.id)}>
-              <Button size="small" danger>删除</Button>
-            </Popconfirm>
-          )}
-        </Space>
-      ),
-    },
-  ];
+  if (loading) return <div style={{ padding: 80, textAlign: 'center' }}><Spin size="large" /></div>;
 
   return (
     <div>
-      <div className="page-header">
-        <Title level={4} style={{ margin: 0 }}>物理集群管理</Title>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
-          {isAdmin && (
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-              注册集群
-            </Button>
-          )}
-        </Space>
-      </div>
-
-      <Table
-        columns={columns}
-        dataSource={clusters}
-        rowKey="id"
-        loading={loading}
-        pagination={false}
-        expandable={{
-          expandedRowRender: (record: PhysicalCluster) => (
-            <div>
-              {record.description && <p><Text type="secondary">{record.description}</Text></p>}
-              {record.nodeLabels && (
-                <p>
-                  <Text strong>节点标签: </Text>
-                  <Text code className="mono">{record.nodeLabels}</Text>
-                </p>
-              )}
-              {record.taints && (
-                <p>
-                  <Text strong>污点: </Text>
-                  <Text code className="mono">{record.taints}</Text>
-                </p>
-              )}
-            </div>
-          ),
-          rowExpandable: (r: PhysicalCluster) => !!(r.nodeLabels || r.taints || r.description),
-        }}
+      <PageHeader
+        title="物理集群"
+        subtitle="K8s 集群注册 · 节点 / GPU / HAMi 切分扫描"
+        tags={[{ label: `${items.length} 集群`, color: 'green' }]}
+        extra={
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}
+            style={{ background: PSBC_COLORS.primary, borderColor: PSBC_COLORS.primary }}>
+            注册集群
+          </Button>
+        }
       />
+      {items.length === 0 ? <Empty description="暂无集群" /> : (
+        <Card style={{ borderRadius: 8 }}>
+          <Table
+            dataSource={items}
+            rowKey="id"
+            pagination={false}
+            size="middle"
+            onRow={(r) => ({ onClick: () => nav(`/clusters/${r.id}`), style: { cursor: 'pointer' } })}
+            columns={[
+              { title: '名称', dataIndex: 'name', render: (v) => <strong style={{ color: PSBC_COLORS.primary }}>{v}</strong> },
+              { title: '位置', dataIndex: 'location' },
+              { title: '状态', dataIndex: 'status', width: 80, render: (v) => <Tag color="green">{v}</Tag> },
+              { title: 'GPU 品牌', dataIndex: 'gpuTypes', render: (v) => v ? (v as string).split(',').map((b: string) => <Tag key={b} color="green" style={{ marginRight: 4 }}>{b.trim()}</Tag>) : '-' },
+              { title: 'CPU cores', dataIndex: 'maxCpuCores', width: 100, render: (v) => v ?? '-' },
+              { title: '内存 (GiB)', dataIndex: 'maxMemoryGib', width: 110, render: (v) => v ?? '-' },
+              { title: '描述', dataIndex: 'description', ellipsis: true },
+              { title: '操作', key: 'op', width: 100, fixed: 'right',
+                render: (_, r) => <Popconfirm title="确认删除？" onConfirm={(e) => { e?.stopPropagation?.(); handleDelete(r.id); }}>
+                  <Button danger size="small" onClick={(e) => e.stopPropagation()}>删除</Button>
+                </Popconfirm>,
+              },
+            ]}
+          />
+        </Card>
+      )}
 
-      {/* 注册集群弹窗 */}
-      <Modal
-        title="注册物理集群"
-        open={createOpen}
-        onOk={handleCreate}
-        onCancel={() => { setCreateOpen(false); form.resetFields(); }}
-        okText="注册"
-        width={600}
-      >
+      <Modal title="注册物理集群" open={open} onOk={handleRegister} onCancel={() => setOpen(false)} okText="注册" width={520}>
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="集群名称" rules={[{ required: true }]}>
-            <Input placeholder="如 beijing-nvidia-01" />
+          <Form.Item name="name" label="名称" rules={[{ required: true }]}>
+            <Input placeholder="e.g. sh-k8s-01" />
           </Form.Item>
-          <Form.Item name="description" label="描述">
-            <Input placeholder="集群描述" />
+          <Form.Item name="gpuTypes" label="GPU 品牌（逗号分隔）" initialValue="NVIDIA">
+            <Select mode="tags" options={[
+              { value: 'NVIDIA', label: 'NVIDIA' },
+              { value: 'HYGON', label: '海光 DCU' },
+              { value: 'HUAWEI_ASCEND', label: '华为昇腾' },
+            ]} />
           </Form.Item>
-          <Form.Item name="kubeconfigBase64" label="Kubeconfig (Base64)" rules={[{ required: true, message: '请输入 Base64 编码的 kubeconfig' }]}>
-            <TextArea rows={6} placeholder="cat ~/.kube/config | base64" />
+          <Form.Item name="location" label="位置">
+            <Input placeholder="e.g. 上海-张江" />
           </Form.Item>
-          <Space style={{ width: '100%' }} size="middle">
-            <Form.Item name="gpuTypes" label="GPU 类型" initialValue="NVIDIA">
-              <Select style={{ width: 140 }}>
-                <Select.Option value="NVIDIA">NVIDIA</Select.Option>
-                <Select.Option value="HYGON">海光 DCU</Select.Option>
-                <Select.Option value="HUAWEI_ASCEND">华为昇腾</Select.Option>
-              </Select>
-            </Form.Item>
-            <Form.Item name="location" label="位置" initialValue="default">
-              <Input style={{ width: 140 }} placeholder="beijing" />
-            </Form.Item>
-          </Space>
-          <Form.Item name="nodeLabels" label="节点标签 (JSON)">
-            <Input placeholder='{"pool":"nvidia-gpu"}' />
-          </Form.Item>
-          <Form.Item name="taints" label="污点容忍 (JSON 数组)">
-            <Input placeholder='[{"key":"nvidia.com/gpu","value":"present","effect":"NoSchedule"}]' />
-          </Form.Item>
+          <div style={{ fontSize: 12, color: '#6B7768', padding: 8, background: '#FFF7E6', borderRadius: 4 }}>
+            ⚠️ 演示模式：kubeconfig 字段自动 mock，不会读取真实集群
+          </div>
         </Form>
-      </Modal>
-
-      {/* 容量查看弹窗 */}
-      <Modal
-        title="集群实时容量"
-        open={!!capacityOpen}
-        onCancel={() => { setCapacityOpen(null); setCapacity(null); }}
-        footer={null}
-        width={400}
-      >
-        {capacity ? (
-          <Descriptions column={1} bordered size="small">
-            <Descriptions.Item label="GPU 槽位">{capacity.gpuSlots}</Descriptions.Item>
-            <Descriptions.Item label="CPU">{capacity.cpu}</Descriptions.Item>
-            <Descriptions.Item label="内存">{capacity.memory} bytes</Descriptions.Item>
-          </Descriptions>
-        ) : (
-          <Text type="secondary">正在加载...</Text>
-        )}
       </Modal>
     </div>
   );
-};
-
-export default PhysicalClustersPage;
+}

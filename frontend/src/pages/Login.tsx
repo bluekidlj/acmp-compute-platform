@@ -1,89 +1,110 @@
-import React, { useState } from 'react';
-import { Form, Input, Button, Card, Typography, Space, message } from 'antd';
+import { useState } from 'react';
+import { Form, Input, Button, Card, Typography, Alert, Divider } from 'antd';
 import { UserOutlined, LockOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import { authApi } from '../api/auth';
 import { useAuth } from '../contexts/AuthContext';
+import { PSBC_GREEN, PSBC_COLORS } from '../theme';
+import { USE_MOCK } from '../api/client';
 
 const { Title, Text } = Typography;
 
-const LoginPage: React.FC = () => {
+export default function LoginPage() {
+  const nav = useNavigate();
+  const { setUser } = useAuth();
   const [loading, setLoading] = useState(false);
-  const { login, isAuthenticated } = useAuth();
-  const navigate = useNavigate();
+  const [error, setError] = useState<string | null>(null);
+  const [form] = Form.useForm();
 
-  if (isAuthenticated) {
-    navigate('/', { replace: true });
-    return null;
-  }
-
-  const onFinish = async (values: { username: string; password: string }) => {
+  const handleLogin = async (values: { username: string; password: string }) => {
     setLoading(true);
+    setError(null);
     try {
-      await login(values);
-      message.success('登录成功');
-      navigate('/', { replace: true });
-    } catch {
-      // error handled by interceptor
+      const r = await authApi.login(values);
+      localStorage.setItem('token', r.token);
+      setUser({ username: r.username, role: r.role });
+      nav('/');
+    } catch (e: any) {
+      setError(e?.message || '登录失败');
     } finally {
       setLoading(false);
     }
+  };
+
+  const quickFill = (username: string) => {
+    form.setFieldsValue({ username, password: 'admin123' });
   };
 
   return (
     <div
       style={{
         minHeight: '100vh',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        background: 'linear-gradient(135deg, #1677ff 0%, #0050b3 100%)',
+        background: `linear-gradient(135deg, ${PSBC_GREEN.token.colorPrimary} 0%, ${PSBC_COLORS.primaryActive} 100%)`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20,
       }}
     >
-      <Card style={{ width: 400, borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>
-        <Space direction="vertical" size="large" style={{ width: '100%', textAlign: 'center' }}>
-          <div>
-            <ThunderboltOutlined style={{ fontSize: 48, color: '#1677ff' }} />
-            <Title level={3} style={{ marginTop: 12, marginBottom: 4 }}>
-              ACMP 异构计算平台
-            </Title>
-            <Text type="secondary">AI Compute Platform</Text>
-          </div>
+      <Card
+        style={{
+          width: 420, borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+        }}
+        bodyStyle={{ padding: 40 }}
+      >
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <ThunderboltOutlined style={{ fontSize: 48, color: PSBC_GREEN.token.colorPrimary }} />
+          <Title level={3} style={{ marginTop: 12, marginBottom: 4, color: PSBC_GREEN.token.colorPrimary }}>
+            ACMP
+          </Title>
+          <Text type="secondary">异构算力管理平台</Text>
+        </div>
 
-          <Form
-            name="login"
-            onFinish={onFinish}
-            layout="vertical"
-            size="large"
-            initialValues={{ username: 'admin', password: 'admin123' }}
-          >
-            <Form.Item
-              name="username"
-              rules={[{ required: true, message: '请输入用户名' }]}
+        {USE_MOCK && (
+          <Alert
+            type="info"
+            message="MOCK 演示模式"
+            description="可使用任意账号 + 密码 admin123 登录（admin / alice / bob / carol / dave）"
+            style={{ marginBottom: 20, fontSize: 12 }}
+            showIcon
+          />
+        )}
+
+        {error && (
+          <Alert type="error" message={error} style={{ marginBottom: 16 }} showIcon />
+        )}
+
+        <Form form={form} onFinish={handleLogin} layout="vertical" size="large">
+          <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
+            <Input prefix={<UserOutlined />} placeholder="用户名" />
+          </Form.Item>
+          <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
+            <Input.Password prefix={<LockOutlined />} placeholder="密码" />
+          </Form.Item>
+          <Form.Item>
+            <Button
+              type="primary"
+              htmlType="submit"
+              block
+              loading={loading}
+              style={{ background: PSBC_GREEN.token.colorPrimary, borderColor: PSBC_GREEN.token.colorPrimary }}
             >
-              <Input prefix={<UserOutlined />} placeholder="用户名" />
-            </Form.Item>
+              登 录
+            </Button>
+          </Form.Item>
+        </Form>
 
-            <Form.Item
-              name="password"
-              rules={[{ required: true, message: '请输入密码' }]}
-            >
-              <Input.Password prefix={<LockOutlined />} placeholder="密码" />
-            </Form.Item>
-
-            <Form.Item>
-              <Button type="primary" htmlType="submit" block loading={loading}>
-                登录
-              </Button>
-            </Form.Item>
-          </Form>
-
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            演示账号: admin / admin123
-          </Text>
-        </Space>
+        {USE_MOCK && (
+          <>
+            <Divider plain style={{ fontSize: 12, color: '#9CA8A0' }}>演示账号一键登录</Divider>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+              {['admin', 'alice', 'bob', 'carol', 'dave'].slice(0, 6).map((u) => (
+                <Button key={u} size="small" onClick={() => quickFill(u)}>
+                  {u}
+                </Button>
+              ))}
+            </div>
+          </>
+        )}
       </Card>
     </div>
   );
-};
-
-export default LoginPage;
+}

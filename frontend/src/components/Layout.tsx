@@ -1,76 +1,100 @@
-import React from 'react';
-import { Layout, Menu, Button, Dropdown, Space, Typography, theme, Tag } from 'antd';
+import { Layout, Menu, Button, Dropdown, Space, Tag, theme } from 'antd';
 import {
   DashboardOutlined,
-  CloudServerOutlined,
-  SettingOutlined,
   AppstoreOutlined,
-  HddOutlined,
-  ThunderboltOutlined,
+  ClusterOutlined,
   RocketOutlined,
+  CloudServerOutlined,
+  MonitorOutlined,
+  AlertOutlined,
+  SettingOutlined,
   UserOutlined,
   LogoutOutlined,
   ExperimentOutlined,
-  PartitionOutlined,
-  MessageOutlined,
-  CloudOutlined,
+  DatabaseOutlined,
+  HddOutlined,
+  ToolOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ROLE_LABELS } from '../types';
-import { USE_MOCK } from '../mock';
+import { USE_MOCK } from '../api/client';
+import { PSBC_GREEN, PSBC_COLORS } from '../theme';
 
 const { Header, Sider, Content } = Layout;
-const { Text } = Typography;
 
 const AppLayout: React.FC = () => {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const { username, role, isAdmin, logout } = useAuth();
-  const { token: themeToken } = theme.useToken();
+  const nav = useNavigate();
+  const loc = useLocation();
+  const { username, role, logout } = useAuth();
+  const { token } = theme.useToken();
 
-  const menuItems = [
-    { key: '/', icon: <DashboardOutlined />, label: '概览' },
-    { key: '/physical-clusters', icon: <CloudServerOutlined />, label: '物理集群' },
-    { key: '/specs', icon: <SettingOutlined />, label: '算力规格' },
-    { key: '/resource-pools', icon: <AppstoreOutlined />, label: '资源池' },
-    { key: '/workspaces', icon: <HddOutlined />, label: '工作空间' },
-    { key: '/deployments', icon: <RocketOutlined />, label: '部署服务' },
-    { key: '/inference-chat', icon: <MessageOutlined />, label: '推理对话' },
-    { key: '/models', icon: <CloudOutlined />, label: '模型广场' },
-    { key: '/hami-gpu-configs', icon: <PartitionOutlined />, label: 'GPU 切分配置' },
+  // 3 大模块
+  const items = [
+    {
+      key: 'smart-ops',
+      icon: <AppstoreOutlined />,
+      label: '智算运营',
+      children: [
+        { key: '/', icon: <DashboardOutlined />, label: '平台概览' },
+        {
+          key: 'resources',
+          icon: <ClusterOutlined />,
+          label: '资源管理',
+          children: [
+            { key: '/resources/specs', label: '算力规格' },
+            { key: '/resources/pools', label: '物理资源池' },
+            { key: '/resources/cards', label: '异构卡管理' },
+          ],
+        },
+        {
+          key: 'logical',
+          icon: <HddOutlined />,
+          label: '逻辑资源池',
+          children: [
+            { key: '/logical/workspaces', label: '工作空间' },
+          ],
+        },
+        { key: '/models', icon: <DatabaseOutlined />, label: '模型广场' },
+        { key: '/training', icon: <ExperimentOutlined />, label: '训练管理' },
+      ],
+    },
+    {
+      key: 'monitoring',
+      icon: <MonitorOutlined />,
+      label: '监控预警',
+      children: [
+        { key: '/monitoring', icon: <MonitorOutlined />, label: '运维监控看板' },
+        { key: '/monitoring/alerts', icon: <AlertOutlined />, label: '告警列表' },
+        { key: '/monitoring/rules', icon: <SettingOutlined />, label: '告警规则' },
+      ],
+    },
+    {
+      key: 'cluster-ops',
+      icon: <ToolOutlined />,
+      label: '集群运维',
+      children: [
+        { key: '/clusters', icon: <CloudServerOutlined />, label: '物理集群' },
+        { key: '/workloads', icon: <RocketOutlined />, label: '负载管理' },
+        { key: '/storage', icon: <HddOutlined />, label: '存储资源' },
+      ],
+    },
   ];
 
-  const currentPath = '/' + (location.pathname.split('/')[1] || '');
-
-  const userMenuItems = [
-    {
-      key: 'info',
-      label: (
-        <div style={{ padding: '4px 0' }}>
-          <div><strong>{username}</strong></div>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {role ? ROLE_LABELS[role] : ''}
-          </Text>
-        </div>
-      ),
-      disabled: true,
-    },
-    { type: 'divider' as const },
-    {
-      key: 'logout',
-      icon: <LogoutOutlined />,
-      label: '退出登录',
-      danger: true,
-    },
-  ];
+  // 找到当前匹配的 key
+  const selectedKeys = [loc.pathname];
+  const openKeys = items
+    .filter((m) => m.children?.some((c: any) => c.children
+      ? c.children.some((cc: any) => cc.key === loc.pathname)
+      : c.key === loc.pathname))
+    .map((m) => m.key);
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Sider
-        breakpoint="lg"
-        collapsedWidth="64"
-        style={{ background: themeToken.colorBgContainer }}
+        width={240}
+        style={{ background: PSBC_GREEN.token.colorBgContainer, borderRight: `1px solid ${PSBC_COLORS.border}` }}
       >
         <div
           style={{
@@ -78,64 +102,82 @@ const AppLayout: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            borderBottom: `1px solid ${themeToken.colorBorderSecondary}`,
+            borderBottom: `1px solid ${PSBC_COLORS.border}`,
+            gap: 8,
           }}
         >
-          <ThunderboltOutlined style={{ fontSize: 28, color: themeToken.colorPrimary }} />
-          <span
-            style={{
-              marginLeft: 12,
-              fontSize: 18,
-              fontWeight: 700,
-              color: themeToken.colorText,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            ACMP
-          </span>
+          <ThunderboltOutlined style={{ fontSize: 26, color: PSBC_GREEN.token.colorPrimary }} />
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: PSBC_GREEN.token.colorPrimary, lineHeight: 1.2 }}>
+              ACMP
+            </div>
+            <div style={{ fontSize: 10, color: '#6B7768', lineHeight: 1.2 }}>算力管理平台</div>
+          </div>
         </div>
         <Menu
           mode="inline"
-          selectedKeys={[currentPath]}
-          items={menuItems}
-          onClick={({ key }) => navigate(key)}
-          style={{ borderRight: 0, marginTop: 8 }}
+          items={items}
+          selectedKeys={selectedKeys}
+          defaultOpenKeys={openKeys}
+          onClick={({ key }) => nav(key)}
+          style={{ borderRight: 0, paddingTop: 8 }}
         />
       </Sider>
       <Layout>
         <Header
           style={{
-            background: themeToken.colorBgContainer,
+            background: '#fff',
             padding: '0 24px',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            borderBottom: `1px solid ${themeToken.colorBorderSecondary}`,
+            borderBottom: `1px solid ${PSBC_COLORS.border}`,
           }}
         >
-          {USE_MOCK && (
-            <Tag icon={<ExperimentOutlined />} color="orange" style={{ marginRight: 'auto' }}>
-              Mock 模式 — 数据均为模拟
-            </Tag>
-          )}
+          <Space>
+            {USE_MOCK && (
+              <Tag color="orange" style={{ borderRadius: 4 }}>MOCK 演示模式</Tag>
+            )}
+            <span style={{ color: '#6B7768', fontSize: 12 }}>
+              ACMP · 异构算力管理
+            </span>
+          </Space>
           <Dropdown
             menu={{
-              items: userMenuItems,
+              items: [
+                {
+                  key: 'info',
+                  label: (
+                    <div style={{ padding: '4px 0' }}>
+                      <div><strong>{username || 'admin'}</strong></div>
+                      <div style={{ fontSize: 12, color: '#6B7768' }}>{role && ROLE_LABELS[role]}</div>
+                    </div>
+                  ),
+                  disabled: true,
+                },
+                { type: 'divider' as const },
+                {
+                  key: 'logout',
+                  icon: <LogoutOutlined />,
+                  label: '退出登录',
+                  danger: true,
+                },
+              ],
               onClick: ({ key }) => {
                 if (key === 'logout') {
                   logout();
-                  navigate('/login');
+                  nav('/login');
                 }
               },
             }}
             placement="bottomRight"
           >
-            <Button type="text" icon={<UserOutlined />} style={{ height: 40 }}>
-              {username}
+            <Button type="text" icon={<UserOutlined />}>
+              {username || 'admin'}
             </Button>
           </Dropdown>
         </Header>
-        <Content style={{ margin: 16 }}>
+        <Content style={{ margin: 16, background: 'transparent' }}>
           <Outlet />
         </Content>
       </Layout>

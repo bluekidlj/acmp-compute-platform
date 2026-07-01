@@ -1,73 +1,65 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { authApi } from '../api/auth';
-import type { LoginRequest, LoginResponse, UserRole } from '../types';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import type { UserRole } from '../types';
 
-interface AuthState {
-  token: string | null;
-  username: string | null;
-  role: UserRole | null;
-  isAdmin: boolean;
-  isAuthenticated: boolean;
+interface User {
+  username: string;
+  role: UserRole;
 }
 
-interface AuthContextType extends AuthState {
-  login: (data: LoginRequest) => Promise<void>;
+interface AuthContextType {
+  username: string;
+  role: UserRole | null;
+  isAdmin: boolean;
+  isOrgAdmin: boolean;
+  setUser: (u: User | null) => void;
   logout: () => void;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType | null>(null);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [state, setState] = useState<AuthState>(() => {
-    const token = localStorage.getItem('token');
-    const username = localStorage.getItem('username');
-    const role = localStorage.getItem('role') as UserRole | null;
-    return {
-      token,
-      username,
-      role,
-      isAdmin: role === 'PLATFORM_ADMIN',
-      isAuthenticated: !!token,
-    };
+  const [user, setUserState] = useState<User | null>(() => {
+    const raw = localStorage.getItem('user');
+    if (raw) try { return JSON.parse(raw); } catch { return null; }
+    return null;
   });
 
-  const login = useCallback(async (data: LoginRequest) => {
-    const res = await authApi.login(data);
-    const { token, username, role } = res.data;
-    localStorage.setItem('token', token);
-    localStorage.setItem('username', username);
-    localStorage.setItem('role', role);
-    setState({
-      token,
-      username,
-      role,
-      isAdmin: role === 'PLATFORM_ADMIN',
-      isAuthenticated: true,
-    });
-  }, []);
+  const setUser = (u: User | null) => {
+    setUserState(u);
+    if (u) localStorage.setItem('user', JSON.stringify(u));
+    else localStorage.removeItem('user');
+  };
 
-  const logout = useCallback(() => {
+  const logout = () => {
+    setUser(null);
     localStorage.removeItem('token');
-    localStorage.removeItem('username');
-    localStorage.removeItem('role');
-    setState({
-      token: null,
-      username: null,
-      role: null,
-      isAdmin: false,
-      isAuthenticated: false,
-    });
-  }, []);
+    localStorage.removeItem('user');
+  };
+
+  useEffect(() => {}, []);
+
+  const role = user?.role ?? null;
+  const isAdmin = role === 'PLATFORM_ADMIN';
+  const isOrgAdmin = role === 'PLATFORM_ADMIN' || role === 'ORG_ADMIN';
 
   return (
-    <AuthContext.Provider value={{ ...state, login, logout }}>
+    <AuthContext.Provider
+      value={{
+        username: user?.username ?? '',
+        role,
+        isAdmin,
+        isOrgAdmin,
+        setUser,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
 };
 
-export const useAuth = (): AuthContextType => {
+export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
-};
+}

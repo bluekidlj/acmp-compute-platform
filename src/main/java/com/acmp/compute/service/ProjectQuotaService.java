@@ -9,6 +9,7 @@ import com.acmp.compute.entity.ResourcePool;
 import com.acmp.compute.exception.BadRequestException;
 import com.acmp.compute.exception.ResourceNotFoundException;
 import com.acmp.compute.mapper.ComputeSpecMapper;
+import com.acmp.compute.mapper.PoolCardMapper;
 import com.acmp.compute.mapper.ProjectMapper;
 import com.acmp.compute.mapper.ProjectResourceQuotaMapper;
 import com.acmp.compute.mapper.ResourcePoolMapper;
@@ -17,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -36,6 +38,7 @@ public class ProjectQuotaService {
     private final ProjectMapper projectMapper;
     private final ResourcePoolMapper poolMapper;
     private final ComputeSpecMapper specMapper;
+    private final PoolCardMapper poolCardMapper;
 
     @Transactional
     public ProjectQuotaResponse allocate(String projectId, ProjectQuotaRequest req) {
@@ -55,17 +58,17 @@ public class ProjectQuotaService {
             throw new BadRequestException("规格未关联到该资源池");
         }
 
-        // 池容量校验
-        int allocated = pool.getAllocatedNodes() != null ? pool.getAllocatedNodes() : 0;
-        int total = pool.getTotalNodes() != null ? pool.getTotalNodes() : 0;
-        if (allocated + req.getTotalNodes() > total) {
+        int poolSpecSlots = poolCardMapper.sumActiveSlotsByPoolAndSpec(pool.getId(), spec.getId());
+        int existingTotal = quotaMapper.sumTotalByPoolSpecAndProject(
+            projectId, pool.getId(), spec.getId());
+        if (existingTotal + req.getTotalNodes() > poolSpecSlots) {
             throw new BadRequestException(String.format(
-                    "池容量不足: 池 %s 剩余 %d, 申请 %d", pool.getName(),
-                    total - allocated, req.getTotalNodes()));
+                "池 %s 中 spec %s 可用节点数不足：池容量 %d, 项目已申请 %d, 申请 %d",
+                pool.getName(), spec.getName(), poolSpecSlots, existingTotal, req.getTotalNodes()));
         }
 
         // 同一项目对 (pool, spec) 已分配则覆盖
-        var existing = quotaMapper.findByProjectPoolSpec(projectId, pool.getId(), spec.getId());
+        Optional<ProjectResourceQuota> existing = quotaMapper.findByProjectPoolSpec(projectId, pool.getId(), spec.getId());
         String quotaId;
         int oldTotal = 0;
         if (existing.isPresent()) {
@@ -85,9 +88,8 @@ public class ProjectQuotaService {
             quotaMapper.insert(q);
         }
 
-        // 更新池.allocated
         int delta = req.getTotalNodes() - oldTotal;
-        int newAllocated = Math.max(0, allocated + delta);
+        int newAllocated = pool.getAllocatedNodes() + delta;
         poolMapper.updateAllocated(pool.getId(), newAllocated);
 
         log.info("✓ 项目 {} 配额分配: pool={}, spec={}, totalNodes={} (delta={})",
@@ -106,9 +108,8 @@ public class ProjectQuotaService {
         ResourcePool pool = poolMapper.findById(quota.getResourcePoolId())
                 .orElseThrow(() -> new ResourceNotFoundException("资源池不存在"));
         int allocated = pool.getAllocatedNodes() != null ? pool.getAllocatedNodes() : 0;
-        int total = pool.getTotalNodes() != null ? pool.getTotalNodes() : 0;
         int otherAllocated = allocated - quota.getTotalNodes();
-        if (otherAllocated + req.getTotalNodes() > total) {
+        if (otherAllocated + req.getTotalNodes() > pool.getTotalNodes()) {
             throw new BadRequestException("池容量不足");
         }
         if (req.getTotalNodes() < quota.getUsedNodes()) {

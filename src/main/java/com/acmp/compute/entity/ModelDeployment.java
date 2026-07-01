@@ -45,6 +45,8 @@ public class ModelDeployment {
     private String status;
     private String serviceUrl;
     private String actualClusterId;
+    private String poolCardId;
+    private String resourceKey;
     private String createdBy;
     private Instant createdAt;
     private Instant updatedAt;
