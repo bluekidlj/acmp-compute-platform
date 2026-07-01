@@ -15,7 +15,8 @@
     "dayjs": "^1.11.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
-    "react-router-dom": "^6.28.0"
+    "react-router-dom": "^6.28.0",
+    "recharts": "^3.9.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",

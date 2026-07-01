@@ -1,80 +1,118 @@
-import { useEffect, useState } from 'react';
-import { Card, Table, Tag, Button, Space, Empty, Spin } from 'antd';
-import { useNavigate } from 'react-router-dom';
-import { PlusOutlined } from '@ant-design/icons';
-import { workspacesApi, poolsApi } from '../api';
-import type { ResourcePool, Workspace } from '../types';
+import { useState } from 'react';
+import { Card, Table, Tag, Button, Space, Spin, Row, Col, Statistic, Modal, Form, Input, InputNumber, Select, message } from 'antd';
+import { EditOutlined } from '@ant-design/icons';
+import { useCluster } from '../contexts/ClusterContext';
 import PageHeader from '../components/PageHeader';
 import { PSBC_COLORS } from '../theme';
 
-const POOL_LABELS = { EXCLUSIVE: '独占', SHARED: '共享', OVERSELL: '超分' } as const;
+const POOL_LABELS: Record<string, string> = { EXCLUSIVE: '独占', SHARED: '共享', OVERSELL: '超分' };
+const POOL_DESCS: Record<string, string> = {
+  EXCLUSIVE: '整卡独占，适用于对性能要求高的训练/推理任务',
+  SHARED: 'HAMi vGPU 切分共享，适用于中小模型推理',
+  OVERSELL: '超分占位，适用于非实时批量任务',
+};
+
+const mockGlobalPools = [
+  { type: 'EXCLUSIVE', totalNodes: 8, allocatedNodes: 2, gpuBrand: 'NVIDIA', gpuModel: 'A100-80G' },
+  { type: 'SHARED', totalNodes: 32, allocatedNodes: 10, gpuBrand: 'NVIDIA', gpuModel: 'A100-80G' },
+  { type: 'OVERSELL', totalNodes: 20, allocatedNodes: 5, gpuBrand: 'NVIDIA', gpuModel: 'A100-80G' },
+];
 
 export default function PhysicalPoolsPage() {
-  const nav = useNavigate();
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [poolsByWs, setPoolsByWs] = useState<Record<string, ResourcePool[]>>({});
-  const [loading, setLoading] = useState(true);
+  const { clusterName } = useCluster();
+  const [pools] = useState(mockGlobalPools);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editPool, setEditPool] = useState<typeof mockGlobalPools[0] | null>(null);
+  const [form] = Form.useForm();
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const ws = await workspacesApi.list();
-        setWorkspaces(ws);
-        const map: Record<string, ResourcePool[]> = {};
-        for (const w of ws) {
-          map[w.id] = await poolsApi.listByWorkspace(w.id);
-        }
-        setPoolsByWs(map);
-      } finally { setLoading(false); }
-    })();
-  }, []);
+  const total = pools.reduce((s, p) => s + p.totalNodes, 0);
+  const allocated = pools.reduce((s, p) => s + p.allocatedNodes, 0);
 
-  if (loading) return <div style={{ padding: 80, textAlign: 'center' }}><Spin size="large" /></div>;
+  const handleEdit = (pool: typeof mockGlobalPools[0]) => {
+    setEditPool(pool);
+    form.setFieldsValue(pool);
+    setEditOpen(true);
+  };
+
+  const handleSave = async () => {
+    const v = await form.validateFields();
+    message.success(`${POOL_LABELS[v.type]} 池已更新`);
+    setEditOpen(false);
+  };
 
   return (
     <div>
       <PageHeader
         title="物理资源池"
-        subtitle="每个工作空间自动建 3 类池（EXCLUSIVE / SHARED / OVERSELL）"
-        tags={[{ label: `${workspaces.length} 工作空间`, color: 'green' }, { label: `${Object.values(poolsByWs).reduce((s, p) => s + p.length, 0)} 池`, color: 'cyan' }]}
-        extra={
-          <Button type="primary" icon={<PlusOutlined />} disabled
-            style={{ background: PSBC_COLORS.primary, borderColor: PSBC_COLORS.primary }}>
-            新建池（自动随 WS 创建）
-          </Button>
-        }
+        subtitle={`${clusterName} · 三类池为集群全局唯一，扫描集群显卡后累加节点数`}
+        tags={[
+          { label: `总计 ${total} 节点`, color: 'cyan' },
+          { label: `已分配 ${allocated}`, color: 'orange' },
+          { label: `可用 ${total - allocated}`, color: 'green' },
+        ]}
       />
-      {workspaces.length === 0 ? (
-        <Empty description="暂无工作空间" />
-      ) : (
-        workspaces.map((w) => (
-          <Card
-            key={w.id}
-            title={<span>{w.name} <Tag color="blue" style={{ marginLeft: 8 }}>{w.pools.length} 池</Tag></span>}
-            extra={<Button type="link" onClick={() => nav(`/logical/workspaces/${w.id}`)}>查看工作空间</Button>}
-            style={{ borderRadius: 8, marginBottom: 16 }}
-            size="small"
-          >
-            <Table
-              dataSource={poolsByWs[w.id] || []}
-              rowKey="id"
-              pagination={false}
-              size="small"
-              columns={[
-                { title: '池名', dataIndex: 'name', render: (v, r: ResourcePool) => (
-                  <a onClick={() => nav(`/resources/pools/${w.id}/${r.id}`)}>{v}</a>
-                ) },
-                { title: '类型', dataIndex: 'poolType', width: 100, render: (v) => <Tag>{POOL_LABELS[v as keyof typeof POOL_LABELS]}</Tag> },
-                { title: '总节点', dataIndex: 'totalNodes', width: 100,
-                  render: (v) => v > 0 ? <strong style={{ color: PSBC_COLORS.primary }}>{v}</strong> : <span style={{ color: '#9CA8A0' }}>0</span> },
-                { title: '已分配', dataIndex: 'allocatedNodes', width: 100 },
-                { title: '可用', dataIndex: 'availableNodes', width: 100, render: (v) => v > 0 ? <Tag color="green">{v}</Tag> : <Tag>0</Tag> },
-                { title: '说明', dataIndex: 'description', ellipsis: true },
-              ]}
-            />
-          </Card>
-        ))
-      )}
+
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        {pools.map((p) => {
+          const pct = p.totalNodes > 0 ? Math.round((p.allocatedNodes / p.totalNodes) * 100) : 0;
+          return (
+            <Col span={8} key={p.type}>
+              <Card
+                hoverable
+                onClick={() => handleEdit(p)}
+                style={{ borderRadius: 8, borderTop: `3px solid ${PSBC_COLORS.primary}` }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Tag color="blue" style={{ fontSize: 14, padding: '2px 12px' }}>{POOL_LABELS[p.type]}</Tag>
+                  <Button size="small" type="text" icon={<EditOutlined />} onClick={(e) => { e.stopPropagation(); handleEdit(p); }}>编辑</Button>
+                </div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: PSBC_COLORS.primary, marginTop: 12 }}>
+                  {p.totalNodes}
+                  <span style={{ fontSize: 12, color: '#6B7768', fontWeight: 400 }}> 节点</span>
+                </div>
+                <div style={{ fontSize: 12, color: '#6B7768', marginTop: 4 }}>
+                  已分配 {p.allocatedNodes} · 可用 {p.totalNodes - p.allocatedNodes}
+                </div>
+                <div style={{ fontSize: 12, color: '#6B7768', marginTop: 2 }}>
+                  {p.gpuBrand} · {p.gpuModel}
+                </div>
+                <div style={{ fontSize: 11, color: '#9CA8A0', marginTop: 8 }}>{POOL_DESCS[p.type]}</div>
+              </Card>
+            </Col>
+          );
+        })}
+      </Row>
+
+      <Card title="池详情" style={{ borderRadius: 8 }}>
+        <Table
+          dataSource={pools}
+          rowKey="type"
+          pagination={false}
+          size="middle"
+          columns={[
+            { title: '池类型', dataIndex: 'type', width: 120, render: (v) => <Tag color="blue">{POOL_LABELS[v]}</Tag> },
+            { title: '总节点', dataIndex: 'totalNodes', width: 120, render: (v) => <strong style={{ color: PSBC_COLORS.primary }}>{v}</strong> },
+            { title: '已分配', dataIndex: 'allocatedNodes', width: 100 },
+            { title: '可用', width: 100, render: (_, r) => <Tag color={r.totalNodes - r.allocatedNodes > 0 ? 'green' : 'default'}>{r.totalNodes - r.allocatedNodes}</Tag> },
+            { title: 'GPU 品牌', dataIndex: 'gpuBrand', width: 100, render: (v) => <Tag color="green">{v}</Tag> },
+            { title: 'GPU 型号', dataIndex: 'gpuModel' },
+            { title: '说明', render: (_, r) => POOL_DESCS[r.type] },
+            { title: '操作', width: 80, render: (_, r) => <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(r)}>编辑</Button> },
+          ]}
+        />
+      </Card>
+
+      <Modal title={`编辑 ${editPool ? POOL_LABELS[editPool.type] : ''} 池`} open={editOpen} onOk={handleSave} onCancel={() => setEditOpen(false)} okText="保存" width={480}>
+        <Form form={form} layout="vertical">
+          <Form.Item name="type" label="池类型"><Input disabled /></Form.Item>
+          <Form.Item name="totalNodes" label="总节点数" rules={[{ required: true }]}>
+            <InputNumber min={0} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="allocatedNodes" label="已分配"><InputNumber disabled style={{ width: '100%' }} /></Form.Item>
+          <Form.Item name="gpuBrand" label="GPU 品牌"><Input disabled /></Form.Item>
+          <Form.Item name="gpuModel" label="GPU 型号"><Input disabled /></Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }

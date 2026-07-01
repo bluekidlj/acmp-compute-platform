@@ -1,4 +1,4 @@
-import { Layout, Menu, Button, Dropdown, Space, Tag, theme } from 'antd';
+import { Layout, Menu, Button, Dropdown, Space, Tag, theme, Switch, Select } from 'antd';
 import {
   DashboardOutlined,
   AppstoreOutlined,
@@ -18,8 +18,9 @@ import {
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useCluster } from '../contexts/ClusterContext';
 import { ROLE_LABELS } from '../types';
-import { USE_MOCK } from '../api/client';
+import { USE_MOCK, setUseMock } from '../api/client';
 import { PSBC_GREEN, PSBC_COLORS } from '../theme';
 
 const { Header, Sider, Content } = Layout;
@@ -28,6 +29,7 @@ const AppLayout: React.FC = () => {
   const nav = useNavigate();
   const loc = useLocation();
   const { username, role, logout } = useAuth();
+  const { clusterId, clusterName, setClusterId } = useCluster();
   const { token } = theme.useToken();
 
   // 3 大模块
@@ -38,6 +40,8 @@ const AppLayout: React.FC = () => {
       label: '智算运营',
       children: [
         { key: '/', icon: <DashboardOutlined />, label: '平台概览' },
+        { key: '/inference', icon: <RocketOutlined />, label: '推理服务' },
+        { key: '/projects', icon: <HddOutlined />, label: '项目' },
         {
           key: 'resources',
           icon: <ClusterOutlined />,
@@ -45,15 +49,6 @@ const AppLayout: React.FC = () => {
           children: [
             { key: '/resources/specs', label: '算力规格' },
             { key: '/resources/pools', label: '物理资源池' },
-            { key: '/resources/cards', label: '异构卡管理' },
-          ],
-        },
-        {
-          key: 'logical',
-          icon: <HddOutlined />,
-          label: '逻辑资源池',
-          children: [
-            { key: '/logical/workspaces', label: '工作空间' },
           ],
         },
         { key: '/models', icon: <DatabaseOutlined />, label: '模型广场' },
@@ -135,13 +130,31 @@ const AppLayout: React.FC = () => {
           }}
         >
           <Space>
-            {USE_MOCK && (
-              <Tag color="orange" style={{ borderRadius: 4 }}>MOCK 演示模式</Tag>
-            )}
             <span style={{ color: '#6B7768', fontSize: 12 }}>
               ACMP · 异构算力管理
             </span>
           </Space>
+          <Space>
+            <Select
+              value={clusterId}
+              onChange={setClusterId}
+              size="small"
+              style={{ width: 160 }}
+              options={[
+                { value: 'cluster-bj-01', label: '北京生产 K8s 集群' },
+                { value: 'cluster-sh-01', label: '上海测试 K8s 集群' },
+              ]}
+            />
+            <div style={{ width: 1, height: 20, background: PSBC_COLORS.border }} />
+            <Space size={4}>
+              <span style={{ fontSize: 12, color: '#6B7768' }}>Mock</span>
+              <Switch
+                size="small"
+                checked={USE_MOCK}
+                onChange={(v) => setUseMock(v)}
+                style={{ background: USE_MOCK ? PSBC_GREEN.token.colorPrimary : undefined }}
+              />
+            </Space>
           <Dropdown
             menu={{
               items: [
@@ -176,6 +189,7 @@ const AppLayout: React.FC = () => {
               {username || 'admin'}
             </Button>
           </Dropdown>
+          </Space>
         </Header>
         <Content style={{ margin: 16, background: 'transparent' }}>
           <Outlet />

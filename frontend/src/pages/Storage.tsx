@@ -1,4 +1,5 @@
-import { Card, Table, Tag, Space, Statistic, Row, Col, Progress, Alert } from 'antd';
+import { useState, useEffect } from 'react';
+import { Card, Table, Tag, Space, Statistic, Row, Col, Progress, Spin } from 'antd';
 import { storageApi } from '../api/mock';
 import PageHeader from '../components/PageHeader';
 
@@ -6,13 +7,16 @@ const STATUS_COLORS: Record<string, string> = { active: 'green', bound: 'cyan', 
 
 interface StorageItem { id: string; name: string; backend: string; server: string; path: string; totalGib: number; usedGib: number; status: string; }
 export default function StoragePage() {
-  const items = storageApi.list() as unknown as StorageItem[];
+  const [items, setItems] = useState<StorageItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { storageApi.list().then((d) => { setItems(d as any); setLoading(false); }); }, []);
+
+  if (loading) return <div style={{ padding: 80, textAlign: 'center' }}><Spin size="large" /></div>;
   return (
     <div>
-      <Alert type="info" showIcon message="存储资源（演示）" description="后端无 PVC/StorageClass 接口。展示 NFS 卷管理 + 使用率。" style={{ marginBottom: 16 }} />
       <PageHeader
         title="存储资源"
-        subtitle="NFS 卷管理（演示）"
+        subtitle="NFS 卷管理"
         tags={[
           { label: `${items.length} 卷`, color: 'blue' },
           { label: `${(items.reduce((s: number, v: any) => s + v.usedGib, 0) / 1024).toFixed(1)} TB 已用`, color: 'orange' },

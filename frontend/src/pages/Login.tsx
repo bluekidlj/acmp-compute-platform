@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { Form, Input, Button, Card, Typography, Alert, Divider } from 'antd';
+import { Form, Input, Button, Card, Typography, Alert } from 'antd';
 import { UserOutlined, LockOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { authApi } from '../api/auth';
 import { useAuth } from '../contexts/AuthContext';
 import { PSBC_GREEN, PSBC_COLORS } from '../theme';
-import { USE_MOCK } from '../api/client';
 
 const { Title, Text } = Typography;
 
@@ -31,10 +30,6 @@ export default function LoginPage() {
     }
   };
 
-  const quickFill = (username: string) => {
-    form.setFieldsValue({ username, password: 'admin123' });
-  };
-
   return (
     <div
       style={{
@@ -57,16 +52,6 @@ export default function LoginPage() {
           </Title>
           <Text type="secondary">异构算力管理平台</Text>
         </div>
-
-        {USE_MOCK && (
-          <Alert
-            type="info"
-            message="MOCK 演示模式"
-            description="可使用任意账号 + 密码 admin123 登录（admin / alice / bob / carol / dave）"
-            style={{ marginBottom: 20, fontSize: 12 }}
-            showIcon
-          />
-        )}
 
         {error && (
           <Alert type="error" message={error} style={{ marginBottom: 16 }} showIcon />
@@ -91,19 +76,6 @@ export default function LoginPage() {
             </Button>
           </Form.Item>
         </Form>
-
-        {USE_MOCK && (
-          <>
-            <Divider plain style={{ fontSize: 12, color: '#9CA8A0' }}>演示账号一键登录</Divider>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-              {['admin', 'alice', 'bob', 'carol', 'dave'].slice(0, 6).map((u) => (
-                <Button key={u} size="small" onClick={() => quickFill(u)}>
-                  {u}
-                </Button>
-              ))}
-            </div>
-          </>
-        )}
       </Card>
     </div>
   );

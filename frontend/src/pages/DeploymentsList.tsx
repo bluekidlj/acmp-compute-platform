@@ -6,7 +6,7 @@ import type { ModelDeployment, Project } from '../types';
 import PageHeader from '../components/PageHeader';
 
 export default function DeploymentsListPage() {
-  const { projectId } = useParams<{ projectId: string }>();
+  const { projectId, wsId } = useParams<{ projectId: string; wsId: string }>();
   const nav = useNavigate();
   const [items, setItems] = useState<ModelDeployment[]>([]);
   const [project, setProject] = useState<Project | null>(null);
@@ -43,7 +43,7 @@ export default function DeploymentsListPage() {
           rowKey="id"
           pagination={false}
           size="small"
-          onRow={(r) => ({ onClick: () => nav(`/logical/deployments/${projectId}/${r.id}`), style: { cursor: 'pointer' } })}
+          onRow={(r) => ({ onClick: () => nav(`/projects/${r.workspaceId}/deployments/${projectId}/${r.id}`), style: { cursor: 'pointer' } })}
           columns={[
             { title: '名称', dataIndex: 'name', render: (v) => <code className="mono">{v}</code> },
             { title: '模型', dataIndex: 'modelName' },

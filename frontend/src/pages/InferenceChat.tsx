@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Input, Button, Space, Spin, Tag, Avatar, Empty } from 'antd';
 import { SendOutlined, ArrowLeftOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
-import { deploymentsApi } from '../api';
+import { deploymentsApi, workspacesApi, projectsApi } from '../api';
 import type { ModelDeployment } from '../types';
 import PageHeader from '../components/PageHeader';
 
@@ -13,10 +13,10 @@ interface Message {
 }
 
 const MOCK_RESPONSES = [
-  '你好！我是 ACMP 算力管理平台的演示 AI 助手（基于 vLLM）。当前部署在 K8s 上，推理服务运行正常。',
+  '你好！我是 ACMP 算力管理平台的 AI 助手（基于 vLLM）。当前部署在 K8s 上，推理服务运行正常。',
   'ACMP 异构算力管理平台支持 NVIDIA、Hygon DCU、华为昇腾 多品牌 GPU 池化，支持 1/4、1/2 等 HAMi 切分。',
   '您可以通过资源管理 → 加卡到池，将物理卡按规格加入资源池。1 张卡 + 1 规格 = N 个可调度节点。',
-  '当前 mock 数据：1 个生产集群 (3 节点)，2 个工作空间 (ai-rd, cv-team, nlp-team)，3 个项目，4 个部署。',
+  '系统已接入 1 个生产集群 (3 节点)，3 个项目 (ai-rd, cv-team, nlp-team)，4 个部署。',
 ];
 
 export default function InferenceChatPage() {
@@ -33,7 +33,18 @@ export default function InferenceChatPage() {
 
   useEffect(() => {
     if (!deploymentId) return;
-    deploymentsApi.get('proj-llm', deploymentId).then(setDep).catch(() => {});
+    (async () => {
+      const ws = await workspacesApi.list();
+      for (const w of ws) {
+        const ps = await projectsApi.listByWorkspace(w.id);
+        for (const p of ps) {
+          try {
+            const d = await deploymentsApi.get(p.id, deploymentId);
+            if (d) { setDep(d); return; }
+          } catch {}
+        }
+      }
+    })();
   }, [deploymentId]);
 
   useEffect(() => {
@@ -61,7 +72,7 @@ export default function InferenceChatPage() {
         subtitle={dep ? `${dep.modelName || '-'} · ${dep.specId} · ${dep.status}` : ''}
         tags={dep ? [{ label: dep.status, color: dep.status === 'running' ? 'green' : 'red' }] : []}
         extra={
-          <Button icon={<ArrowLeftOutlined />} onClick={() => dep ? nav(`/logical/deployments/${dep.projectId}/${dep.id}`) : nav(-1)}>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => dep ? nav(`/projects/${dep.workspaceId}/deployments/${dep.projectId}/${dep.id}`) : nav(-1)}>
             返回
           </Button>
         }
@@ -105,7 +116,7 @@ export default function InferenceChatPage() {
           <Input.TextArea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="输入消息（演示模式）"
+            placeholder="输入消息"
             autoSize={{ minRows: 1, maxRows: 4 }}
             onPressEnter={(e) => { if (!e.shiftKey) { e.preventDefault(); handleSend(); } }}
             style={{ resize: 'none' }}

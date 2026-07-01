@@ -6,8 +6,7 @@ import { specsApi } from '../api/specs';
 import PageHeader from '../components/PageHeader';
 import { PSBC_COLORS } from '../theme';
 
-const TYPE_LABELS: Record<SpecType, string> = { PHYSICAL: '物理', VIRTUAL: '虚拟', OVERSELL: '超分' };
-const POOL_LABELS = { EXCLUSIVE: '独占', SHARED: '共享', OVERSELL: '超分' } as const;
+const TYPE_LABELS: Record<SpecType, string> = { PHYSICAL: '独占', VIRTUAL: '虚拟', OVERSELL: '超分' };
 const BRAND_LABELS: Record<GpuBrand, string> = { NVIDIA: 'NVIDIA', HYGON: '海光 DCU', HUAWEI_ASCEND: '华为昇腾' };
 
 export default function SpecsPage() {
@@ -21,9 +20,7 @@ export default function SpecsPage() {
     setLoading(true);
     try {
       setSpecs(await specsApi.list(filterType ? { poolType: filterType } : undefined));
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   useEffect(() => { load(); }, [filterType]);
@@ -33,41 +30,21 @@ export default function SpecsPage() {
     try {
       const resourceQuotaKey = v.resourceQuotaKey || `platform.io/${v.name}`;
       await specsApi.create({
-        name: v.name,
-        displayName: v.displayName,
-        gpuBrand: v.gpuBrand,
-        specType: v.specType,
-        defaultGpuCount: v.defaultGpuCount,
-        defaultCpuCores: v.defaultCpuCores,
-        defaultMemoryGib: v.defaultMemoryGib,
-        defaultGpumemMb: v.defaultGpumemMb,
-        defaultGpucores: v.defaultGpucores,
-        resourceQuotaKey,
-        memoryGb: v.memoryGb,
-        description: v.description,
+        name: v.name, displayName: v.displayName, gpuBrand: v.gpuBrand,
+        specType: v.specType, defaultGpuCount: v.defaultGpuCount,
+        defaultCpuCores: v.defaultCpuCores, defaultMemoryGib: v.defaultMemoryGib,
+        defaultGpumemMb: v.defaultGpumemMb, defaultGpucores: v.defaultGpucores,
+        resourceQuotaKey, memoryGb: v.memoryGb, description: v.description,
       });
       message.success('规格创建成功');
-      setOpen(false);
-      form.resetFields();
-      load();
-    } catch (e: any) {
-      message.error(e?.message || '创建失败');
-    }
+      setOpen(false); form.resetFields(); load();
+    } catch (e: any) { message.error(e?.message || '创建失败'); }
   };
 
   const handleDelete = async (id: string) => {
     Modal.confirm({
-      title: '确认删除？',
-      content: '该操作不可撤销',
-      onOk: async () => {
-        try {
-          await specsApi.remove(id);
-          message.success('已删除');
-          load();
-        } catch (e: any) {
-          message.error(e?.message || '删除失败');
-        }
-      },
+      title: '确认删除？', content: '该操作不可撤销',
+      onOk: async () => { try { await specsApi.remove(id); message.success('已删除'); load(); } catch (e: any) { message.error(e?.message || '删除失败'); } },
     });
   };
 
@@ -75,24 +52,22 @@ export default function SpecsPage() {
     <div>
       <PageHeader
         title="算力规格"
-        subtitle="全局规格库：7 条预置 + 用户可创建"
+        subtitle="全局规格库 · 定义 GPU 切分方案和资源配额键"
+        tags={[{ label: `${specs.length} 规格`, color: 'cyan' }]}
         extra={
           <Space>
             <Select
-              placeholder="按池类型筛选"
-              allowClear
-              style={{ width: 140 }}
-              value={filterType}
-              onChange={setFilterType}
+              placeholder="按类型筛选" allowClear style={{ width: 140 }}
+              value={filterType} onChange={setFilterType}
               options={[
-                { value: 'PHYSICAL', label: '物理 PHYSICAL' },
+                { value: 'PHYSICAL', label: '独占 PHYSICAL' },
                 { value: 'VIRTUAL', label: '虚拟 VIRTUAL' },
                 { value: 'OVERSELL', label: '超分 OVERSELL' },
               ]}
             />
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}
               style={{ background: PSBC_COLORS.primary, borderColor: PSBC_COLORS.primary }}>
-              新建规格
+              新增规格
             </Button>
           </Space>
         }
@@ -105,31 +80,40 @@ export default function SpecsPage() {
           pagination={false}
           size="middle"
           columns={[
-            { title: '名称', dataIndex: 'name', render: (v) => <code className="mono">{v}</code> },
-            { title: '显示名', dataIndex: 'displayName' },
-            { title: '品牌', dataIndex: 'gpuBrand', width: 100,
-              render: (v) => v ? <Tag color="green">{BRAND_LABELS[v as GpuBrand]}</Tag> : '-' },
-            { title: '类型', dataIndex: 'specType', width: 90,
-              render: (v) => <Tag color="blue">{TYPE_LABELS[v as SpecType]}</Tag> },
-            { title: '池', dataIndex: 'poolType', width: 80,
-              render: (v) => <Tag>{POOL_LABELS[v as keyof typeof POOL_LABELS]}</Tag> },
-            { title: 'GPU', dataIndex: 'defaultGpuCount', width: 60 },
-            { title: 'gpumem MB', dataIndex: 'defaultGpumemMb', width: 100,
-              render: (v) => v ?? '-' },
-            { title: 'cores', dataIndex: 'defaultGpucores', width: 70,
-              render: (v) => v ? `${v}%` : '-' },
-            { title: 'CPU', dataIndex: 'defaultCpuCores', width: 60 },
-            { title: 'Mem(GiB)', dataIndex: 'defaultMemoryGib', width: 90 },
-            { title: '操作', key: 'op', width: 80, fixed: 'right',
-              render: (_, r) => (
-                <Button danger size="small" onClick={() => handleDelete(r.id)}>删除</Button>
-              ),
+            { title: '规格名称', dataIndex: 'displayName', width: 200 },
+            {
+              title: '规格类型', dataIndex: 'specType', width: 100,
+              render: (v) => <Tag color={v === 'PHYSICAL' ? 'blue' : v === 'VIRTUAL' ? 'green' : 'orange'}>{TYPE_LABELS[v as SpecType]}</Tag>,
+            },
+            {
+              title: '规格详情', key: 'detail',
+              render: (_, r) => {
+                const parts = [
+                  r.gpuBrand ? BRAND_LABELS[r.gpuBrand as GpuBrand] : '通用',
+                  `${r.defaultGpuCount} GPU`,
+                  r.defaultGpumemMb ? `显存 ${(r.defaultGpumemMb / 1024).toFixed(0)}GB` : null,
+                  r.defaultGpucores ? `算力 ${r.defaultGpucores}%` : null,
+                  `CPU ${r.defaultCpuCores}核`,
+                  `${r.defaultMemoryGib}GiB 内存`,
+                ].filter(Boolean);
+                return (
+                  <Space size={4}>
+                    {parts.map((p, i) => (
+                      <Tag key={i} color="default" style={{ fontSize: 11 }}>{p}</Tag>
+                    ))}
+                  </Space>
+                );
+              },
+            },
+            {
+              title: '操作', key: 'op', width: 80,
+              render: (_, r) => <Button danger size="small" onClick={() => handleDelete(r.id)}>删除</Button>,
             },
           ]}
         />
       </Card>
 
-      <Modal title="新建算力规格" open={open} onOk={handleCreate} onCancel={() => setOpen(false)} okText="创建" width={640}>
+      <Modal title="新增算力规格" open={open} onOk={handleCreate} onCancel={() => setOpen(false)} okText="创建" width={640}>
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="名称（唯一）" rules={[{ required: true }]}>
             <Input placeholder="e.g. shared-hami-h100-1/4" />
@@ -139,14 +123,16 @@ export default function SpecsPage() {
           </Form.Item>
           <Space>
             <Form.Item name="specType" label="类型" rules={[{ required: true }]}>
-              <Select options={[
-                { value: 'PHYSICAL', label: '物理' }, { value: 'VIRTUAL', label: '虚拟' }, { value: 'OVERSELL', label: '超分' },
-              ]} style={{ width: 120 }} />
+              <Select style={{ width: 140 }} options={[
+                { value: 'PHYSICAL', label: '独占 PHYSICAL' },
+                { value: 'VIRTUAL', label: '虚拟 VIRTUAL' },
+                { value: 'OVERSELL', label: '超分 OVERSELL' },
+              ]} />
             </Form.Item>
             <Form.Item name="gpuBrand" label="品牌" rules={[{ required: true }]}>
-              <Select options={[
+              <Select style={{ width: 140 }} options={[
                 { value: 'NVIDIA', label: 'NVIDIA' }, { value: 'HYGON', label: '海光 DCU' }, { value: 'HUAWEI_ASCEND', label: '华为昇腾' },
-              ]} style={{ width: 140 }} />
+              ]} />
             </Form.Item>
             <Form.Item name="defaultGpuCount" label="GPU" rules={[{ required: true }]} initialValue={1}>
               <InputNumber min={1} max={8} style={{ width: 80 }} />
@@ -171,7 +157,7 @@ export default function SpecsPage() {
               <InputNumber min={0} max={100} style={{ width: 80 }} />
             </Form.Item>
           </Space>
-          <Form.Item name="resourceQuotaKey" label="ResourceQuota Key（留空自动生成）" tooltip="K8s ResourceQuota hard 键名">
+          <Form.Item name="resourceQuotaKey" label="ResourceQuota Key（留空自动生成）">
             <Input placeholder="默认 platform.io/{name}" />
           </Form.Item>
           <Form.Item name="description" label="描述">

@@ -80,7 +80,7 @@ export default function PhysicalPoolDetailPage() {
     <div>
       <PageHeader
         title={`${pool.name} (${POOL_LABELS[pool.poolType]})`}
-        subtitle={`工作空间: ${wsId?.slice(0, 8)}... · 池 ID: ${pool.id.slice(0, 8)}...`}
+        subtitle={`项目: ${wsId?.slice(0, 8)}... · 池 ID: ${pool.id.slice(0, 8)}...`}
         extra={
           <Button icon={<ArrowLeftOutlined />} onClick={() => nav('/resources/pools')}>
             返回列表

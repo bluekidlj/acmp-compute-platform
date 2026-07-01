@@ -40,11 +40,11 @@ export default function WorkspacesPage() {
         name: v.name, description: v.description, clusterId: v.clusterId, maxPods: v.maxPods,
         memberIds: v.memberIds || [],
       });
-      message.success('工作空间创建成功');
+      message.success('项目创建成功');
       setOpen(false);
       form.resetFields();
       load();
-      nav(`/logical/workspaces/${w.id}`);
+      nav(`/projects/${w.id}`);
     } catch (e: any) { message.error(e?.message || '创建失败'); }
   };
 
@@ -53,19 +53,19 @@ export default function WorkspacesPage() {
   return (
     <div>
       <PageHeader
-        title="工作空间"
-        subtitle="租户级 · 每个 WS 自动建 3 类池 · 含项目与配额"
+        title="项目"
+        subtitle="租户级 · 每个项目自动建 3 类池 · 含项目与配额"
         tags={[{ label: `${workspaces.length} WS`, color: 'green' }]}
         extra={
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}
             style={{ background: PSBC_COLORS.primary, borderColor: PSBC_COLORS.primary }}>
-            新建工作空间
+             新建项目
           </Button>
         }
       />
 
       {workspaces.length === 0 ? (
-        <Empty description="暂无工作空间" />
+        <Empty description="暂无项目" />
       ) : (
         <Card style={{ borderRadius: 8 }}>
           <Table
@@ -74,7 +74,7 @@ export default function WorkspacesPage() {
             pagination={false}
             columns={[
               { title: '名称', dataIndex: 'name', render: (v, r) => (
-                <a onClick={() => nav(`/logical/workspaces/${r.id}`)} style={{ fontWeight: 500 }}>{v}</a>
+                <a onClick={() => nav(`/projects/${r.id}`)} style={{ fontWeight: 500 }}>{v}</a>
               )},
               { title: 'Namespace', dataIndex: 'namespace', render: (v) => <code className="mono">{v}</code> },
               { title: '所属集群', dataIndex: 'primaryClusterName' },
@@ -95,7 +95,7 @@ export default function WorkspacesPage() {
         </Card>
       )}
 
-      <Modal title="新建工作空间" open={open} onOk={handleCreate} onCancel={() => setOpen(false)} okText="创建" width={560}>
+      <Modal title="新建项目" open={open} onOk={handleCreate} onCancel={() => setOpen(false)} okText="创建" width={560}>
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="名称（唯一）" rules={[{ required: true, pattern: /^[a-z0-9-]+$/, message: '小写字母/数字/中划线' }]}>
             <Input placeholder="e.g. cv-team" />

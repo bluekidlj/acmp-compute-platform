@@ -7,13 +7,14 @@ import DashboardPage from './pages/Dashboard';
 import SpecsPage from './pages/Specs';
 import PhysicalPoolsPage from './pages/PhysicalPools';
 import PhysicalPoolDetailPage from './pages/PhysicalPoolDetail';
-import PoolCardsManagePage from './pages/PoolCardsManage';
 import WorkspacesPage from './pages/Workspaces';
 import LogicalPoolDetailPage from './pages/LogicalPoolDetail';
 import DeploymentsListPage from './pages/DeploymentsList';
 import DeploymentDetailPage from './pages/DeploymentDetail';
 import ModelMallPage from './pages/ModelMall';
 import TrainingPage from './pages/Training';
+import InferenceServicesPage from './pages/InferenceServices';
+import InferenceChatPage from './pages/InferenceChat';
 import MonitoringPage from './pages/Monitoring';
 import AlertsPage from './pages/Alerts';
 import AlertRulesPage from './pages/AlertRules';
@@ -37,14 +38,15 @@ function App() {
         <Route element={<Protected><AppLayout /></Protected>}>
           {/* 智算运营 */}
           <Route path="/" element={<DashboardPage />} />
+          <Route path="/inference" element={<InferenceServicesPage />} />
+          <Route path="/inference/:deploymentId/chat" element={<InferenceChatPage />} />
+          <Route path="/projects" element={<WorkspacesPage />} />
+          <Route path="/projects/:wsId" element={<LogicalPoolDetailPage />} />
+          <Route path="/projects/:wsId/deployments/:projectId" element={<DeploymentsListPage />} />
+          <Route path="/projects/:wsId/deployments/:projectId/:deploymentId" element={<DeploymentDetailPage />} />
           <Route path="/resources/specs" element={<SpecsPage />} />
           <Route path="/resources/pools" element={<PhysicalPoolsPage />} />
           <Route path="/resources/pools/:wsId/:poolId" element={<PhysicalPoolDetailPage />} />
-          <Route path="/resources/cards" element={<PoolCardsManagePage />} />
-          <Route path="/logical/workspaces" element={<WorkspacesPage />} />
-          <Route path="/logical/workspaces/:wsId" element={<LogicalPoolDetailPage />} />
-          <Route path="/logical/deployments/:projectId" element={<DeploymentsListPage />} />
-          <Route path="/logical/deployments/:projectId/:deploymentId" element={<DeploymentDetailPage />} />
           <Route path="/models" element={<ModelMallPage />} />
           <Route path="/training" element={<TrainingPage />} />
           {/* 监控预警 */}

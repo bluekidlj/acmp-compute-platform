@@ -93,9 +93,6 @@ export default function PhysicalClustersPage() {
           <Form.Item name="location" label="位置">
             <Input placeholder="e.g. 上海-张江" />
           </Form.Item>
-          <div style={{ fontSize: 12, color: '#6B7768', padding: 8, background: '#FFF7E6', borderRadius: 4 }}>
-            ⚠️ 演示模式：kubeconfig 字段自动 mock，不会读取真实集群
-          </div>
         </Form>
       </Modal>
     </div>

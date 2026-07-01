@@ -5,8 +5,7 @@ import {
   Form, Input, InputNumber, Select, message, Progress, Descriptions, Badge,
 } from 'antd';
 import { ArrowLeftOutlined, PlusOutlined, RocketOutlined, ClusterOutlined, DashboardOutlined } from '@ant-design/icons';
-import { workspacesApi, poolsApi, projectsApi, quotasApi, deploymentsApi, cardsApi } from '../api';
-import { mockMonitoring } from '../mock/data';
+import { workspacesApi, poolsApi, projectsApi, quotasApi, deploymentsApi, cardsApi, monitoringApi } from '../api';
 import type { Workspace, ResourcePool, Project, ProjectQuota, ModelDeployment, PoolCard } from '../types';
 import PageHeader from '../components/PageHeader';
 import { PSBC_COLORS } from '../theme';
@@ -23,6 +22,7 @@ export default function LogicalPoolDetailPage() {
   const [quotas, setQuotas] = useState<ProjectQuota[]>([]);
   const [allDeployments, setAllDeployments] = useState<ModelDeployment[]>([]);
   const [cards, setCards] = useState<Record<string, PoolCard[]>>({});
+  const [monitoringData, setMonitoringData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   const [quotaOpen, setQuotaOpen] = useState(false);
@@ -59,13 +59,15 @@ export default function LogicalPoolDetailPage() {
       setQuotas(allQuotas);
       setAllDeployments(allDeploys);
       setCards(cardsMap);
+      const mon = await monitoringApi.get();
+      setMonitoringData(mon);
     } finally { setLoading(false); }
   };
 
   useEffect(() => { load(); }, [wsId]);
 
   if (loading) return <div style={{ padding: 80, textAlign: 'center' }}><Spin size="large" /></div>;
-  if (!ws) return <Empty description="工作空间不存在" />;
+  if (!ws) return <Empty description="项目不存在" />;
 
   const totalNodes = pools.reduce((s, p) => s + p.totalNodes, 0);
   const allocatedNodes = pools.reduce((s, p) => s + p.allocatedNodes, 0);
@@ -107,14 +109,14 @@ export default function LogicalPoolDetailPage() {
     <div>
       <PageHeader
         title={ws.name}
-        subtitle={`${ws.description || ''} · ${ws.namespace}`}
+        subtitle={`项目详情 · ${ws.description || ''} · ${ws.namespace}`}
         tags={[
           { label: ws.status === 'active' ? '活跃' : '停用', color: ws.status === 'active' ? 'green' : 'red' },
           { label: `${projects.length} 项目`, color: 'blue' },
           { label: `${pools.length} 池`, color: 'cyan' },
           { label: `${runningDeploys} 运行中`, color: 'purple' },
         ]}
-        extra={<Button icon={<ArrowLeftOutlined />} onClick={() => nav('/logical/workspaces')}>返回</Button>}
+        extra={<Button icon={<ArrowLeftOutlined />} onClick={() => nav('/projects')}>返回</Button>}
       />
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
@@ -245,9 +247,9 @@ export default function LogicalPoolDetailPage() {
             label: <span><DashboardOutlined /> 监控看板</span>,
             children: (
               <Space direction="vertical" style={{ width: '100%' }} size={12}>
-                <Card title="本工作空间所属集群节点" style={{ borderRadius: 8 }}>
+                <Card title="所属集群节点" style={{ borderRadius: 8 }}>
                   <Table
-                    dataSource={mockMonitoring.nodes}
+                    dataSource={monitoringData?.nodes || []}
                     rowKey="name"
                     pagination={false}
                     size="small"

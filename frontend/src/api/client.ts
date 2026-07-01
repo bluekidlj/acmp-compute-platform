@@ -1,8 +1,13 @@
 // API 客户端 + Mock 切换
 import axios from 'axios';
 
-// Mock 开关：true = 演示模式，false = 接真实后端
-export const USE_MOCK = true;
+// Mock 开关（从 localStorage 读取，支持运行时切换）
+export const USE_MOCK = localStorage.getItem('ACMP_USE_MOCK') !== 'false';
+
+export function setUseMock(val: boolean): void {
+  localStorage.setItem('ACMP_USE_MOCK', val ? 'true' : 'false');
+  window.location.reload();
+}
 
 const apiClient = axios.create({
   baseURL: '/api/v1',

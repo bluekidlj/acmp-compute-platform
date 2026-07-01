@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Table, Tag, Spin, Empty, Alert, Button, Space, Progress } from 'antd';
+import { Card, Table, Tag, Spin, Empty, Button, Space, Progress } from 'antd';
 import { ExperimentOutlined } from '@ant-design/icons';
 import { trainingApi } from '../api/mock';
 import PageHeader from '../components/PageHeader';
@@ -23,15 +23,9 @@ export default function TrainingPage() {
 
   return (
     <div>
-      <Alert
-        type="info" showIcon
-        message="训练管理（演示）"
-        description="后端暂未实现 VolcanoJob 真实业务，前端演示数据来自 mock。可在此查看任务列表、提交状态、占用资源。"
-        style={{ marginBottom: 16 }}
-      />
       <PageHeader
         title="训练管理"
-        subtitle="VolcanoJob 训练任务 · 演示模式"
+        subtitle="VolcanoJob 训练任务"
         tags={[
           { label: `运行 ${running}`, color: 'green' },
           { label: `占用 GPU ${totalGpu}`, color: 'cyan' },

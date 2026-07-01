@@ -1,16 +1,21 @@
-import { Card, Table, Tag, Switch, Space, Button, Statistic, Row, Col } from 'antd';
+import { useState, useEffect } from 'react';
+import { Card, Table, Tag, Switch, Space, Button, Statistic, Row, Col, Spin } from 'antd';
 import { alertRulesApi } from '../api/mock';
 import PageHeader from '../components/PageHeader';
 
 const LEVEL_COLORS: Record<string, string> = { critical: 'red', warning: 'orange', info: 'blue' };
 
 export default function AlertRulesPage() {
-  const items = alertRulesApi.list() as any;
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { alertRulesApi.list().then((d) => { setItems(d); setLoading(false); }); }, []);
+
+  if (loading) return <div style={{ padding: 80, textAlign: 'center' }}><Spin size="large" /></div>;
   return (
     <div>
       <PageHeader
         title="告警规则"
-        subtitle="Prometheus Alerting 规则 · 后端无（演示）"
+        subtitle="Prometheus Alerting 规则"
         tags={[{ label: `${items.filter((r: any) => r.enabled).length} 启用`, color: 'green' }]}
       />
       <Row gutter={16} style={{ marginBottom: 16 }}>

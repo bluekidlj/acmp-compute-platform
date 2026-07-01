@@ -1,4 +1,5 @@
-import { Card, Table, Tag, Space, Statistic, Row, Col, Button, Switch } from 'antd';
+import { useState, useEffect } from 'react';
+import { Card, Table, Tag, Space, Statistic, Row, Col, Button, Spin } from 'antd';
 import { alertsApi } from '../api/mock';
 import PageHeader from '../components/PageHeader';
 
@@ -6,12 +7,16 @@ const LEVEL_COLORS: Record<string, string> = { critical: 'red', warning: 'orange
 const STATUS_COLORS: Record<string, string> = { firing: 'red', resolved: 'default' };
 
 export default function AlertsPage() {
-  const items = alertsApi.list() as any;
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { alertsApi.list().then((d) => { setItems(d); setLoading(false); }); }, []);
+
+  if (loading) return <div style={{ padding: 80, textAlign: 'center' }}><Spin size="large" /></div>;
   return (
     <div>
       <PageHeader
         title="告警列表"
-        subtitle="实时告警 · 后端无（演示数据）"
+        subtitle="实时告警列表"
         tags={[
           { label: `触发中 ${items.filter((a: any) => a.status === 'firing').length}`, color: 'red' },
           { label: `已恢复 ${items.filter((a: any) => a.status === 'resolved').length}`, color: 'default' },

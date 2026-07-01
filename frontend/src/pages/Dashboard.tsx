@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Col, Row, Statistic, Empty, Spin } from 'antd';
+import { Card, Col, Row, Statistic, Empty, Spin, Tag, Progress } from 'antd';
 import {
   CloudServerOutlined,
   ApartmentOutlined,
@@ -7,33 +7,23 @@ import {
   AlertOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { clustersApi, deploymentsApi, alertsApi, projectsApi, workspacesApi } from '../api';
+import { clustersApi, deploymentsApi, projectsApi, workspacesApi } from '../api';
 import type { PhysicalCluster, Project, Workspace, ModelDeployment } from '../types';
 import PageHeader from '../components/PageHeader';
 import { PSBC_COLORS } from '../theme';
-import { authApi } from '../api/auth';
-import { useAuth } from '../contexts/AuthContext';
 import { mockAlerts, mockMonitoring } from '../mock/data';
 
 export default function Dashboard() {
   const nav = useNavigate();
-  const { setUser } = useAuth();
   const [clusters, setClusters] = useState<PhysicalCluster[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [deployments, setDeployments] = useState<ModelDeployment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loginChecking, setLoginChecking] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
-        setLoginChecking(true);
-        // 演示场景下，自动注入 admin token（不再走登录页）
-        const u = await authApi.login({ username: 'admin', password: 'admin123' });
-        localStorage.setItem('token', u.token);
-        setUser({ username: u.username, role: u.role });
-
         const [cs, ws, ds] = await Promise.all([
           clustersApi.list(),
           workspacesApi.list(),
@@ -50,13 +40,12 @@ export default function Dashboard() {
         }
         setProjects(allProjects);
       } finally {
-        setLoginChecking(false);
         setLoading(false);
       }
     })();
   }, []);
 
-  if (loading || loginChecking) {
+  if (loading) {
     return (
       <div style={{ padding: 60, textAlign: 'center' }}>
         <Spin size="large" tip="加载中..." />
@@ -94,9 +83,9 @@ export default function Dashboard() {
           </Card>
         </Col>
         <Col span={6}>
-          <Card hoverable onClick={() => nav('/logical/workspaces')}>
+          <Card hoverable onClick={() => nav('/projects')}>
             <Statistic
-              title={<span style={{ color: PSBC_COLORS.primary }}>工作空间</span>}
+              title={<span style={{ color: PSBC_COLORS.primary }}>项目</span>}
               value={workspaces.length}
               prefix={<ApartmentOutlined />}
               valueStyle={{ color: PSBC_COLORS.primary, fontWeight: 700 }}
@@ -107,7 +96,7 @@ export default function Dashboard() {
           </Card>
         </Col>
         <Col span={6}>
-          <Card hoverable onClick={() => nav('/logical/deployments/proj-llm')}>
+          <Card hoverable onClick={() => nav('/inference')}>
             <Statistic
               title={<span style={{ color: PSBC_COLORS.primary }}>运行中部署</span>}
               value={runningDeployments}
@@ -176,7 +165,7 @@ export default function Dashboard() {
               deployments.slice(0, 5).map((d) => (
                 <div
                   key={d.id}
-                  onClick={() => nav(`/logical/deployments/${d.id}`)}
+                  onClick={() => nav(`/inference/${d.id}/chat`)}
                   style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     padding: '10px 0', borderBottom: '1px solid #E5EBE7', cursor: 'pointer',
@@ -246,6 +235,3 @@ function ProgressRing({ percent, label, used }: { percent: number; label: string
     </div>
   );
 }
-
-import { Tag } from 'antd';
-import { Progress } from 'antd';

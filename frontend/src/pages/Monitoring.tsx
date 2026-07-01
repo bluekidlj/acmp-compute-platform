@@ -14,7 +14,7 @@ export default function MonitoringPage() {
     <div>
       <PageHeader
         title="运维监控看板"
-        subtitle="集群级 + 节点级 · 实时使用率（mock 演示）"
+        subtitle="集群级 + 节点级 · 实时使用率"
         tags={[{ label: `${m.totalGpuCards} GPU 卡`, color: 'green' }]}
       />
       <Row gutter={16}>

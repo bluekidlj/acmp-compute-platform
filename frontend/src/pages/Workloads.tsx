@@ -1,4 +1,4 @@
-import { Card, Table, Tag, Space, Row, Col, Statistic, Progress, Button, Alert } from 'antd';
+import { Card, Table, Tag, Space, Row, Col, Statistic, Progress, Button } from 'antd';
 import { RocketOutlined, ReloadOutlined } from '@ant-design/icons';
 import { mockDeployments, mockMonitoring } from '../mock/data';
 import PageHeader from '../components/PageHeader';
@@ -14,7 +14,7 @@ export default function WorkloadsPage() {
     <div>
       <PageHeader
         title="负载管理"
-        subtitle="工作负载 · Pod / Deployment 列表面板（演示数据）"
+        subtitle="工作负载 · Pod / Deployment 列表面板"
         tags={[
           { label: `运行 ${running}/${totalPods}`, color: 'green' },
           { label: `节点 ${mockMonitoring.nodes.length}`, color: 'cyan' },
@@ -27,8 +27,6 @@ export default function WorkloadsPage() {
         <Col span={6}><Card><Statistic title="CPU 使用率" value={Math.round(mon.usedCpuCores / mon.totalCpuCores * 100)} suffix="%" /></Card></Col>
         <Col span={6}><Card><Statistic title="GPU 使用率" value={Math.round(mon.usedGpuCards / mon.totalGpuCards * 100)} suffix="%" /></Card></Col>
       </Row>
-
-      <Alert type="info" showIcon message="演示数据" description="工作负载列表来自 mock，最终后端为 /api/v1/projects/{id}/deployments" style={{ marginBottom: 16 }} />
 
       <Card style={{ borderRadius: 8 }}>
         <Table
