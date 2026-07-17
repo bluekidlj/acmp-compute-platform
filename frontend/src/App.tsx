@@ -15,6 +15,12 @@ import ModelMallPage from './pages/ModelMall';
 import TrainingPage from './pages/Training';
 import InferenceServicesPage from './pages/InferenceServices';
 import InferenceChatPage from './pages/InferenceChat';
+import LabDashboardPage from './pages/LabDashboard';
+import DigitalTwinPage from './pages/DigitalTwin';
+import StrategyLabPage from './pages/StrategyLab';
+import WorkloadInsightPage from './pages/WorkloadInsight';
+import DataGovernancePage from './pages/DataGovernance';
+import ScreenDashboardPage from './pages/ScreenDashboard';
 import MonitoringPage from './pages/Monitoring';
 import AlertsPage from './pages/Alerts';
 import AlertRulesPage from './pages/AlertRules';
@@ -35,6 +41,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/screen" element={<ScreenDashboardPage />} />
         <Route element={<Protected><AppLayout /></Protected>}>
           {/* 智算运营 */}
           <Route path="/" element={<DashboardPage />} />
@@ -49,6 +56,12 @@ function App() {
           <Route path="/resources/pools/:wsId/:poolId" element={<PhysicalPoolDetailPage />} />
           <Route path="/models" element={<ModelMallPage />} />
           <Route path="/training" element={<TrainingPage />} />
+          {/* 创新实验室 */}
+          <Route path="/lab" element={<LabDashboardPage />} />
+          <Route path="/lab/digital-twin" element={<DigitalTwinPage />} />
+          <Route path="/lab/strategy-lab" element={<StrategyLabPage />} />
+          <Route path="/lab/workload" element={<WorkloadInsightPage />} />
+          <Route path="/lab/governance" element={<DataGovernancePage />} />
           {/* 监控预警 */}
           <Route path="/monitoring" element={<MonitoringPage />} />
           <Route path="/monitoring/alerts" element={<AlertsPage />} />

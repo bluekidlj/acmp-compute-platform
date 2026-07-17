@@ -113,7 +113,7 @@ export const mockCapacity: ClusterCapacity = {
 // ── 算力规格（与后端预置 7 条一致）──
 export const mockSpecs: ComputeSpec[] = [
   {
-    id: 'spec-exclusive-a100', name: 'exclusive-nvidia-a100-80g', displayName: 'NVIDIA A100 80GB (独占整卡)',
+    id: 'spec-exclusive-a100', name: 'exclusive-nvidia-a100-80g', displayName: 'NVIDIA A100 80GB',
     gpuBrand: 'NVIDIA', specType: 'PHYSICAL', poolType: 'EXCLUSIVE',
     defaultGpuCount: 1, defaultGpumemMb: 0, defaultGpucores: 0, defaultCpuCores: 8, defaultMemoryGib: 32,
     nodeSelector: '{}', tolerations: '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
@@ -121,7 +121,7 @@ export const mockSpecs: ComputeSpec[] = [
     description: 'NVIDIA A100 80GB 整卡独占', createdAt: daysAgo(30), updatedAt: daysAgo(30),
   },
   {
-    id: 'spec-exclusive-h100', name: 'exclusive-nvidia-h100-80g', displayName: 'NVIDIA H100 80GB (独占整卡)',
+    id: 'spec-exclusive-h100', name: 'exclusive-nvidia-h100-80g', displayName: 'NVIDIA H100 80GB',
     gpuBrand: 'NVIDIA', specType: 'PHYSICAL', poolType: 'EXCLUSIVE',
     defaultGpuCount: 1, defaultGpumemMb: 0, defaultGpucores: 0, defaultCpuCores: 8, defaultMemoryGib: 32,
     nodeSelector: '{}', tolerations: '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
@@ -129,7 +129,7 @@ export const mockSpecs: ComputeSpec[] = [
     description: 'NVIDIA H100 80GB 整卡独占', createdAt: daysAgo(30), updatedAt: daysAgo(30),
   },
   {
-    id: 'spec-exclusive-dcu', name: 'exclusive-hygon-dcu', displayName: '海光 DCU (独占整卡)',
+    id: 'spec-exclusive-dcu', name: 'exclusive-hygon-dcu', displayName: '海光 DCU',
     gpuBrand: 'HYGON', specType: 'PHYSICAL', poolType: 'EXCLUSIVE',
     defaultGpuCount: 1, defaultGpumemMb: 0, defaultGpucores: 0, defaultCpuCores: 8, defaultMemoryGib: 32,
     nodeSelector: '{}', tolerations: '[{"key":"amd.com/dcu","operator":"Exists","effect":"NoSchedule"}]',
@@ -137,7 +137,7 @@ export const mockSpecs: ComputeSpec[] = [
     description: '海光 DCU 整卡独占', createdAt: daysAgo(30), updatedAt: daysAgo(30),
   },
   {
-    id: 'spec-shared-a100-12', name: 'shared-hami-a100-1/2', displayName: 'A100 80GB 1/2 卡 (HAMi 切分)',
+    id: 'spec-shared-a100-12', name: 'shared-hami-a100-1/2', displayName: 'A100 80GB 1/2 卡',
     gpuBrand: 'NVIDIA', specType: 'VIRTUAL', poolType: 'SHARED',
     defaultGpuCount: 1, defaultGpumemMb: 40960, defaultGpucores: 50, defaultCpuCores: 4, defaultMemoryGib: 16,
     nodeSelector: '{}', tolerations: '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
@@ -145,7 +145,7 @@ export const mockSpecs: ComputeSpec[] = [
     description: 'A100 80GB 切 1/2 = 40GB', createdAt: daysAgo(30), updatedAt: daysAgo(30),
   },
   {
-    id: 'spec-shared-a100-14', name: 'shared-hami-a100-1/4', displayName: 'A100 80GB 1/4 卡 (HAMi 切分)',
+    id: 'spec-shared-a100-14', name: 'shared-hami-a100-1/4', displayName: 'A100 80GB 1/4 卡',
     gpuBrand: 'NVIDIA', specType: 'VIRTUAL', poolType: 'SHARED',
     defaultGpuCount: 1, defaultGpumemMb: 20480, defaultGpucores: 25, defaultCpuCores: 2, defaultMemoryGib: 8,
     nodeSelector: '{}', tolerations: '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
@@ -153,7 +153,7 @@ export const mockSpecs: ComputeSpec[] = [
     description: 'A100 80GB 切 1/4 = 20GB', createdAt: daysAgo(30), updatedAt: daysAgo(30),
   },
   {
-    id: 'spec-shared-a100-18', name: 'shared-hami-a100-1/8', displayName: 'A100 80GB 1/8 卡 (HAMi 切分)',
+    id: 'spec-shared-a100-18', name: 'shared-hami-a100-1/8', displayName: 'A100 80GB 1/8 卡',
     gpuBrand: 'NVIDIA', specType: 'VIRTUAL', poolType: 'SHARED',
     defaultGpuCount: 1, defaultGpumemMb: 10240, defaultGpucores: 12, defaultCpuCores: 1, defaultMemoryGib: 4,
     nodeSelector: '{}', tolerations: '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',
@@ -161,7 +161,7 @@ export const mockSpecs: ComputeSpec[] = [
     description: 'A100 80GB 切 1/8 = 10GB', createdAt: daysAgo(30), updatedAt: daysAgo(30),
   },
   {
-    id: 'spec-oversell-a100', name: 'oversell-a100-mig-1/2', displayName: 'A100 MIG 1/2 (超分占位)',
+    id: 'spec-oversell-a100', name: 'oversell-a100-mig-1/2', displayName: 'A100 MIG 1/2',
     gpuBrand: 'NVIDIA', specType: 'OVERSELL', poolType: 'OVERSELL',
     defaultGpuCount: 1, defaultGpumemMb: 0, defaultGpucores: 0, defaultCpuCores: 4, defaultMemoryGib: 16,
     nodeSelector: '{}', tolerations: '[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]',

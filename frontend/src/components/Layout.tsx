@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Layout, Menu, Button, Dropdown, Space, Tag, theme, Switch, Select } from 'antd';
 import {
   DashboardOutlined,
@@ -15,6 +16,10 @@ import {
   HddOutlined,
   ToolOutlined,
   ThunderboltOutlined,
+  BulbOutlined,
+  ApiOutlined,
+  FundOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -40,6 +45,7 @@ const AppLayout: React.FC = () => {
       label: '智算运营',
       children: [
         { key: '/', icon: <DashboardOutlined />, label: '平台概览' },
+        { key: '/screen', icon: <MonitorOutlined />, label: '算力大屏' },
         { key: '/inference', icon: <RocketOutlined />, label: '推理服务' },
         { key: '/projects', icon: <HddOutlined />, label: '项目' },
         {
@@ -53,6 +59,18 @@ const AppLayout: React.FC = () => {
         },
         { key: '/models', icon: <DatabaseOutlined />, label: '模型广场' },
         { key: '/training', icon: <ExperimentOutlined />, label: '训练管理' },
+      ],
+    },
+    {
+      key: 'lab',
+      icon: <BulbOutlined />,
+      label: '创新实验室',
+      children: [
+        { key: '/lab', icon: <FundOutlined />, label: '总览' },
+        { key: '/lab/digital-twin', icon: <ApiOutlined />, label: '数字孪生' },
+        { key: '/lab/strategy-lab', icon: <ExperimentOutlined />, label: '策略实验室' },
+        { key: '/lab/workload', icon: <FundOutlined />, label: '负载感知' },
+        { key: '/lab/governance', icon: <SafetyCertificateOutlined />, label: '数据治理' },
       ],
     },
     {
@@ -79,11 +97,19 @@ const AppLayout: React.FC = () => {
 
   // 找到当前匹配的 key
   const selectedKeys = [loc.pathname];
-  const openKeys = items
+  const parentKeys = items
     .filter((m) => m.children?.some((c: any) => c.children
       ? c.children.some((cc: any) => cc.key === loc.pathname)
       : c.key === loc.pathname))
     .map((m) => m.key);
+  const [openKeys, setOpenKeys] = useState<string[]>(parentKeys);
+  
+  useEffect(() => {
+    setOpenKeys((prev) => {
+      const next = [...new Set([...prev, ...parentKeys])];
+      return next;
+    });
+  }, [loc.pathname]);
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -113,7 +139,8 @@ const AppLayout: React.FC = () => {
           mode="inline"
           items={items}
           selectedKeys={selectedKeys}
-          defaultOpenKeys={openKeys}
+          openKeys={openKeys}
+          onOpenChange={setOpenKeys}
           onClick={({ key }) => nav(key)}
           style={{ borderRight: 0, paddingTop: 8 }}
         />
