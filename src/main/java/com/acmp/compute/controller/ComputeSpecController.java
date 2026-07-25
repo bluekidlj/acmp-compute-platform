@@ -1,21 +1,21 @@
 package com.acmp.compute.controller;
 
-import com.acmp.compute.dto.SpecRequest;
 import com.acmp.compute.dto.SpecResponse;
 import com.acmp.compute.service.ComputeSpecService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
-import javax.validation.Valid;
 import java.util.List;
-import java.util.Map;
 
 /**
- * 1.0 算力规格 API。
- * 7 条预置规格由 schema-h2.sql 自动注入。
+ * 算力规格管理接口。
+ *
+ * <p>Spec 是租户申请资源和推理服务部署时使用的唯一资源套餐。
  */
 @RestController
 @RequestMapping("/api/v1/specs")
@@ -24,26 +24,21 @@ public class ComputeSpecController {
 
     private final ComputeSpecService specService;
 
-    @PostMapping
-    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
-    public ResponseEntity<SpecResponse> create(@Valid @RequestBody SpecRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(specService.create(request));
-    }
-
+    /**
+     * 查询全部 Spec，可按资源池类型过滤。
+     */
     @GetMapping
-    public ResponseEntity<List<SpecResponse>> list(@RequestParam(required = false) String poolType) {
-        return ResponseEntity.ok(specService.list(poolType));
+    public ResponseEntity<List<SpecResponse>> list(
+            @RequestParam(required = false) String specType) {
+        return ResponseEntity.ok(specService.list(specType));
     }
 
+    /**
+     * 查询一个 Spec 的完整资源参数。
+     */
     @GetMapping("/{id}")
     public ResponseEntity<SpecResponse> getById(@PathVariable String id) {
         return ResponseEntity.ok(specService.getById(id));
     }
 
-    @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
-    public ResponseEntity<Map<String, String>> delete(@PathVariable String id) {
-        specService.delete(id);
-        return ResponseEntity.ok(Map.of("message", "已删除"));
-    }
 }

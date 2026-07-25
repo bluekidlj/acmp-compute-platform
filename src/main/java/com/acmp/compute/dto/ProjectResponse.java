@@ -11,7 +11,7 @@ import java.util.Map;
 @Builder
 public class ProjectResponse {
     private String id;
-    private String workspaceId;
+    private String tenantId;
     private String name;
     private String description;
     private String createdBy;

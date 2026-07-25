@@ -12,11 +12,11 @@ public class PhysicalClusterResponse {
     private String name;
     private String description;
     private String status;
-    private String gpuTypes;
-    private String location;
-    private String hamiSplits;
-    private Integer maxCpuCores;
-    private Integer maxMemoryGib;
+    private String kubernetesVersion;
+    private Integer nodeCount;
+    private Integer gpuCount;
+    private Instant lastSyncAt;
+    private String syncMessage;
     private Instant createdAt;
     private Instant updatedAt;
 }

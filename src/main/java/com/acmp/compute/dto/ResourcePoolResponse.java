@@ -10,18 +10,12 @@ import java.util.List;
 @Builder
 public class ResourcePoolResponse {
     private String id;
-    private String workspaceId;
-    /** EXCLUSIVE / SHARED / OVERSELL */
     private String poolType;
     private String name;
     private String description;
-    private String primaryClusterId;
-    private Integer totalNodes;
-    private Integer allocatedNodes;
-    private Integer availableNodes;
+    private Integer gpuCount;
     private String status;
 
-    /** 已关联的规格（简版：id + name） */
     private List<SpecBrief> specs;
 
     private Instant createdAt;
@@ -34,6 +28,5 @@ public class ResourcePoolResponse {
         private String name;
         private String displayName;
         private String specType;
-        private String poolType;
     }
 }

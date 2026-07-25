@@ -1,17 +1,11 @@
 package com.acmp.compute.service;
 
-import com.acmp.compute.dto.CapacityResponse;
 import com.acmp.compute.dto.PhysicalClusterResponse;
-import com.acmp.compute.entity.GpuBrand;
 import com.acmp.compute.entity.PhysicalCluster;
 import com.acmp.compute.exception.ResourceNotFoundException;
 import com.acmp.compute.k8s.KubernetesClientManager;
 import com.acmp.compute.mapper.PhysicalClusterMapper;
 import com.acmp.compute.security.EncryptionService;
-import io.kubernetes.client.openapi.ApiException;
-import io.kubernetes.client.openapi.apis.CoreV1Api;
-import io.kubernetes.client.openapi.models.V1Node;
-import io.kubernetes.client.openapi.models.V1NodeList;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -20,10 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -33,12 +24,11 @@ public class PhysicalClusterService {
     private final PhysicalClusterMapper physicalClusterMapper;
     private final EncryptionService encryptionService;
     private final KubernetesClientManager clientManager;
-    private final GpuInventoryService gpuInventoryService;
+    private final ClusterInventoryService clusterInventoryService;
 
     @Transactional(rollbackFor = Exception.class)
-    public PhysicalClusterResponse register(String name, String kubeconfigBase64, String gpuTypes,
-                                            String location, String nodeLabelsJson, String taintsJson) {
-        String plainKubeconfig = decodeIfBase64(kubeconfigBase64);
+    public PhysicalClusterResponse register(String name, String description, String kubeconfig) {
+        String plainKubeconfig = decodeIfBase64(kubeconfig);
         if (!clientManager.validateKubeconfig(plainKubeconfig)) {
             throw new IllegalArgumentException("kubeconfig 校验失败，无法连接集群");
         }
@@ -47,52 +37,33 @@ public class PhysicalClusterService {
         PhysicalCluster cluster = PhysicalCluster.builder()
                 .id(id)
                 .name(name)
-                .gpuTypes(gpuTypes != null ? gpuTypes : GpuBrand.NVIDIA.name())
-                .location(location != null ? location : "default")
-                .nodeLabels(nodeLabelsJson)
-                .taints(taintsJson)
+                .description(description)
                 .kubeconfigBase64Encrypted(encrypted)
-                .status("active")
+                .status("CONNECTING")
                 .build();
         physicalClusterMapper.insert(cluster);
-        clientManager.getClient(id);
+        try {
+            clusterInventoryService.sync(id);
+        } catch (RuntimeException e) {
+            clientManager.closeClient(id);
+            physicalClusterMapper.deleteById(id);
+            throw e;
+        }
         log.info("✓ 集群 {} 已注册: id={}", name, id);
         return toResponse(physicalClusterMapper.findById(id).orElseThrow());
     }
 
     public List<PhysicalClusterResponse> list() {
-        return physicalClusterMapper.findAll().stream()
-                .map(this::toResponse).collect(Collectors.toList());
+        List<PhysicalClusterResponse> result = new java.util.ArrayList<>();
+        for (PhysicalCluster cluster : physicalClusterMapper.findAll()) {
+            result.add(toResponse(cluster));
+        }
+        return result;
     }
 
     public PhysicalClusterResponse getById(String id) {
         return toResponse(physicalClusterMapper.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("集群不存在: " + id)));
-    }
-
-    public CapacityResponse getCapacity(String id) {
-        AtomicLong gpuTotal = new AtomicLong(0);
-        AtomicLong cpuTotal = new AtomicLong(0);
-        AtomicLong memoryTotal = new AtomicLong(0);
-        try {
-            V1NodeList nodeList = new CoreV1Api(clientManager.getClient(id)).listNode().execute();
-            List<V1Node> nodes = nodeList != null && nodeList.getItems() != null ? nodeList.getItems() : List.of();
-            for (V1Node node : nodes) {
-                if (node.getStatus() == null || node.getStatus().getAllocatable() == null) continue;
-                Map<String, io.kubernetes.client.custom.Quantity> alloc = node.getStatus().getAllocatable();
-                gpuTotal.addAndGet(parseQuantity(alloc.get("nvidia.com/gpu")));
-                cpuTotal.addAndGet(parseQuantity(alloc.get("cpu")));
-                memoryTotal.addAndGet(parseQuantity(alloc.get("memory")));
-            }
-        } catch (ApiException e) {
-            log.error("getCapacity listNode 失败: {}", e.getResponseBody(), e);
-            throw new RuntimeException("读 K8s 节点失败: " + e.getResponseBody(), e);
-        }
-        return CapacityResponse.builder()
-                .gpuSlots(gpuTotal.get())
-                .cpu(String.valueOf(cpuTotal.get()))
-                .memory(String.valueOf(memoryTotal.get()))
-                .build();
     }
 
     @Transactional
@@ -106,18 +77,16 @@ public class PhysicalClusterService {
     }
 
     private String decodeIfBase64(String s) {
-        if (s == null) return null;
-        if (s.contains("apiVersion") || s.contains("clusters:")) return s;
-        try { return new String(Base64.getDecoder().decode(s), StandardCharsets.UTF_8); }
-        catch (Exception e) { return s; }
-    }
-
-    private long parseQuantity(io.kubernetes.client.custom.Quantity q) {
-        if (q == null) return 0L;
+        if (s == null) {
+            return null;
+        }
+        if (s.contains("apiVersion") || s.contains("clusters:")) {
+            return s;
+        }
         try {
-            return q.getNumber() != null ? q.getNumber().longValue() : 0L;
+            return new String(Base64.getDecoder().decode(s), StandardCharsets.UTF_8);
         } catch (Exception e) {
-            return 0L;
+            return s;
         }
     }
 
@@ -127,11 +96,11 @@ public class PhysicalClusterService {
                 .name(c.getName())
                 .description(c.getDescription())
                 .status(c.getStatus())
-                .gpuTypes(c.getGpuTypes())
-                .location(c.getLocation())
-                .hamiSplits(c.getHamiSplits())
-                .maxCpuCores(c.getMaxCpuCores())
-                .maxMemoryGib(c.getMaxMemoryGib())
+                .kubernetesVersion(c.getKubernetesVersion())
+                .nodeCount(c.getNodeCount())
+                .gpuCount(c.getGpuCount())
+                .lastSyncAt(c.getLastSyncAt())
+                .syncMessage(c.getSyncMessage())
                 .createdAt(c.getCreatedAt())
                 .updatedAt(c.getUpdatedAt())
                 .build();

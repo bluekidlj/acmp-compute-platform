@@ -12,7 +12,7 @@ public interface ProjectMapper {
     int insert(Project project);
     int update(Project project);
     Optional<Project> findById(@Param("id") String id);
-    List<Project> findByWorkspaceId(@Param("workspaceId") String workspaceId);
+    List<Project> findByTenantId(@Param("tenantId") String tenantId);
     List<Project> findAll();
     int deleteById(@Param("id") String id);
 

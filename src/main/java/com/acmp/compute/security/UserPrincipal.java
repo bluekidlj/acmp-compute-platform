@@ -54,7 +54,9 @@ public class UserPrincipal implements UserDetails {
     public boolean isEnabled() { return true; }
 
     public boolean canAccessPool(String poolId) {
-        if (Role.PLATFORM_ADMIN.name().equals(role)) return true;
+        if (Role.PLATFORM_ADMIN.name().equals(role)) {
+            return true;
+        }
         return resourcePoolIds != null && resourcePoolIds.contains(poolId);
     }
 }

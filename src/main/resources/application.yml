@@ -18,6 +18,7 @@ spring:
   sql:
     init:
       mode: always
+      encoding: UTF-8
       schema-locations: classpath:schema-h2.sql
       data-locations: classpath:data-h2.sql
 
@@ -38,6 +39,11 @@ jwt:
 encryption:
   aes-key: ${AES_KEY:acmp32byteskey!!!!!!!!!!!!!!!!!!}
 
+acmp:
+  kubernetes:
+    connect-timeout-seconds: ${K8S_CONNECT_TIMEOUT_SECONDS:5}
+    read-timeout-seconds: ${K8S_READ_TIMEOUT_SECONDS:15}
+    call-timeout-seconds: ${K8S_CALL_TIMEOUT_SECONDS:30}
 # 日志
 logging:
   level:

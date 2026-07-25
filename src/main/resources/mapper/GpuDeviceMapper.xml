@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.acmp.compute.mapper.GpuDeviceMapper">
+
+    <resultMap id="BaseResultMap" type="com.acmp.compute.entity.GpuDevice">
+        <id column="id" property="id"/>
+        <result column="cluster_id" property="clusterId"/>
+        <result column="node_id" property="nodeId"/>
+        <result column="node_name" property="nodeName"/>
+        <result column="gpu_index" property="gpuIndex"/>
+        <result column="uuid" property="uuid"/>
+        <result column="gpu_model" property="gpuModel"/>
+        <result column="memory_mb" property="memoryMb"/>
+        <result column="driver_version" property="driverVersion"/>
+        <result column="cuda_version" property="cudaVersion"/>
+        <result column="status" property="status"/>
+        <result column="resource_pool_id" property="resourcePoolId"/>
+        <result column="compute_spec_id" property="computeSpecId"/>
+        <result column="usage_status" property="usageStatus"/>
+        <result column="last_sync_at" property="lastSyncAt"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO gpu_device
+            (id, cluster_id, node_id, node_name, gpu_index, uuid, gpu_model,
+             memory_mb, driver_version, cuda_version, status, resource_pool_id, compute_spec_id,
+             usage_status, last_sync_at)
+        VALUES
+            (#{id}, #{clusterId}, #{nodeId}, #{nodeName}, #{gpuIndex}, #{uuid},
+             #{gpuModel}, #{memoryMb}, #{driverVersion}, #{cudaVersion}, #{status},
+             #{resourcePoolId}, #{computeSpecId}, #{usageStatus}, CURRENT_TIMESTAMP)
+    </insert>
+
+    <!-- 池归属是管理员业务操作，同步时不能覆盖 resource_pool_id。 -->
+    <update id="updateDiscovered">
+        UPDATE gpu_device
+        SET node_id = #{nodeId},
+            uuid = #{uuid},
+            gpu_model = #{gpuModel},
+            memory_mb = #{memoryMb},
+            driver_version = #{driverVersion},
+            cuda_version = #{cudaVersion},
+            status = #{status},
+            last_sync_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <update id="markOfflineByCluster">
+        UPDATE gpu_device
+        SET status = 'OFFLINE', updated_at = CURRENT_TIMESTAMP
+        WHERE cluster_id = #{clusterId}
+    </update>
+
+    <select id="findByIdentity" resultMap="BaseResultMap">
+        SELECT * FROM gpu_device
+        WHERE cluster_id = #{clusterId}
+          AND node_name = #{nodeName}
+          AND gpu_index = #{gpuIndex}
+    </select>
+
+    <select id="findById" resultMap="BaseResultMap">
+        SELECT * FROM gpu_device WHERE id = #{id}
+    </select>
+
+    <select id="findByClusterId" resultMap="BaseResultMap">
+        SELECT * FROM gpu_device
+        WHERE cluster_id = #{clusterId}
+        ORDER BY node_name, gpu_index
+    </select>
+
+    <select id="findByNodeId" resultMap="BaseResultMap">
+        SELECT * FROM gpu_device
+        WHERE node_id = #{nodeId}
+        ORDER BY gpu_index
+    </select>
+
+    <select id="findByPoolId" resultMap="BaseResultMap">
+        SELECT * FROM gpu_device
+        WHERE resource_pool_id = #{poolId}
+        ORDER BY cluster_id, node_name, gpu_index
+    </select>
+
+    <select id="findByComputeSpecId" resultMap="BaseResultMap">
+        SELECT * FROM gpu_device
+        WHERE compute_spec_id = #{computeSpecId}
+    </select>
+
+    <update id="assignPool">
+        UPDATE gpu_device
+        SET resource_pool_id = #{poolId}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND resource_pool_id IS NULL
+    </update>
+
+    <update id="assignPoolAndSpec">
+        UPDATE gpu_device
+        SET resource_pool_id = #{poolId},
+            compute_spec_id = #{computeSpecId},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND resource_pool_id IS NULL
+          AND compute_spec_id IS NULL
+    </update>
+
+    <select id="countByPool" resultType="int">
+        SELECT COUNT(*) FROM gpu_device WHERE resource_pool_id = #{poolId}
+    </select>
+
+    <select id="countAvailableByPoolAndModel" resultType="int">
+        SELECT COUNT(*)
+        FROM gpu_device
+        WHERE resource_pool_id = #{poolId}
+          AND status = 'READY'
+          AND usage_status = 'IDLE'
+        <if test="gpuModel != null and gpuModel != ''">
+          AND gpu_model = #{gpuModel}
+        </if>
+    </select>
+
+    <select id="findCandidateClusterIds" resultType="java.lang.String">
+        SELECT gd.cluster_id
+        FROM gpu_device gd
+        JOIN physical_cluster pc ON pc.id = gd.cluster_id
+        WHERE gd.resource_pool_id = #{poolId}
+          AND gd.status = 'READY'
+          AND gd.usage_status = 'IDLE'
+          AND pc.status = 'ACTIVE'
+        <if test="gpuModel != null and gpuModel != ''">
+          AND gd.gpu_model = #{gpuModel}
+        </if>
+        GROUP BY gd.cluster_id
+        HAVING COUNT(*) &gt;= #{required}
+        ORDER BY gd.cluster_id
+    </select>
+
+    <delete id="deleteByClusterId">
+        DELETE FROM gpu_device WHERE cluster_id = #{clusterId}
+    </delete>
+</mapper>

@@ -10,16 +10,15 @@ import java.time.Instant;
 public class ModelDeploymentResponse {
     private String id;
     private String projectId;
-    private String workspaceId;
+    private String tenantId;
     private String resourcePoolId;
     private String specId;
-    private String poolType;
     private String name;
     private String modelName;
     private String modelSource;
     private String modelIdOrPath;
     private String vllmImage;
-    private Integer gpuPerReplica;
+    private Integer port;
     private Integer replicas;
     private String k8sDeploymentName;
     private String k8sServiceName;
@@ -28,6 +27,7 @@ public class ModelDeploymentResponse {
     private Integer readyReplicas;
     private String actualClusterId;
     private String createdBy;
+    private String failureMessage;
     private Instant createdAt;
     private Instant updatedAt;
 }

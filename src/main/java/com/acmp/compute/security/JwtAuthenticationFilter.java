@@ -39,7 +39,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 String role = claims.get("role", String.class);
                 @SuppressWarnings("unchecked")
                 List<String> resourcePoolIds = (List<String>) claims.get("resourcePoolIds");
-                if (resourcePoolIds == null) resourcePoolIds = List.of();
+                if (resourcePoolIds == null) {
+                    resourcePoolIds = List.of();
+                }
                 UserPrincipal principal = UserPrincipal.builder()
                         .id(userId)
                         .username(username)

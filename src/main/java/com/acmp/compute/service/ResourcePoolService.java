@@ -1,154 +1,152 @@
 package com.acmp.compute.service;
 
+import com.acmp.compute.dto.GpuJoinSpecRequest;
 import com.acmp.compute.dto.ResourcePoolResponse;
-import com.acmp.compute.dto.ResourcePoolUpdateRequest;
+import com.acmp.compute.dto.SpecResponse;
 import com.acmp.compute.entity.ComputeSpec;
+import com.acmp.compute.entity.GpuBrand;
+import com.acmp.compute.entity.GpuDevice;
 import com.acmp.compute.entity.ResourcePool;
-import com.acmp.compute.entity.Workspace;
 import com.acmp.compute.exception.BadRequestException;
 import com.acmp.compute.exception.ResourceNotFoundException;
-import com.acmp.compute.k8s.KubernetesClientManager;
 import com.acmp.compute.mapper.ComputeSpecMapper;
-import com.acmp.compute.mapper.PoolCardMapper;
-import com.acmp.compute.mapper.ProjectResourceQuotaMapper;
+import com.acmp.compute.mapper.GpuDeviceMapper;
 import com.acmp.compute.mapper.ResourcePoolMapper;
-import com.acmp.compute.mapper.WorkspaceMapper;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
-/**
- * 1.0 资源池服务（Workspace 私有三类池）。
- *
- * <p>池由 WorkspaceService.create 自动建三类空池。
- * 管理员通过 PATCH /pools/{id} 设置容量并关联规格。
- */
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ResourcePoolService {
+    public static final String EXCLUSIVE_POOL_ID = "pool-exclusive";
+    public static final String SHARED_POOL_ID = "pool-shared";
 
     private final ResourcePoolMapper poolMapper;
-    private final WorkspaceMapper workspaceMapper;
+    private final GpuDeviceMapper gpuMapper;
     private final ComputeSpecMapper specMapper;
-    private final ProjectResourceQuotaMapper projectQuotaMapper;
-    private final PoolCardMapper poolCardMapper;
-    private final KubernetesClientManager clientManager;
+    private final ComputeSpecService specService;
 
-    public List<ResourcePoolResponse> listByWorkspace(String workspaceId) {
-        return poolMapper.findByWorkspaceId(workspaceId).stream()
-                .map(this::toResponse).collect(java.util.stream.Collectors.toList());
+    public List<ResourcePoolResponse> list() {
+        List<ResourcePoolResponse> result = new ArrayList<>();
+        ResourcePool exclusive = poolMapper.findById(EXCLUSIVE_POOL_ID).orElse(null);
+        ResourcePool shared = poolMapper.findById(SHARED_POOL_ID).orElse(null);
+        if (exclusive != null) {
+            result.add(toResponse(exclusive));
+        }
+        if (shared != null) {
+            result.add(toResponse(shared));
+        }
+        return result;
     }
 
     public ResourcePoolResponse getById(String id) {
-        ResourcePool pool = poolMapper.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("资源池不存在: " + id));
-        return toResponse(pool);
+        return toResponse(corePool(id));
+    }
+
+    public List<GpuDevice> listGpus(String id) {
+        corePool(id);
+        return gpuMapper.findByPoolId(id);
     }
 
     /**
-     * 修改池容量 + 关联规格（覆盖式）。
-     * 同步 K8s ResourceQuota：hard[platform.io/{spec}] = totalNodes。
+     * Gpu 入池和规格创建是同一个数据库事务。
+     *
+     * <p>Gpu 型号、规格类型、资源池和固定单 Gpu 约束由后端确定，避免前端提交冲突字段。
      */
-    @Transactional(rollbackFor = Exception.class)
-    public ResourcePoolResponse update(String id, ResourcePoolUpdateRequest req) {
-        ResourcePool pool = poolMapper.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("资源池不存在: " + id));
-        Workspace ws = workspaceMapper.findById(pool.getWorkspaceId())
-                .orElseThrow(() -> new ResourceNotFoundException("工作空间不存在: " + pool.getWorkspaceId()));
+    @Transactional
+    public SpecResponse joinGpu(
+            String poolId,
+            String gpuId,
+            GpuJoinSpecRequest request) {
+        ResourcePool pool = corePool(poolId);
+        GpuDevice gpu = gpuMapper.findById(gpuId).orElse(null);
 
-        // 校验 specs（如果传了）：必须与 pool.poolType 一致
-        if (req.getSpecs() != null) {
-            for (String specId : req.getSpecs()) {
-                ComputeSpec spec = specMapper.findById(specId)
-                        .orElseThrow(() -> new BadRequestException("规格不存在: " + specId));
-                if (!pool.getPoolType().equals(spec.getPoolType())) {
-                    throw new BadRequestException(String.format(
-                            "规格 %s 的 poolType=%s 与池 %s 的 poolType=%s 不匹配",
-                            spec.getName(), spec.getPoolType(), pool.getName(), pool.getPoolType()));
-                }
-            }
+        if (gpu == null) {
+            throw new ResourceNotFoundException("Gpu 不存在: " + gpuId);
+        }
+        if (gpu.getResourcePoolId() != null || gpu.getComputeSpecId() != null) {
+            throw new BadRequestException("Gpu 已经加入资源池");
+        }
+        if (specMapper.findByName(request.getName()).isPresent()) {
+            throw new BadRequestException("算力规格名称已存在: " + request.getName());
+        }
+        if (request.getCpuCores() == null || request.getCpuCores() <= 0
+                || request.getMemoryGib() == null || request.getMemoryGib() <= 0) {
+            throw new BadRequestException("CPU 和内存必须大于 0");
         }
 
-        // 写规格关联（覆盖式）
-        if (req.getSpecs() != null) {
-            specMapper.deleteResourcePoolSpecsByPool(id);
-            for (String specId : req.getSpecs()) {
-                specMapper.insertResourcePoolSpec(id, specId);
-            }
+        String gpuShare = validateShare(pool, request.getGpuShare());
+        String specId = UUID.randomUUID().toString();
+        ComputeSpec spec = ComputeSpec.builder()
+                .id(specId)
+                .name(request.getName())
+                .displayName(request.getDisplayName())
+                .gpuBrand(GpuBrand.NVIDIA)
+                .specType(pool.getPoolType())
+                .resourcePoolId(pool.getId())
+                .gpuModel(gpu.getGpuModel())
+                .gpuCount(1)
+                .cpuCores(request.getCpuCores())
+                .memoryGib(request.getMemoryGib())
+                .gpuShare(gpuShare)
+                .description(request.getDescription())
+                .status("active")
+                .build();
+
+        specMapper.insert(spec);
+
+        if (gpuMapper.assignPoolAndSpec(gpuId, poolId, specId) != 1) {
+            throw new BadRequestException("Gpu 入池失败或已经被加入其他资源池");
         }
 
-        // 同步 K8s ResourceQuota（按 spec 维度，hard[platform.io/{spec}] = sum(pool_card.slots)）
-        try {
-            Map<String, String> specLimits = new LinkedHashMap<>();
-            List<ComputeSpec> specs = specMapper.findByResourcePoolId(id);
-            for (ComputeSpec s : specs) {
-                int slots = poolCardMapper.sumActiveSlotsByPoolAndSpec(id, s.getId());
-                specLimits.put(s.getResourceQuotaKey(), String.valueOf(slots));
-            }
-            int total = pool.getTotalNodes() != null ? pool.getTotalNodes() : 0;
-            if (!specLimits.isEmpty()) {
-                clientManager.createResourceQuotaBySpec(
-                        pool.getPrimaryClusterId(), ws.getNamespace(),
-                        "quota-" + pool.getPoolType().toLowerCase() + "-" + id.substring(0, 8),
-                        specLimits, Math.max(50, total * 10));
-            }
-        } catch (Exception e) {
-            log.warn("K8s ResourceQuota 同步失败（继续）: {}", e.getMessage());
-        }
-
-        log.info("✓ 池 {} 已更新: totalNodes={}（自动累加）, specs={}", id, pool.getTotalNodes(),
-                req.getSpecs() != null ? req.getSpecs().size() : "(未变)");
-        return toResponse(poolMapper.findById(id).orElseThrow());
+        return specService.getById(specId);
     }
 
-    @Transactional(rollbackFor = Exception.class)
-    public void delete(String id) {
-        ResourcePool pool = poolMapper.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("资源池不存在: " + id));
-        if (pool.getAllocatedNodes() != null && pool.getAllocatedNodes() > 0) {
-            throw new BadRequestException("池已被项目分配，不允许删除");
+    private ResourcePool corePool(String id) {
+        if (!EXCLUSIVE_POOL_ID.equals(id) && !SHARED_POOL_ID.equals(id)) {
+            throw new ResourceNotFoundException("固定资源池不存在: " + id);
         }
-        specMapper.deleteResourcePoolSpecsByPool(id);
-        poolMapper.deleteById(id);
-        log.info("✓ 池已删除: {}", id);
+        ResourcePool pool = poolMapper.findById(id).orElse(null);
+        if (pool == null) {
+            throw new ResourceNotFoundException("资源池未初始化: " + id);
+        }
+        return pool;
     }
 
-    private ResourcePoolResponse toResponse(ResourcePool p) {
-        List<ComputeSpec> specs = specMapper.findByResourcePoolId(p.getId());
-        List<ResourcePoolResponse.SpecBrief> specBriefs = new ArrayList<>();
-        for (ComputeSpec s : specs) {
-            specBriefs.add(ResourcePoolResponse.SpecBrief.builder()
-                    .id(s.getId())
-                    .name(s.getName())
-                    .displayName(s.getDisplayName())
-                    .specType(s.getSpecType())
-                    .poolType(s.getPoolType())
+    private String validateShare(ResourcePool pool, String gpuShare) {
+        if ("EXCLUSIVE".equals(pool.getPoolType())) {
+            if (gpuShare != null && !gpuShare.isBlank()) {
+                throw new BadRequestException("独享池规格不能设置共享比例");
+            }
+            return null;
+        }
+
+        if (!"1/8".equals(gpuShare)
+                && !"1/4".equals(gpuShare)
+                && !"1/2".equals(gpuShare)) {
+            throw new BadRequestException("共享比例只允许 1/8、1/4、1/2");
+        }
+
+        return gpuShare;
+    }
+
+    private ResourcePoolResponse toResponse(ResourcePool pool) {
+        List<ResourcePoolResponse.SpecBrief> briefs = new ArrayList<>();
+        List<ComputeSpec> specs = specMapper.findByResourcePoolId(pool.getId());
+        for (ComputeSpec spec : specs) {
+            briefs.add(ResourcePoolResponse.SpecBrief.builder().id(spec.getId()).name(spec.getName())
+                    .displayName(spec.getDisplayName()).specType(spec.getSpecType())
                     .build());
         }
-        int total = p.getTotalNodes() != null ? p.getTotalNodes() : 0;
-        int allocated = p.getAllocatedNodes() != null ? p.getAllocatedNodes() : 0;
-        return ResourcePoolResponse.builder()
-                .id(p.getId())
-                .workspaceId(p.getWorkspaceId())
-                .poolType(p.getPoolType())
-                .name(p.getName())
-                .description(p.getDescription())
-                .primaryClusterId(p.getPrimaryClusterId())
-                .totalNodes(total)
-                .allocatedNodes(allocated)
-                .availableNodes(Math.max(0, total - allocated))
-                .status(p.getStatus())
-                .specs(specBriefs)
-                .createdAt(p.getCreatedAt())
-                .updatedAt(p.getUpdatedAt())
-                .build();
+        int total = gpuMapper.countByPool(pool.getId());
+        return ResourcePoolResponse.builder().id(pool.getId()).poolType(pool.getPoolType())
+                .name(pool.getName()).description(pool.getDescription()).gpuCount(total)
+                .status(pool.getStatus()).specs(briefs)
+                .createdAt(pool.getCreatedAt()).updatedAt(pool.getUpdatedAt()).build();
     }
 }

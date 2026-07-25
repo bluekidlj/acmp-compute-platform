@@ -8,33 +8,27 @@
         <result column="display_name" property="displayName"/>
         <result column="gpu_brand" property="gpuBrand"/>
         <result column="spec_type" property="specType"/>
-        <result column="pool_type" property="poolType"/>
-        <result column="default_gpu_count" property="defaultGpuCount"/>
-        <result column="default_gpumem_mb" property="defaultGpumemMb"/>
-        <result column="default_gpucores" property="defaultGpucores"/>
-        <result column="default_cpu_cores" property="defaultCpuCores"/>
-        <result column="default_memory_gib" property="defaultMemoryGib"/>
-        <result column="node_selector" property="nodeSelector"/>
-        <result column="tolerations" property="tolerations"/>
-        <result column="resource_quota_key" property="resourceQuotaKey"/>
-        <result column="memory_gb" property="memoryGb"/>
+        <result column="resource_pool_id" property="resourcePoolId"/>
+        <result column="gpu_model" property="gpuModel"/>
+        <result column="gpu_count" property="gpuCount"/>
+        <result column="cpu_cores" property="cpuCores"/>
+        <result column="memory_gib" property="memoryGib"/>
+        <result column="gpu_share" property="gpuShare"/>
         <result column="description" property="description"/>
+        <result column="status" property="status"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
 
     <insert id="insert">
         INSERT INTO compute_spec
-            (id, name, display_name, gpu_brand, spec_type, pool_type,
-             default_gpu_count, default_gpumem_mb, default_gpucores,
-             default_cpu_cores, default_memory_gib,
-             node_selector, tolerations, resource_quota_key, memory_gb, description,
+             (id, name, display_name, gpu_brand, spec_type, resource_pool_id,
+             gpu_model, gpu_count, cpu_cores, memory_gib, gpu_share, description, status,
              created_at, updated_at)
         VALUES
-            (#{id}, #{name}, #{displayName}, #{gpuBrand}, #{specType}, #{poolType},
-             #{defaultGpuCount}, #{defaultGpumemMb}, #{defaultGpucores},
-             #{defaultCpuCores}, #{defaultMemoryGib},
-             #{nodeSelector}, #{tolerations}, #{resourceQuotaKey}, #{memoryGb}, #{description},
+             (#{id}, #{name}, #{displayName}, #{gpuBrand}, #{specType}, #{resourcePoolId},
+             #{gpuModel}, #{gpuCount}, #{cpuCores}, #{memoryGib}, #{gpuShare},
+             #{description}, #{status},
              CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 
@@ -43,45 +37,43 @@
         SET display_name = #{displayName},
             gpu_brand = #{gpuBrand},
             spec_type = #{specType},
-            pool_type = #{poolType},
-            default_gpu_count = #{defaultGpuCount},
-            default_gpumem_mb = #{defaultGpumemMb},
-            default_gpucores = #{defaultGpucores},
-            default_cpu_cores = #{defaultCpuCores},
-            default_memory_gib = #{defaultMemoryGib},
-            node_selector = #{nodeSelector},
-            tolerations = #{tolerations},
-            resource_quota_key = #{resourceQuotaKey},
-            memory_gb = #{memoryGb},
+            resource_pool_id = #{resourcePoolId},
+            gpu_model = #{gpuModel},
+            gpu_count = #{gpuCount},
+            cpu_cores = #{cpuCores},
+            memory_gib = #{memoryGib},
+            gpu_share = #{gpuShare},
             description = #{description},
+            status = #{status},
             updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
     </update>
 
-    <select id="findById" resultMap="BaseResultMap">SELECT * FROM compute_spec WHERE id = #{id}</select>
-    <select id="findByName" resultMap="BaseResultMap">SELECT * FROM compute_spec WHERE name = #{name}</select>
-    <select id="findAll" resultMap="BaseResultMap">SELECT * FROM compute_spec ORDER BY spec_type, memory_gb DESC</select>
-    <select id="findByPoolType" resultMap="BaseResultMap">SELECT * FROM compute_spec WHERE pool_type = #{poolType} ORDER BY memory_gb DESC</select>
+    <select id="findById" resultMap="BaseResultMap">
+        SELECT * FROM compute_spec WHERE id = #{id}
+    </select>
 
-    <delete id="deleteById">DELETE FROM compute_spec WHERE id = #{id}</delete>
+    <select id="findByName" resultMap="BaseResultMap">
+        SELECT * FROM compute_spec WHERE name = #{name}
+    </select>
 
-    <insert id="insertResourcePoolSpec">
-        MERGE INTO resource_pool_spec (resource_pool_id, spec_id) KEY(resource_pool_id, spec_id)
-        VALUES (#{resourcePoolId}, #{specId})
-    </insert>
-    <delete id="deleteResourcePoolSpec">
-        DELETE FROM resource_pool_spec WHERE resource_pool_id = #{resourcePoolId} AND spec_id = #{specId}
-    </delete>
-    <delete id="deleteResourcePoolSpecsByPool">
-        DELETE FROM resource_pool_spec WHERE resource_pool_id = #{resourcePoolId}
-    </delete>
+    <select id="findAll" resultMap="BaseResultMap">
+        SELECT * FROM compute_spec ORDER BY spec_type, memory_gib DESC
+    </select>
+
+    <select id="findBySpecType" resultMap="BaseResultMap">
+        SELECT * FROM compute_spec
+        WHERE spec_type = #{specType}
+        ORDER BY memory_gib DESC
+    </select>
+
     <select id="findByResourcePoolId" resultMap="BaseResultMap">
-        SELECT cs.* FROM compute_spec cs
-        JOIN resource_pool_spec rps ON cs.id = rps.spec_id
-        WHERE rps.resource_pool_id = #{resourcePoolId}
-        ORDER BY cs.spec_type, cs.memory_gb DESC
+        SELECT * FROM compute_spec
+        WHERE resource_pool_id = #{resourcePoolId}
+        ORDER BY spec_type, memory_gib DESC
     </select>
-    <select id="findSpecIdsByResourcePoolId" resultType="java.lang.String">
-        SELECT spec_id FROM resource_pool_spec WHERE resource_pool_id = #{resourcePoolId}
-    </select>
+
+    <delete id="deleteById">
+        DELETE FROM compute_spec WHERE id = #{id}
+    </delete>
 </mapper>

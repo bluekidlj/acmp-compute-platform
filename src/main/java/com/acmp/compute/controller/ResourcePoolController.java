@@ -1,52 +1,71 @@
 package com.acmp.compute.controller;
 
+import com.acmp.compute.dto.GpuJoinSpecRequest;
 import com.acmp.compute.dto.ResourcePoolResponse;
-import com.acmp.compute.dto.ResourcePoolUpdateRequest;
+import com.acmp.compute.dto.SpecResponse;
+import com.acmp.compute.entity.GpuDevice;
 import com.acmp.compute.service.ResourcePoolService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import javax.validation.Valid;
 import java.util.List;
-import java.util.Map;
 
 /**
- * 1.0 资源池 API。
- * 池由 WorkspaceService.create 自动建三类；这里只做 PATCH（容量+规格关联）、GET、DELETE。
+ * 平台固定资源池接口。
+ *
+ * <p>平台只维护独享池和共享池，不允许用户创建或删除资源池。
  */
 @RestController
+@RequestMapping("/api/v1/resource-pools")
 @RequiredArgsConstructor
 public class ResourcePoolController {
 
-    private final ResourcePoolService poolService;
+    private final ResourcePoolService service;
 
-    // 列出工作空间下所有池
-    @GetMapping("/api/v1/workspaces/{workspaceId}/pools")
-    public ResponseEntity<List<ResourcePoolResponse>> listByWorkspace(@PathVariable String workspaceId) {
-        return ResponseEntity.ok(poolService.listByWorkspace(workspaceId));
+    /**
+     * 查询平台固定的独享池和共享池。
+     */
+    @GetMapping
+    public ResponseEntity<List<ResourcePoolResponse>> list() {
+        return ResponseEntity.ok(service.list());
     }
 
-    // 池详情
-    @GetMapping("/api/v1/pools/{id}")
-    public ResponseEntity<ResourcePoolResponse> getById(@PathVariable String id) {
-        return ResponseEntity.ok(poolService.getById(id));
+    /**
+     * 查询资源池详情和 GPU 总量。
+     */
+    @GetMapping("/{id}")
+    public ResponseEntity<ResourcePoolResponse> get(@PathVariable String id) {
+        return ResponseEntity.ok(service.getById(id));
     }
 
-    // 修改池容量 + 关联规格（覆盖式）
-    @PatchMapping("/api/v1/pools/{id}")
-    @PreAuthorize("hasRole('PLATFORM_ADMIN') or hasRole('ORG_ADMIN')")
-    public ResponseEntity<ResourcePoolResponse> update(@PathVariable String id,
-                                                       @Valid @RequestBody ResourcePoolUpdateRequest req) {
-        return ResponseEntity.ok(poolService.update(id, req));
+    /**
+     * 查询已经加入指定资源池的 GPU。
+     */
+    @GetMapping("/{id}/gpus")
+    public ResponseEntity<List<GpuDevice>> listGpus(@PathVariable String id) {
+        return ResponseEntity.ok(service.listGpus(id));
     }
 
-    // 删除池（仅当无项目分配）
-    @DeleteMapping("/api/v1/pools/{id}")
-    @PreAuthorize("hasRole('PLATFORM_ADMIN') or hasRole('ORG_ADMIN')")
-    public ResponseEntity<Map<String, String>> delete(@PathVariable String id) {
-        poolService.delete(id);
-        return ResponseEntity.ok(Map.of("message", "已删除"));
+    /**
+     * 将一张 Gpu 加入指定资源池，并同步创建它对应的单 Gpu 算力规格。
+     *
+     * <p>0.1 版本不提供移出、转池和重新切分。
+     */
+    @PostMapping("/{id}/gpus/{gpuId}/join")
+    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
+    public ResponseEntity<SpecResponse> joinGpu(
+            @PathVariable String id,
+            @PathVariable String gpuId,
+            @Valid @RequestBody GpuJoinSpecRequest request) {
+        return ResponseEntity.ok(service.joinGpu(id, gpuId, request));
     }
+
 }

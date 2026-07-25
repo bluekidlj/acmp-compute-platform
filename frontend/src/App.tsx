@@ -1,81 +1,54 @@
-import React, { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import type { ReactNode } from 'react';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import RealLayout from './components/RealLayout';
 import { useAuth } from './contexts/AuthContext';
-import AppLayout from './components/Layout';
 import LoginPage from './pages/Login';
-import DashboardPage from './pages/Dashboard';
-import SpecsPage from './pages/Specs';
-import PhysicalPoolsPage from './pages/PhysicalPools';
-import PhysicalPoolDetailPage from './pages/PhysicalPoolDetail';
-import WorkspacesPage from './pages/Workspaces';
-import LogicalPoolDetailPage from './pages/LogicalPoolDetail';
-import DeploymentsListPage from './pages/DeploymentsList';
-import DeploymentDetailPage from './pages/DeploymentDetail';
-import ModelMallPage from './pages/ModelMall';
-import TrainingPage from './pages/Training';
-import InferenceServicesPage from './pages/InferenceServices';
-import InferenceChatPage from './pages/InferenceChat';
-import LabDashboardPage from './pages/LabDashboard';
-import DigitalTwinPage from './pages/DigitalTwin';
-import StrategyLabPage from './pages/StrategyLab';
-import WorkloadInsightPage from './pages/WorkloadInsight';
-import DataGovernancePage from './pages/DataGovernance';
-import ScreenDashboardPage from './pages/ScreenDashboard';
-import MonitoringPage from './pages/Monitoring';
-import AlertsPage from './pages/Alerts';
-import AlertRulesPage from './pages/AlertRules';
-import PhysicalClustersPage from './pages/PhysicalClusters';
-import PhysicalClusterDetailPage from './pages/PhysicalClusterDetail';
-import WorkloadsPage from './pages/Workloads';
-import StoragePage from './pages/Storage';
-import { Spin } from 'antd';
+import ClusterDetailPage from './pages/real/ClusterDetail';
+import ClustersPage from './pages/real/Clusters';
+import DashboardPage from './pages/real/Dashboard';
+import DeploymentDetailPage from './pages/real/DeploymentDetail';
+import DeploymentsPage from './pages/real/Deployments';
+import InferenceChatPage from './pages/real/InferenceChat';
+import InnovationLabPage from './pages/real/InnovationLab';
+import ModelsPage from './pages/real/Models';
+import ProjectDetailPage from './pages/real/ProjectDetail';
+import ProjectsPage from './pages/real/Projects';
+import ResourcePoolsPage from './pages/real/ResourcePools';
+import SpecsPage from './pages/real/Specs';
+import TenantDetailPage from './pages/real/TenantDetail';
+import TenantsPage from './pages/real/Tenants';
 
-function Protected({ children }: { children: React.ReactNode }) {
+function Protected({ children }: { children: ReactNode }) {
   const { username } = useAuth();
-  if (!username) return <Navigate to="/login" replace />;
+  if (!username) {
+    return <Navigate to="/login" replace />;
+  }
   return <>{children}</>;
 }
 
-function App() {
+export default function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/screen" element={<ScreenDashboardPage />} />
-        <Route element={<Protected><AppLayout /></Protected>}>
-          {/* 智算运营 */}
+        <Route element={<Protected><RealLayout /></Protected>}>
           <Route path="/" element={<DashboardPage />} />
-          <Route path="/inference" element={<InferenceServicesPage />} />
-          <Route path="/inference/:deploymentId/chat" element={<InferenceChatPage />} />
-          <Route path="/projects" element={<WorkspacesPage />} />
-          <Route path="/projects/:wsId" element={<LogicalPoolDetailPage />} />
-          <Route path="/projects/:wsId/deployments/:projectId" element={<DeploymentsListPage />} />
-          <Route path="/projects/:wsId/deployments/:projectId/:deploymentId" element={<DeploymentDetailPage />} />
-          <Route path="/resources/specs" element={<SpecsPage />} />
-          <Route path="/resources/pools" element={<PhysicalPoolsPage />} />
-          <Route path="/resources/pools/:wsId/:poolId" element={<PhysicalPoolDetailPage />} />
-          <Route path="/models" element={<ModelMallPage />} />
-          <Route path="/training" element={<TrainingPage />} />
-          {/* 创新实验室 */}
-          <Route path="/lab" element={<LabDashboardPage />} />
-          <Route path="/lab/digital-twin" element={<DigitalTwinPage />} />
-          <Route path="/lab/strategy-lab" element={<StrategyLabPage />} />
-          <Route path="/lab/workload" element={<WorkloadInsightPage />} />
-          <Route path="/lab/governance" element={<DataGovernancePage />} />
-          {/* 监控预警 */}
-          <Route path="/monitoring" element={<MonitoringPage />} />
-          <Route path="/monitoring/alerts" element={<AlertsPage />} />
-          <Route path="/monitoring/rules" element={<AlertRulesPage />} />
-          {/* 集群运维 */}
-          <Route path="/clusters" element={<PhysicalClustersPage />} />
-          <Route path="/clusters/:id" element={<PhysicalClusterDetailPage />} />
-          <Route path="/workloads" element={<WorkloadsPage />} />
-          <Route path="/storage" element={<StoragePage />} />
+          <Route path="/clusters" element={<ClustersPage />} />
+          <Route path="/clusters/:clusterId" element={<ClusterDetailPage />} />
+          <Route path="/resource-pools" element={<ResourcePoolsPage />} />
+          <Route path="/specs" element={<SpecsPage />} />
+          <Route path="/tenants" element={<TenantsPage />} />
+          <Route path="/tenants/:tenantId" element={<TenantDetailPage />} />
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
+          <Route path="/models" element={<ModelsPage />} />
+          <Route path="/deployments" element={<DeploymentsPage />} />
+          <Route path="/deployments/:projectId/:deploymentId" element={<DeploymentDetailPage />} />
+          <Route path="/deployments/:projectId/:deploymentId/chat" element={<InferenceChatPage />} />
+          <Route path="/innovation-lab" element={<InnovationLabPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );
 }
-
-export default App;

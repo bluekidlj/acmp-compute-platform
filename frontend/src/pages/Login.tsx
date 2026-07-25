@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Form, Input, Button, Card, Typography, Alert } from 'antd';
-import { UserOutlined, LockOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { authApi } from '../api/auth';
+import { api } from '../api/real';
 import { useAuth } from '../contexts/AuthContext';
 import { PSBC_GREEN, PSBC_COLORS } from '../theme';
 
@@ -15,26 +15,26 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [form] = Form.useForm();
 
-  const handleLogin = async (values: { username: string; password: string }) => {
+  async function handleLogin(values: { username: string; password: string }) {
     setLoading(true);
     setError(null);
     try {
-      const r = await authApi.login(values);
+      const r = await api.login(values.username, values.password);
       localStorage.setItem('token', r.token);
       setUser({ username: r.username, role: r.role });
       nav('/');
-    } catch (e: any) {
-      setError(e?.message || '登录失败');
+    } catch (exception) {
+      setError(exception instanceof Error ? exception.message : '登录失败');
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
     <div
       style={{
         minHeight: '100vh',
-        background: `linear-gradient(135deg, ${PSBC_GREEN.token.colorPrimary} 0%, ${PSBC_COLORS.primaryActive} 100%)`,
+        background: `radial-gradient(circle at 75% 20%, #0B5A3E 0%, ${PSBC_COLORS.navigation} 48%, #03110D 100%)`,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: 20,
       }}
@@ -43,10 +43,12 @@ export default function LoginPage() {
         style={{
           width: 420, borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
         }}
-        bodyStyle={{ padding: 40 }}
+        styles={{ body: { padding: 40 } }}
       >
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <ThunderboltOutlined style={{ fontSize: 48, color: PSBC_GREEN.token.colorPrimary }} />
+          <div className="login-brand-mark">
+            <img src="/acmp-logo.png" alt="ACMP" />
+          </div>
           <Title level={3} style={{ marginTop: 12, marginBottom: 4, color: PSBC_GREEN.token.colorPrimary }}>
             ACMP
           </Title>

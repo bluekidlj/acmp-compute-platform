@@ -31,7 +31,9 @@ public class EncryptionService {
 
     /** 加密后返回 Base64 字符串，便于存库 */
     public String encrypt(String plainText) {
-        if (plainText == null) return null;
+        if (plainText == null) {
+            return null;
+        }
         try {
             Cipher cipher = Cipher.getInstance(ALGORITHM);
             cipher.init(Cipher.ENCRYPT_MODE, keySpec);
@@ -45,7 +47,9 @@ public class EncryptionService {
 
     /** 从 Base64 密文解密 */
     public String decrypt(String base64Encrypted) {
-        if (base64Encrypted == null) return null;
+        if (base64Encrypted == null) {
+            return null;
+        }
         try {
             Cipher cipher = Cipher.getInstance(ALGORITHM);
             cipher.init(Cipher.DECRYPT_MODE, keySpec);

@@ -14,13 +14,7 @@ public interface ComputeSpecMapper {
     Optional<ComputeSpec> findById(@Param("id") String id);
     Optional<ComputeSpec> findByName(@Param("name") String name);
     List<ComputeSpec> findAll();
-    List<ComputeSpec> findByPoolType(@Param("poolType") String poolType);
+    List<ComputeSpec> findBySpecType(@Param("specType") String specType);
     int deleteById(@Param("id") String id);
-
-    // 池-规格关联
-    void insertResourcePoolSpec(@Param("resourcePoolId") String poolId, @Param("specId") String specId);
-    void deleteResourcePoolSpec(@Param("resourcePoolId") String poolId, @Param("specId") String specId);
-    void deleteResourcePoolSpecsByPool(@Param("resourcePoolId") String poolId);
     List<ComputeSpec> findByResourcePoolId(@Param("resourcePoolId") String poolId);
-    List<String> findSpecIdsByResourcePoolId(@Param("resourcePoolId") String poolId);
 }

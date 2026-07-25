@@ -15,7 +15,11 @@ public enum GpuBrand {
     GpuBrand(String label) { this.label = label; }
 
     @JsonValue
-    public String getValue() { return name(); }
+    public String getValue() {
+        return name();
+    }
 
-    public String getLabel() { return label; }
+    public String getLabel() {
+        return label;
+    }
 }

@@ -4,7 +4,7 @@
 
     <resultMap id="BaseResultMap" type="com.acmp.compute.entity.Project">
         <id column="id" property="id"/>
-        <result column="workspace_id" property="workspaceId"/>
+        <result column="tenant_id" property="tenantId"/>
         <result column="name" property="name"/>
         <result column="description" property="description"/>
         <result column="created_by" property="createdBy"/>
@@ -15,9 +15,9 @@
 
     <insert id="insert">
         INSERT INTO project
-            (id, workspace_id, name, description, created_by, status, created_at, updated_at)
+            (id, tenant_id, name, description, created_by, status, created_at, updated_at)
         VALUES
-            (#{id}, #{workspaceId}, #{name}, #{description}, #{createdBy}, #{status},
+            (#{id}, #{tenantId}, #{name}, #{description}, #{createdBy}, #{status},
              CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 
@@ -32,8 +32,8 @@
 
     <select id="findById" resultMap="BaseResultMap">SELECT * FROM project WHERE id = #{id}</select>
     <select id="findAll" resultMap="BaseResultMap">SELECT * FROM project ORDER BY created_at DESC</select>
-    <select id="findByWorkspaceId" resultMap="BaseResultMap">
-        SELECT * FROM project WHERE workspace_id = #{workspaceId} ORDER BY created_at DESC
+    <select id="findByTenantId" resultMap="BaseResultMap">
+        SELECT * FROM project WHERE tenant_id = #{tenantId} ORDER BY created_at DESC
     </select>
     <delete id="deleteById">DELETE FROM project WHERE id = #{id}</delete>
 

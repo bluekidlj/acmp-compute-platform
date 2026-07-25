@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.acmp.compute.mapper.ClusterNodeMapper">
+
+    <resultMap id="BaseResultMap" type="com.acmp.compute.entity.ClusterNode">
+        <id column="id" property="id"/>
+        <result column="cluster_id" property="clusterId"/>
+        <result column="name" property="name"/>
+        <result column="cpu_cores" property="cpuCores"/>
+        <result column="memory_bytes" property="memoryBytes"/>
+        <result column="gpu_count" property="gpuCount"/>
+        <result column="status" property="status"/>
+        <result column="labels_json" property="labelsJson"/>
+        <result column="taints_json" property="taintsJson"/>
+        <result column="last_sync_at" property="lastSyncAt"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO cluster_node
+            (id, cluster_id, name, cpu_cores, memory_bytes, gpu_count,
+             status, labels_json, taints_json, last_sync_at)
+        VALUES
+            (#{id}, #{clusterId}, #{name}, #{cpuCores}, #{memoryBytes}, #{gpuCount},
+             #{status}, #{labelsJson}, #{taintsJson}, CURRENT_TIMESTAMP)
+    </insert>
+
+    <update id="updateDiscovered">
+        UPDATE cluster_node
+        SET cpu_cores = #{cpuCores},
+            memory_bytes = #{memoryBytes},
+            gpu_count = #{gpuCount},
+            status = #{status},
+            labels_json = #{labelsJson},
+            taints_json = #{taintsJson},
+            last_sync_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <update id="markOfflineByCluster">
+        UPDATE cluster_node
+        SET status = 'OFFLINE', updated_at = CURRENT_TIMESTAMP
+        WHERE cluster_id = #{clusterId}
+    </update>
+
+    <select id="findByClusterAndName" resultMap="BaseResultMap">
+        SELECT * FROM cluster_node
+        WHERE cluster_id = #{clusterId} AND name = #{name}
+    </select>
+
+    <select id="findById" resultMap="BaseResultMap">
+        SELECT * FROM cluster_node WHERE id = #{id}
+    </select>
+
+    <select id="findByClusterId" resultMap="BaseResultMap">
+        SELECT * FROM cluster_node
+        WHERE cluster_id = #{clusterId}
+        ORDER BY name
+    </select>
+
+    <delete id="deleteByClusterId">
+        DELETE FROM cluster_node WHERE cluster_id = #{clusterId}
+    </delete>
+</mapper>

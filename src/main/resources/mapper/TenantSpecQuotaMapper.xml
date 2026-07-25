@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.acmp.compute.mapper.TenantSpecQuotaMapper">
+
+    <resultMap id="BaseResultMap" type="com.acmp.compute.entity.TenantSpecQuota">
+        <id column="id" property="id"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="spec_id" property="specId"/>
+        <result column="total" property="total"/>
+        <result column="used" property="used"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO tenant_spec_quota
+            (id, tenant_id, spec_id, total, used)
+        VALUES
+            (#{id}, #{tenantId}, #{specId}, #{total}, #{used})
+    </insert>
+
+    <update id="updateTotal">
+        UPDATE tenant_spec_quota
+        SET total = #{total}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateUsed">
+        UPDATE tenant_spec_quota
+        SET used = #{used}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <select id="findById" resultMap="BaseResultMap">
+        SELECT * FROM tenant_spec_quota WHERE id = #{id}
+    </select>
+
+    <select id="findByTenantAndSpec" resultMap="BaseResultMap">
+        SELECT * FROM tenant_spec_quota
+        WHERE tenant_id = #{tenantId} AND spec_id = #{specId}
+    </select>
+
+    <select id="findByTenantId" resultMap="BaseResultMap">
+        SELECT * FROM tenant_spec_quota
+        WHERE tenant_id = #{tenantId}
+        ORDER BY created_at
+    </select>
+
+    <select id="countBySpecId" resultType="int">
+        SELECT COUNT(*) FROM tenant_spec_quota WHERE spec_id = #{specId}
+    </select>
+
+    <select id="sumTotalBySpecId" resultType="int">
+        SELECT COALESCE(SUM(total), 0)
+        FROM tenant_spec_quota
+        WHERE spec_id = #{specId}
+    </select>
+
+    <select id="sumUsedBySpecId" resultType="int">
+        SELECT COALESCE(SUM(used), 0)
+        FROM tenant_spec_quota
+        WHERE spec_id = #{specId}
+    </select>
+
+    <select id="countUsedByTenantId" resultType="int">
+        SELECT COALESCE(SUM(used), 0)
+        FROM tenant_spec_quota
+        WHERE tenant_id = #{tenantId}
+    </select>
+
+    <delete id="deleteById">
+        DELETE FROM tenant_spec_quota WHERE id = #{id}
+    </delete>
+
+    <delete id="deleteByTenantId">
+        DELETE FROM tenant_spec_quota WHERE tenant_id = #{tenantId}
+    </delete>
+</mapper>

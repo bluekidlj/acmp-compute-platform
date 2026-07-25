@@ -11,7 +11,6 @@ import java.util.Optional;
 public interface PhysicalClusterMapper {
     int insert(PhysicalCluster entity);
     int update(PhysicalCluster entity);
-    int updateScanSummary(PhysicalCluster entity);
     Optional<PhysicalCluster> findById(@Param("id") String id);
     List<PhysicalCluster> findAll();
     int deleteById(@Param("id") String id);

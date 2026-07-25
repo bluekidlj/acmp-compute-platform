@@ -3,311 +3,401 @@ package com.acmp.compute.service;
 import com.acmp.compute.dto.ModelDeploymentRequest;
 import com.acmp.compute.dto.ModelDeploymentResponse;
 import com.acmp.compute.dto.ModelResponse;
+import com.acmp.compute.dto.ChatCompletionRequest;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.acmp.compute.entity.ComputeSpec;
+import com.acmp.compute.entity.GpuDevice;
 import com.acmp.compute.entity.ModelDeployment;
 import com.acmp.compute.entity.Project;
-import com.acmp.compute.entity.ProjectResourceQuota;
-import com.acmp.compute.entity.ResourcePool;
-import com.acmp.compute.entity.Workspace;
+import com.acmp.compute.entity.TenantSpecQuota;
 import com.acmp.compute.exception.BadRequestException;
 import com.acmp.compute.exception.ForbiddenException;
 import com.acmp.compute.exception.ResourceNotFoundException;
 import com.acmp.compute.k8s.K8sResourceBuilder;
 import com.acmp.compute.k8s.KubernetesClientManager;
 import com.acmp.compute.mapper.ComputeSpecMapper;
-import io.kubernetes.client.openapi.models.V1Deployment;
-import io.kubernetes.client.openapi.models.V1Service;
+import com.acmp.compute.mapper.GpuDeviceMapper;
 import com.acmp.compute.mapper.ModelDeploymentMapper;
-import com.acmp.compute.mapper.PoolCardMapper;
 import com.acmp.compute.mapper.ProjectMapper;
-import com.acmp.compute.mapper.ProjectResourceQuotaMapper;
-import com.acmp.compute.mapper.ResourcePoolMapper;
-import com.acmp.compute.mapper.WorkspaceMapper;
 import com.acmp.compute.security.UserPrincipal;
 import com.acmp.compute.util.NfsStoragePathResolver;
+import io.kubernetes.client.openapi.models.V1Deployment;
+import io.kubernetes.client.openapi.models.V1Service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
-/**
- * 1.0 模型部署服务。
- *
- * <h2>部署流程</h2>
- * <ol>
- *   <li>校验项目成员</li>
- *   <li>加载 spec → specType 决定 poolType</li>
- *   <li>在项目拥有的池中找该 poolType 的池，且池已关联该 spec</li>
- *   <li>三层配额校验：project quota / pool allocated / 1.0 replicas=1</li>
- *   <li>预扣 project.used + pool.allocated</li>
- *   <li>调 K8sResourceBuilder 生成 YAML，提交 K8s</li>
- *   <li>失败回滚</li>
- * </ol>
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ModelDeploymentService {
-
-    private final ModelDeploymentMapper deploymentMapper;
+    private final ModelDeploymentMapper mapper;
     private final ProjectMapper projectMapper;
-    private final WorkspaceMapper workspaceMapper;
-    private final ResourcePoolMapper poolMapper;
     private final ComputeSpecMapper specMapper;
-    private final ProjectResourceQuotaMapper projectQuotaMapper;
-    private final PoolCardMapper poolCardMapper;
+    private final GpuDeviceMapper gpuMapper;
+    private final TenantSpecQuotaService quotaService;
     private final KubernetesClientManager clientManager;
     private final ModelService modelService;
+    private final ObjectMapper objectMapper;
 
-    private UserPrincipal currentUser() {
-        Object p = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        if (!(p instanceof UserPrincipal)) throw new ForbiddenException("未登录");
-        return (UserPrincipal) p;
+    /**
+     * 单体同步流程：校验 → 扣租户配额 → 创建 DB 记录 → 调 Kubernetes。
+     * Kubernetes 调用失败时在当前请求中恢复配额并保留 FAILED 记录，便于内网调试。
+     */
+    @Transactional
+    public ModelDeploymentResponse deploy(String projectId, ModelDeploymentRequest request) {
+        Project project = project(projectId);
+        ensureAccess(project);
+        int replicas = request.getReplicas() == null ? 1 : request.getReplicas();
+        if (replicas <= 0) {
+            throw new BadRequestException("replicas 必须大于 0");
+        }
+        int port = request.getPort() == null ? 8000 : request.getPort();
+        if (port < 1 || port > 65535) {
+            throw new BadRequestException("port 必须在 1 到 65535 之间");
+        }
+
+        ComputeSpec spec = specMapper.findByName(request.getSpecName()).orElse(null);
+        if (spec == null) {
+            throw new ResourceNotFoundException("规格不存在: " + request.getSpecName());
+        }
+        if (spec.getResourcePoolId() == null) {
+            throw new BadRequestException("规格未绑定固定资源池");
+        }
+        if (spec.getGpuCount() == null || spec.getGpuCount() != 1) {
+            throw new BadRequestException("0.1 版本只支持单 Gpu 算力规格");
+        }
+
+        String clusterId = candidateCluster(spec, replicas);
+
+        TenantSpecQuota quota = quotaService.requireAvailable(project.getTenantId(), spec.getId(), replicas);
+        quotaService.changeUsed(quota.getId(), replicas);
+
+        String id = UUID.randomUUID().toString();
+        String safeName = request.getName().toLowerCase().replaceAll("[^a-z0-9-]", "-");
+        String deploymentName = trim("vllm-" + safeName + "-" + id.substring(0, 6), 63);
+        String serviceName = trim(deploymentName + "-svc", 63);
+        String namespace = "tenant-" + project.getTenantId().substring(0, Math.min(8, project.getTenantId().length()));
+        String image = request.getImage();
+        String modelPath = request.getModelIdOrPath() == null ? "/models" : request.getModelIdOrPath();
+        String hostModelPath = null;
+        String modelSource = request.getModelSource();
+        if (request.getModelId() != null && !request.getModelId().isBlank()) {
+            ModelResponse model = modelService.getById(request.getModelId());
+            hostModelPath = NfsStoragePathResolver.resolve(model.getStoragePath(), model.getName());
+            modelSource = model.getModelSource();
+        }
+
+        ModelDeployment record = ModelDeployment.builder().id(id).projectId(projectId)
+                .tenantId(project.getTenantId())
+                .modelId(request.getModelId()).resourcePoolId(spec.getResourcePoolId())
+                .specId(spec.getId()).name(request.getName())
+                .modelName(request.getModelName()).modelSource(modelSource).modelIdOrPath(modelPath)
+                .vllmImage(image).port(port)
+                .replicas(replicas).k8sDeploymentName(deploymentName).k8sServiceName(serviceName)
+                .status("PENDING").actualClusterId(clusterId).createdBy(currentUser().getId()).build();
+        mapper.insert(record);
+
+        try {
+            // Tenant 不再永久绑定 Namespace；部署时按 Tenant ID 创建稳定 Namespace。
+            clientManager.createNamespace(clusterId, namespace);
+            V1Deployment deployment = K8sResourceBuilder.buildVllmDeployment(
+                    deploymentName, namespace, image, modelPath, port, spec, replicas, hostModelPath,
+                    request.getEnvVars(), request.getCommand(), request.getArgs());
+            V1Service service = K8sResourceBuilder.buildVllmService(
+                    serviceName,
+                    namespace,
+                    deploymentName,
+                    port);
+            clientManager.createVllmDeploymentAndService(clusterId, namespace, deployment, service);
+            String url = "http://" + serviceName + "." + namespace + ".svc.cluster.local:" + port;
+            mapper.updateStatus(id, "SUBMITTED", url);
+            record.setStatus("SUBMITTED");
+            record.setServiceUrl(url);
+        } catch (Exception e) {
+            quotaService.changeUsed(quota.getId(), -replicas);
+            mapper.updateStatus(id, "FAILED", null);
+            mapper.updateFailure(id, shortMessage(e.getMessage()));
+            record.setStatus("FAILED");
+            record.setFailureMessage(shortMessage(e.getMessage()));
+            log.error("推理服务提交 Kubernetes 失败: deployment={}, error={}", id, e.getMessage(), e);
+        }
+        ModelDeployment saved = mapper.findById(id).orElse(record);
+        return response(saved, null);
     }
 
-    private void ensureCanAccessProject(String projectId) {
-        List<String> members = projectMapper.findMemberIds(projectId);
-        if (!members.contains(currentUser().getId())) {
+    /**
+     * 查询当前用户有权访问的全部推理服务。
+     */
+    public List<ModelDeploymentResponse> listAccessible() {
+        List<ModelDeploymentResponse> result = new ArrayList<>();
+        for (ModelDeployment record : mapper.findAll()) {
+            Project project = projectMapper.findById(record.getProjectId()).orElse(null);
+            if (project != null && canAccess(project)) {
+                Integer ready = null;
+                try {
+                    ready = clientManager.getDeploymentReadyReplicas(
+                            record.getActualClusterId(),
+                            namespace(record.getTenantId()),
+                            record.getK8sDeploymentName()).orElse(0);
+                } catch (Exception exception) {
+                    log.warn("全局列表查询就绪副本失败: deployment={}, error={}",
+                            record.getId(), exception.getMessage());
+                }
+                result.add(response(record, ready));
+            }
+        }
+        return result;
+    }
+
+    public List<ModelDeploymentResponse> listByProject(String projectId) {
+        Project project = project(projectId);
+        ensureAccess(project);
+        List<ModelDeploymentResponse> result = new ArrayList<>();
+        for (ModelDeployment record : mapper.findByProjectId(projectId)) {
+            result.add(response(record, null));
+        }
+        return result;
+    }
+
+    public ModelDeploymentResponse getStatus(String projectId, String deploymentId) {
+        Project project = project(projectId);
+        ensureAccess(project);
+        ModelDeployment record = record(projectId, deploymentId);
+        Integer ready = null;
+        try {
+            String namespace = namespace(record.getTenantId());
+            ready = clientManager.getDeploymentReadyReplicas(record.getActualClusterId(), namespace,
+                    record.getK8sDeploymentName()).orElse(0);
+            if (ready >= record.getReplicas() && !"RUNNING".equals(record.getStatus())) {
+                mapper.updateStatus(record.getId(), "RUNNING", record.getServiceUrl());
+                record.setStatus("RUNNING");
+            }
+        } catch (Exception e) {
+            log.warn("查询 Kubernetes Deployment 状态失败，保留数据库状态: {}", e.getMessage());
+        }
+        return response(record, ready);
+    }
+
+    /**
+     * 将 OpenAI 兼容请求代理到部署对应的 Kubernetes ClusterIP Service。
+     *
+     * 客户端连接最容易在内网调试时出错，因此这里不接受外部 URL：
+     * 目标地址和模型名必须来自已经持久化且通过权限校验的部署记录。
+     */
+    public JsonNode chat(
+            String projectId,
+            String deploymentId,
+            ChatCompletionRequest request) {
+        Project project = project(projectId);
+        ensureAccess(project);
+        ModelDeployment record = record(projectId, deploymentId);
+
+        if (!"RUNNING".equals(record.getStatus())) {
+            throw new BadRequestException("推理服务尚未运行，当前状态: " + record.getStatus());
+        }
+        if (record.getServiceUrl() == null || record.getServiceUrl().isBlank()) {
+            throw new BadRequestException("推理服务没有可用的内部地址");
+        }
+        if (record.getModelName() == null || record.getModelName().isBlank()) {
+            throw new BadRequestException("推理服务没有配置模型名称");
+        }
+
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("model", record.getModelName());
+        body.set("messages", objectMapper.valueToTree(request.getMessages()));
+        body.put("temperature", request.getTemperature());
+        body.put("top_p", request.getTopP());
+        body.put("repetition_penalty", request.getRepetitionPenalty());
+        body.put("max_tokens", request.getMaxTokens());
+        body.put("stream", false);
+
+        try {
+            String result = clientManager.postServiceProxy(
+                    record.getActualClusterId(),
+                    namespace(record.getTenantId()),
+                    record.getK8sServiceName(),
+                    record.getPort(),
+                    "/v1/chat/completions",
+                    objectMapper.writeValueAsString(body));
+            return parseChatResponse(record, result);
+        } catch (Exception exception) {
+            log.warn("调用推理服务失败: deployment={}, service={}, error={}",
+                    deploymentId, record.getK8sServiceName(), exception.getMessage());
+            throw new BadRequestException("调用推理服务失败: " + shortMessage(exception.getMessage()));
+        }
+    }
+
+    /**
+     * 解析真实 vLLM 的 OpenAI JSON 响应。
+     *
+     * <p>Docker Desktop 没有真实 GPU，本地验证部署使用 hashicorp/http-echo
+     * 证明 Service Proxy 链路可达。只有这个明确的演示镜像允许把纯文本包装为
+     * OpenAI Chat Completions 响应；其他镜像返回非法 JSON 时仍直接报错。
+     */
+    private JsonNode parseChatResponse(ModelDeployment record, String responseBody)
+            throws Exception {
+        try {
+            return objectMapper.readTree(responseBody);
+        } catch (Exception parseException) {
+            if (record.getVllmImage() == null
+                    || !record.getVllmImage().startsWith("hashicorp/http-echo:")) {
+                throw parseException;
+            }
+
+            String content = responseBody == null ? "" : responseBody.trim();
+            ObjectNode message = objectMapper.createObjectNode();
+            message.put("role", "assistant");
+            message.put("content", content);
+
+            ObjectNode choice = objectMapper.createObjectNode();
+            choice.put("index", 0);
+            choice.set("message", message);
+            choice.put("finish_reason", "stop");
+
+            ArrayNode choices = objectMapper.createArrayNode();
+            choices.add(choice);
+
+            ObjectNode usage = objectMapper.createObjectNode();
+            usage.put("prompt_tokens", 0);
+            usage.put("completion_tokens", 0);
+            usage.put("total_tokens", 0);
+
+            ObjectNode response = objectMapper.createObjectNode();
+            response.put("id", "local-protocol-demo-" + record.getId());
+            response.put("object", "chat.completion");
+            response.put("model", record.getModelName());
+            response.set("choices", choices);
+            response.set("usage", usage);
+            return response;
+        }
+    }
+
+    @Transactional
+    public void delete(String projectId, String deploymentId) {
+        Project project = project(projectId);
+        ensureAccess(project);
+        ModelDeployment record = record(projectId, deploymentId);
+        String namespace = namespace(record.getTenantId());
+        clientManager.deleteDeployment(record.getActualClusterId(), namespace, record.getK8sDeploymentName());
+        clientManager.deleteService(record.getActualClusterId(), namespace, record.getK8sServiceName());
+        if (!"FAILED".equals(record.getStatus())) {
+            TenantSpecQuota quota = quotaService.requireAvailable(record.getTenantId(), record.getSpecId(), 0);
+            quotaService.changeUsed(quota.getId(), -record.getReplicas());
+        }
+        mapper.deleteById(deploymentId);
+    }
+
+    private Project project(String id) {
+        Project project = projectMapper.findById(id).orElse(null);
+        if (project == null) {
+            throw new ResourceNotFoundException("项目不存在: " + id);
+        }
+        return project;
+    }
+
+    /**
+     * 入池时创建的规格优先使用来源 Gpu 所在集群。
+     *
+     * <p>历史预置规格没有来源 Gpu 时保留按资源池和型号查找候选集群的兼容逻辑。
+     * 共享规格的多个副本由 HAMi 在同一张物理 Gpu 上切分，不按副本数要求物理卡数量。
+     */
+    private String candidateCluster(ComputeSpec spec, int replicas) {
+        GpuDevice sourceGpu = gpuMapper.findByComputeSpecId(spec.getId()).orElse(null);
+
+        if (sourceGpu != null) {
+            if (!"READY".equals(sourceGpu.getStatus())) {
+                throw new BadRequestException("规格来源 Gpu 当前不可用");
+            }
+            return sourceGpu.getClusterId();
+        }
+
+        int requiredPhysicalGpu = "EXCLUSIVE".equals(spec.getSpecType()) ? replicas : 1;
+        List<String> clusters = gpuMapper.findCandidateClusterIds(
+                spec.getResourcePoolId(),
+                spec.getGpuModel(),
+                requiredPhysicalGpu);
+
+        if (clusters.isEmpty()) {
+            throw new BadRequestException("资源池中没有满足规格的在线 Gpu");
+        }
+
+        return clusters.get(0);
+    }
+    private ModelDeployment record(String projectId, String id) {
+        ModelDeployment value = mapper.findById(id).orElse(null);
+        if (value == null) {
+            throw new ResourceNotFoundException("部署不存在");
+        }
+        if (!projectId.equals(value.getProjectId())) {
+            throw new ForbiddenException("部署不属于该项目");
+        }
+        return value;
+    }
+    private void ensureAccess(Project project) {
+        if (!canAccess(project)) {
             throw new ForbiddenException("无权限访问该项目");
         }
     }
 
-    @Transactional(rollbackFor = Exception.class)
-    public ModelDeploymentResponse deploy(String projectId, ModelDeploymentRequest req) {
-        ensureCanAccessProject(projectId);
-
-        Project project = projectMapper.findById(projectId)
-                .orElseThrow(() -> new ResourceNotFoundException("项目不存在: " + projectId));
-        Workspace ws = workspaceMapper.findById(project.getWorkspaceId())
-                .orElseThrow(() -> new ResourceNotFoundException("工作空间不存在: " + project.getWorkspaceId()));
-
-        // 1.0 replicas 必须 = 1
-        if (req.getReplicas() != null && req.getReplicas() != 1) {
-            throw new BadRequestException("1.0 仅支持 1 节点部署 (replicas 必须为 1)");
+    private boolean canAccess(Project project) {
+        UserPrincipal user = currentUser();
+        if (user.getId().equals(project.getCreatedBy())) {
+            return true;
         }
-        int replicas = 1;
-
-        // 加载 spec
-        ComputeSpec spec = specMapper.findByName(req.getSpecName())
-                .orElseThrow(() -> new BadRequestException("规格不存在: " + req.getSpecName()));
-
-        // 1.0 超分暂未实现真实 K8s 提交
-        if ("OVERSELL".equals(spec.getPoolType())) {
-            // 仍记账，但不调 K8s
-            log.warn("⚠️ 超分池 {} 1.0 暂未实现真实 K8s 提交，仅记账", spec.getName());
-        }
-
-        // 找匹配池：项目所属 WS 拥有该 poolType 池，且池已关联该 spec
-        ResourcePool pool = findMatchingPool(project.getWorkspaceId(), spec);
-
-        // 项目配额校验
-        ProjectResourceQuota quota = projectQuotaMapper.findByProjectPoolSpec(projectId, pool.getId(), spec.getId())
-                .orElseThrow(() -> new BadRequestException(
-                        "项目 " + project.getName() + " 在 " + pool.getName() + " 中未配置规格 " + spec.getName() + " 的配额"));
-
-        int used = quota.getUsedNodes() != null ? quota.getUsedNodes() : 0;
-        int total = quota.getTotalNodes() != null ? quota.getTotalNodes() : 0;
-        if (used + replicas > total) {
-            throw new BadRequestException(String.format(
-                    "项目配额不足: 规格=%s, total=%d, used=%d, 请求=%d",
-                    spec.getName(), total, used, replicas));
-        }
-
-        // 预扣
-        projectQuotaMapper.updateUsedNodes(quota.getId(), used + replicas);
-        // 注：pool.allocated 不在部署时修改。pool.allocated 仅在 ProjectQuotaService.allocate 分配配额时累加。
-
-        // K8s 资源名
-        String safeName = req.getName().toLowerCase().replaceAll("[^a-z0-9-]", "-");
-        String deploymentName = trim("vllm-" + safeName, 50);
-        String serviceName = trim(deploymentName + "-svc", 50);
-
-        String modelPath = req.getModelIdOrPath() != null ? req.getModelIdOrPath() : "/models";
-        String image = req.getImage() != null ? req.getImage() : "vllm/vllm-openai:latest";
-        String hostModelPath = null;
-        String effectiveModelSource = req.getModelSource();
-        if (req.getModelId() != null && !req.getModelId().isEmpty()) {
-            ModelResponse modelResp = modelService.getById(req.getModelId());
-            hostModelPath = NfsStoragePathResolver.resolve(modelResp.getStoragePath(), modelResp.getName());
-            effectiveModelSource = modelResp.getModelSource();
-        }
-
-        String id = UUID.randomUUID().toString();
-        String clusterId = ws.getPrimaryClusterId();
-        ModelDeployment record = ModelDeployment.builder()
-                .id(id)
-                .projectId(projectId)
-                .workspaceId(ws.getId())
-                .resourcePoolId(pool.getId())
-                .specId(spec.getId())
-                .poolType(spec.getPoolType())
-                .name(req.getName())
-                .modelName(req.getModelName())
-                .modelSource(effectiveModelSource)
-                .modelIdOrPath(modelPath)
-                .vllmImage(image)
-                .gpuPerReplica(spec.getDefaultGpuCount())
-                .gpumemMb(spec.getDefaultGpumemMb())
-                .gpucores(spec.getDefaultGpucores())
-                .replicas(replicas)
-                .k8sDeploymentName(deploymentName)
-                .k8sServiceName(serviceName)
-                .status("pending")
-                .actualClusterId(clusterId)
-                .createdBy(currentUser().getId())
-                .build();
-        deploymentMapper.insert(record);
-
-        // 超分池跳过 K8s 提交
-        if ("OVERSELL".equals(spec.getPoolType())) {
-            deploymentMapper.updateStatus(id, "running", null);
-            ModelDeployment refreshed = deploymentMapper.findById(id)
-                    .orElseThrow(() -> new ResourceNotFoundException("部署不存在: " + id));
-            log.info("✅ 超分占位部署完成（未提交 K8s）: id={}, project={}, spec={}", id, projectId, spec.getName());
-            return toResponse(refreshed, null);
-        }
-
-        try {
-            List<String> preferredNodes = poolCardMapper.findNodeNamesByPoolAndSpec(
-                pool.getId(), spec.getId());
-            V1Deployment deployment = K8sResourceBuilder.buildVllmDeployment(
-                    deploymentName, ws.getNamespace(),
-                    image, modelPath, spec, replicas, hostModelPath,
-                    spec.getNodeSelector(), spec.getTolerations(),
-                    req.getEnvVars(), req.getCommand(), req.getArgs(),
-                    preferredNodes);
-            V1Service service = K8sResourceBuilder.buildVllmService(serviceName, ws.getNamespace(), deploymentName);
-            clientManager.createVllmDeploymentAndService(clusterId, ws.getNamespace(), deployment, service);
-            deploymentMapper.updateActualClusterId(id, clusterId);
-
-            String serviceUrl = String.format("http://%s.%s.svc.cluster.local:8000", serviceName, ws.getNamespace());
-            deploymentMapper.updateStatus(id, "running", serviceUrl);
-            record.setStatus("running");
-            record.setServiceUrl(serviceUrl);
-
-            log.info("✅ vLLM 部署完成: id={}, project={}, spec={}, url={}", id, projectId, spec.getName(), serviceUrl);
-        } catch (Exception err) {
-            log.error("❌ K8s 提交失败，回滚 prq.used: id={}, err={}", id, err.getMessage(), err);
-            projectQuotaMapper.updateUsedNodes(quota.getId(), used);
-            deploymentMapper.updateStatus(id, "failed", null);
-            record.setStatus("failed");
-            throw new RuntimeException("vLLM 部署失败: " + err.getMessage(), err);
-        }
-
-        return toResponse(record, null);
-    }
-
-    public List<ModelDeploymentResponse> listByProject(String projectId) {
-        ensureCanAccessProject(projectId);
-        return deploymentMapper.findByProjectId(projectId).stream()
-                .map(m -> toResponse(m, null)).collect(java.util.stream.Collectors.toList());
-    }
-
-    public ModelDeploymentResponse getStatus(String projectId, String deploymentId) {
-        ensureCanAccessProject(projectId);
-        ModelDeployment record = deploymentMapper.findById(deploymentId)
-                .orElseThrow(() -> new ResourceNotFoundException("部署记录不存在"));
-        if (!projectId.equals(record.getProjectId())) {
-            throw new ForbiddenException("部署不属于该项目");
-        }
-        Integer ready = null;
-        try {
-            String clusterId = record.getActualClusterId();
-            Workspace ws = workspaceMapper.findById(record.getWorkspaceId()).orElseThrow();
-            if (clusterId == null || clusterId.isEmpty()) clusterId = ws.getPrimaryClusterId();
-            ready = clientManager.getDeploymentReadyReplicas(
-                    clusterId, ws.getNamespace(), record.getK8sDeploymentName()).orElse(0);
-        } catch (Exception ignored) {}
-        return toResponse(record, ready);
-    }
-
-    @Transactional(rollbackFor = Exception.class)
-    public void delete(String projectId, String deploymentId) {
-        ensureCanAccessProject(projectId);
-        ModelDeployment record = deploymentMapper.findById(deploymentId)
-                .orElseThrow(() -> new ResourceNotFoundException("部署记录不存在"));
-        if (!projectId.equals(record.getProjectId())) {
-            throw new ForbiddenException("部署不属于该项目");
-        }
-        Workspace ws = workspaceMapper.findById(record.getWorkspaceId()).orElseThrow();
-        String clusterId = record.getActualClusterId() != null && !record.getActualClusterId().isEmpty()
-                ? record.getActualClusterId() : ws.getPrimaryClusterId();
-
-        // 删 K8s 资源（非超分）
-        if (!"OVERSELL".equals(record.getPoolType()) && record.getK8sDeploymentName() != null) {
-            try {
-                clientManager.deleteDeployment(clusterId, ws.getNamespace(), record.getK8sDeploymentName());
-                clientManager.deleteService(clusterId, ws.getNamespace(), record.getK8sServiceName());
-            } catch (Exception e) {
-                log.warn("删除 K8s 资源失败（继续）: {}", e.getMessage());
+        for (String member : projectMapper.findMemberIds(project.getId())) {
+            if (user.getId().equals(member)) {
+                return true;
             }
         }
-
-        // 回滚配额
-        if (record.getSpecId() != null && record.getReplicas() != null
-                && !"failed".equals(record.getStatus())) {
-            try {
-                Optional<ProjectResourceQuota> q = projectQuotaMapper.findByProjectPoolSpec(
-                        projectId, record.getResourcePoolId(), record.getSpecId());
-                if (q.isPresent()) {
-                    int used = q.get().getUsedNodes() != null ? q.get().getUsedNodes() : 0;
-                    projectQuotaMapper.updateUsedNodes(q.get().getId(),
-                            Math.max(0, used - record.getReplicas()));
-                }
-            } catch (Exception e) {
-                log.error("❌ 配额回滚失败: {}", e.getMessage(), e);
+        for (org.springframework.security.core.GrantedAuthority authority : user.getAuthorities()) {
+            if ("ROLE_PLATFORM_ADMIN".equals(authority.getAuthority())
+                    || "ROLE_ORG_ADMIN".equals(authority.getAuthority())) {
+                return true;
             }
         }
-
-        deploymentMapper.deleteById(deploymentId);
-        log.info("✓ 部署 {} 已删除", deploymentId);
+        return false;
     }
-
-    private ResourcePool findMatchingPool(String workspaceId, ComputeSpec spec) {
-        ResourcePool pool = poolMapper.findByWorkspaceAndType(workspaceId, spec.getPoolType())
-                .orElseThrow(() -> new BadRequestException(
-                        "工作空间 " + workspaceId + " 未拥有 " + spec.getPoolType() + " 类型池"));
-        if (!specMapper.findSpecIdsByResourcePoolId(pool.getId()).contains(spec.getId())) {
-            throw new BadRequestException(
-                    "资源池 " + pool.getName() + " 未关联规格 " + spec.getName());
+    private UserPrincipal currentUser() {
+        Object value = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        if (!(value instanceof UserPrincipal)) {
+            throw new ForbiddenException("未登录");
         }
-        return pool;
+        return (UserPrincipal) value;
+    }
+    private String namespace(String tenantId) {
+        return "tenant-" + tenantId.substring(0, Math.min(8, tenantId.length()));
+    }
+    private String trim(String value, int max) {
+        return value.length() > max ? value.substring(0, max) : value;
     }
 
-    private String trim(String s, int max) {
-        return s.length() > max ? s.substring(0, max) : s;
+    private String shortMessage(String value) {
+        if (value == null) {
+            return null;
+        }
+        return value.length() > 900 ? value.substring(0, 900) : value;
     }
 
-    private ModelDeploymentResponse toResponse(ModelDeployment m, Integer readyReplicas) {
-        return ModelDeploymentResponse.builder()
-                .id(m.getId())
-                .projectId(m.getProjectId())
-                .workspaceId(m.getWorkspaceId())
-                .resourcePoolId(m.getResourcePoolId())
-                .specId(m.getSpecId())
-                .poolType(m.getPoolType())
-                .name(m.getName())
-                .modelName(m.getModelName())
-                .modelSource(m.getModelSource())
-                .modelIdOrPath(m.getModelIdOrPath())
-                .vllmImage(m.getVllmImage())
-                .gpuPerReplica(m.getGpuPerReplica())
-                .replicas(m.getReplicas())
-                .k8sDeploymentName(m.getK8sDeploymentName())
-                .k8sServiceName(m.getK8sServiceName())
-                .status(m.getStatus())
-                .serviceUrl(m.getServiceUrl())
-                .readyReplicas(readyReplicas)
-                .actualClusterId(m.getActualClusterId())
-                .createdBy(m.getCreatedBy())
-                .createdAt(m.getCreatedAt())
-                .updatedAt(m.getUpdatedAt())
-                .build();
+    private ModelDeploymentResponse response(ModelDeployment m, Integer ready) {
+        return ModelDeploymentResponse.builder().id(m.getId()).projectId(m.getProjectId())
+                .tenantId(m.getTenantId()).resourcePoolId(m.getResourcePoolId()).specId(m.getSpecId())
+                .name(m.getName()).modelName(m.getModelName())
+                .modelSource(m.getModelSource()).modelIdOrPath(m.getModelIdOrPath()).vllmImage(m.getVllmImage())
+                .port(m.getPort()).replicas(m.getReplicas())
+                .k8sDeploymentName(m.getK8sDeploymentName()).k8sServiceName(m.getK8sServiceName())
+                .status(m.getStatus()).serviceUrl(m.getServiceUrl()).readyReplicas(ready)
+                .actualClusterId(m.getActualClusterId()).createdBy(m.getCreatedBy())
+                .failureMessage(m.getFailureMessage())
+                .createdAt(m.getCreatedAt()).updatedAt(m.getUpdatedAt()).build();
     }
 }

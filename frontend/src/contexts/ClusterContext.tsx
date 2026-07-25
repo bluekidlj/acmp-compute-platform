@@ -9,7 +9,7 @@ interface ClusterContextType {
 const ClusterContext = createContext<ClusterContextType | null>(null);
 
 export const ClusterProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [clusterId, setClusterIdState] = useState<string>('cluster-bj-01');
+  const [clusterId, setClusterIdState] = useState<string>('');
 
   const setClusterId = (id: string) => {
     setClusterIdState(id);
@@ -21,8 +21,7 @@ export const ClusterProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (saved) setClusterIdState(saved);
   }, []);
 
-  const clusterName = clusterId === 'cluster-bj-01' ? '北京生产 K8s 集群'
-    : clusterId === 'cluster-sh-01' ? '上海测试 K8s 集群' : clusterId;
+  const clusterName = clusterId;
 
   return (
     <ClusterContext.Provider value={{ clusterId, clusterName, setClusterId }}>

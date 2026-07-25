@@ -1,19 +1,18 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.acmp.compute.mapper.PhysicalClusterMapper">
+
     <resultMap id="BaseResultMap" type="com.acmp.compute.entity.PhysicalCluster">
         <id column="id" property="id"/>
         <result column="name" property="name"/>
         <result column="description" property="description"/>
         <result column="kubeconfig_base64_encrypted" property="kubeconfigBase64Encrypted"/>
         <result column="status" property="status"/>
-        <result column="gpu_types" property="gpuTypes"/>
-        <result column="hami_splits" property="hamiSplits"/>
-        <result column="location" property="location"/>
-        <result column="node_labels" property="nodeLabels"/>
-        <result column="taints" property="taints"/>
-        <result column="max_cpu_cores" property="maxCpuCores"/>
-        <result column="max_memory_gib" property="maxMemoryGib"/>
+        <result column="kubernetes_version" property="kubernetesVersion"/>
+        <result column="node_count" property="nodeCount"/>
+        <result column="gpu_count" property="gpuCount"/>
+        <result column="last_sync_at" property="lastSyncAt"/>
+        <result column="sync_message" property="syncMessage"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
@@ -21,11 +20,11 @@
     <insert id="insert">
         INSERT INTO physical_cluster
             (id, name, description, kubeconfig_base64_encrypted, status,
-             gpu_types, location, node_labels, taints, max_cpu_cores, max_memory_gib,
+             kubernetes_version, node_count, gpu_count, last_sync_at, sync_message,
              created_at, updated_at)
         VALUES
             (#{id}, #{name}, #{description}, #{kubeconfigBase64Encrypted}, #{status},
-             #{gpuTypes}, #{location}, #{nodeLabels}, #{taints}, #{maxCpuCores}, #{maxMemoryGib},
+             #{kubernetesVersion}, #{nodeCount}, #{gpuCount}, #{lastSyncAt}, #{syncMessage},
              CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
 
@@ -35,27 +34,24 @@
             description = #{description},
             kubeconfig_base64_encrypted = #{kubeconfigBase64Encrypted},
             status = #{status},
-            gpu_types = #{gpuTypes},
-            location = #{location},
-            node_labels = #{nodeLabels},
-            taints = #{taints},
-            max_cpu_cores = #{maxCpuCores},
-            max_memory_gib = #{maxMemoryGib},
+            kubernetes_version = #{kubernetesVersion},
+            node_count = #{nodeCount},
+            gpu_count = #{gpuCount},
+            last_sync_at = #{lastSyncAt},
+            sync_message = #{syncMessage},
             updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
     </update>
 
-    <update id="updateScanSummary">
-        UPDATE physical_cluster
-        SET gpu_types       = #{gpuTypes},
-            hami_splits     = #{hamiSplits},
-            max_cpu_cores   = #{maxCpuCores},
-            max_memory_gib  = #{maxMemoryGib},
-            updated_at      = CURRENT_TIMESTAMP
-        WHERE id = #{id}
-    </update>
+    <select id="findById" resultMap="BaseResultMap">
+        SELECT * FROM physical_cluster WHERE id = #{id}
+    </select>
 
-    <select id="findById" resultMap="BaseResultMap">SELECT * FROM physical_cluster WHERE id = #{id}</select>
-    <select id="findAll" resultMap="BaseResultMap">SELECT * FROM physical_cluster ORDER BY created_at DESC</select>
-    <delete id="deleteById">DELETE FROM physical_cluster WHERE id = #{id}</delete>
+    <select id="findAll" resultMap="BaseResultMap">
+        SELECT * FROM physical_cluster ORDER BY created_at DESC
+    </select>
+
+    <delete id="deleteById">
+        DELETE FROM physical_cluster WHERE id = #{id}
+    </delete>
 </mapper>

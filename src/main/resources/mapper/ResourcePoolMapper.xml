@@ -4,52 +4,15 @@
 
     <resultMap id="BaseResultMap" type="com.acmp.compute.entity.ResourcePool">
         <id column="id" property="id"/>
-        <result column="workspace_id" property="workspaceId"/>
         <result column="pool_type" property="poolType"/>
         <result column="name" property="name"/>
         <result column="description" property="description"/>
-        <result column="primary_cluster_id" property="primaryClusterId"/>
-        <result column="total_nodes" property="totalNodes"/>
-        <result column="allocated_nodes" property="allocatedNodes"/>
         <result column="status" property="status"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
 
-    <insert id="insert">
-        INSERT INTO resource_pool
-            (id, workspace_id, pool_type, name, description, primary_cluster_id,
-             total_nodes, allocated_nodes, status, created_at, updated_at)
-        VALUES
-            (#{id}, #{workspaceId}, #{poolType}, #{name}, #{description}, #{primaryClusterId},
-             #{totalNodes}, #{allocatedNodes}, #{status},
-             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    </insert>
-
-    <update id="update">
-        UPDATE resource_pool
-        SET name = #{name},
-            description = #{description},
-            status = #{status},
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = #{id}
-    </update>
-
-    <update id="updateCapacity">
-        UPDATE resource_pool SET total_nodes = #{totalNodes}, updated_at = CURRENT_TIMESTAMP WHERE id = #{id}
-    </update>
-
-    <update id="updateAllocated">
-        UPDATE resource_pool SET allocated_nodes = #{allocatedNodes}, updated_at = CURRENT_TIMESTAMP WHERE id = #{id}
-    </update>
-
-    <select id="findById" resultMap="BaseResultMap">SELECT * FROM resource_pool WHERE id = #{id}</select>
-    <select id="findAll" resultMap="BaseResultMap">SELECT * FROM resource_pool ORDER BY created_at DESC</select>
-    <select id="findByWorkspaceId" resultMap="BaseResultMap">
-        SELECT * FROM resource_pool WHERE workspace_id = #{workspaceId} ORDER BY pool_type
+    <select id="findById" resultMap="BaseResultMap">
+        SELECT * FROM resource_pool WHERE id = #{id}
     </select>
-    <select id="findByWorkspaceAndType" resultMap="BaseResultMap">
-        SELECT * FROM resource_pool WHERE workspace_id = #{workspaceId} AND pool_type = #{poolType}
-    </select>
-    <delete id="deleteById">DELETE FROM resource_pool WHERE id = #{id}</delete>
 </mapper>

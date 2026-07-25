@@ -3,6 +3,8 @@ package com.acmp.compute.dto;
 import lombok.Data;
 
 import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.Max;
+import javax.validation.constraints.Min;
 import java.util.Map;
 
 /**
@@ -28,6 +30,12 @@ public class ModelDeploymentRequest {
 
     @NotBlank
     private String image;
+
+    /** 容器监听端口和 Service 端口，未填写时使用 vLLM 默认端口 8000。 */
+    @Min(1)
+    @Max(65535)
+    private Integer port = 8000;
+
     private Map<String, String> envVars;
     private String command;
     private String args;
