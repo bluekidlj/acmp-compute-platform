@@ -207,6 +207,7 @@ CREATE TABLE IF NOT EXISTS model_source (
     name                VARCHAR(128) NOT NULL UNIQUE,
     display_name        VARCHAR(255),
     description         TEXT,
+    model_family        VARCHAR(32),
     model_source        VARCHAR(32) NOT NULL DEFAULT 'with_weights',
     storage_backend     VARCHAR(32) NOT NULL DEFAULT 'nfs',
     storage_path        VARCHAR(512) NOT NULL,
@@ -214,3 +215,4 @@ CREATE TABLE IF NOT EXISTS model_source (
     created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE model_source ADD COLUMN IF NOT EXISTS model_family VARCHAR(32);

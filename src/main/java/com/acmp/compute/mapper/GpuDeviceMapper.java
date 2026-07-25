@@ -20,6 +20,7 @@ public interface GpuDeviceMapper {
     List<GpuDevice> findByNodeId(@Param("nodeId") String nodeId);
     List<GpuDevice> findByPoolId(@Param("poolId") String poolId);
     Optional<GpuDevice> findByComputeSpecId(@Param("computeSpecId") String computeSpecId);
+    int countByComputeSpecId(@Param("computeSpecId") String computeSpecId);
     int assignPool(@Param("id") String id, @Param("poolId") String poolId);
     int assignPoolAndSpec(@Param("id") String id,
                           @Param("poolId") String poolId,

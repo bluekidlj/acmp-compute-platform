@@ -160,20 +160,21 @@ public class ComputeSpecService {
     }
 
     /**
-     * 一张入池 Gpu 对应一个规格；独享提供 1 个节点，共享按比例提供 2、4 或 8 个节点。
+     * 相同参数的多张 Gpu 可复用一个规格，容量为关联物理卡数乘以单卡切分数。
      */
     public int capacityNodes(ComputeSpec spec) {
+        int gpuCount = gpuMapper.countByComputeSpecId(spec.getId());
         if ("EXCLUSIVE".equals(spec.getSpecType())) {
-            return 1;
+            return gpuCount;
         }
         if ("1/8".equals(spec.getGpuShare())) {
-            return 8;
+            return gpuCount * 8;
         }
         if ("1/4".equals(spec.getGpuShare())) {
-            return 4;
+            return gpuCount * 4;
         }
         if ("1/2".equals(spec.getGpuShare())) {
-            return 2;
+            return gpuCount * 2;
         }
         return 0;
     }

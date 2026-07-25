@@ -22,11 +22,13 @@ public class Model {
     private String name;
     private String displayName;
     private String description;
+    /** DEEPSEEK / QWEN / GLM / MINIMAX_M */
+    private String modelFamily;
     /** with_weights / without_weights */
     private String modelSource;
     /** 存储后端类型，如 nfs / ceph / oss，当前固定 nfs */
     private String storageBackend;
-    /** 存储路径前缀（不含 name），如 /mnt/nfs/models */
+    /** GPU 主机上的模型完整绝对目录，如 /data/acmp/models/Qwen2.5-3B-Instruct */
     private String storagePath;
     /** 文件大小 MB */
     private Long fileSizeMb;

@@ -30,5 +30,10 @@ public class ResourcePoolResponse {
         private String displayName;
         private String specType;
         private GpuBrand gpuBrand;
+        private String gpuShare;
+        /** 当前规格由全部关联 GPU 提供的规格节点总数。 */
+        private Integer totalNodes;
+        /** 规格总容量扣除已分配租户配额后的可用节点数。 */
+        private Integer availableNodes;
     }
 }

@@ -1,10 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  CheckCircleOutlined,
-  DeleteOutlined,
-  PlusOutlined,
-  SearchOutlined,
-} from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import {
   Button,
   Drawer,
@@ -22,66 +17,61 @@ import { api } from '../../api/real';
 import type { Model } from '../../types';
 
 interface CatalogModel {
-  id: string;
+  id: 'DEEPSEEK' | 'QWEN' | 'GLM' | 'MINIMAX_M';
   name: string;
   publisher: string;
-  parameterSize: string;
+  mark: string;
   summary: string;
   capabilities: string[];
-  logo: string;
   theme: string;
 }
 
+const MODEL_FAMILY_OPTIONS = [
+  { value: 'DEEPSEEK', label: 'DeepSeek 系列' },
+  { value: 'QWEN', label: '阿里巴巴通义千问系列' },
+  { value: 'GLM', label: '智谱 GLM 系列' },
+  { value: 'MINIMAX_M', label: 'MiniMax M 系列' },
+];
+const MODEL_FAMILY_LABELS = Object.fromEntries(MODEL_FAMILY_OPTIONS.map(function toEntry(item) {
+  return [item.value, item.label];
+}));
+
 const CATALOG_MODELS: CatalogModel[] = [
   {
-    id: 'Qwen3-8B',
-    name: 'Qwen3 8B',
-    publisher: 'Alibaba Cloud',
-    parameterSize: '8B',
-    summary: '兼顾推理与通用对话的开源模型，适合中文问答、工具调用和企业知识助手。',
-    capabilities: ['中文增强', '推理', '工具调用'],
-    logo: '/model-logos/qwen.svg',
-    theme: 'orange',
-  },
-  {
-    id: 'DeepSeek-R1-Distill-Qwen-7B',
-    name: 'DeepSeek R1 Distill',
+    id: 'DEEPSEEK',
+    name: 'DeepSeek 系列',
     publisher: 'DeepSeek',
-    parameterSize: '7B',
-    summary: '面向复杂推理场景的蒸馏模型，在较小算力规格上提供数学与逻辑推理能力。',
+    mark: 'DS',
+    summary: '覆盖通用对话、代码和深度推理模型，登记时填写内网实际保存的具体模型版本。',
     capabilities: ['深度推理', '数学', '代码'],
-    logo: '/model-logos/deepseek.svg',
     theme: 'blue',
   },
   {
-    id: 'Meta-Llama-3.1-8B-Instruct',
-    name: 'Llama 3.1 Instruct',
-    publisher: 'Meta',
-    parameterSize: '8B',
-    summary: '成熟稳定的通用指令模型，生态完整，适合作为英文对话和应用开发基座。',
-    capabilities: ['通用对话', '多语言', '生态丰富'],
-    logo: '/model-logos/meta.svg',
+    id: 'QWEN',
+    name: '阿里巴巴通义千问系列',
+    publisher: 'Alibaba Cloud',
+    mark: 'QW',
+    summary: '覆盖不同参数规模的通用、代码和多模态模型，适合中文企业应用与工具调用。',
+    capabilities: ['中文增强', '工具调用', '多模态'],
+    theme: 'orange',
+  },
+  {
+    id: 'GLM',
+    name: '智谱 GLM 系列',
+    publisher: 'Zhipu AI',
+    mark: 'GLM',
+    summary: '面向中文对话、知识问答和智能体应用，登记具体 GLM 权重版本供内网部署。',
+    capabilities: ['中文对话', '知识问答', '智能体'],
     theme: 'indigo',
   },
   {
-    id: 'Mistral-Small-3.2-24B-Instruct',
-    name: 'Mistral Small 3.2',
-    publisher: 'Mistral AI',
-    parameterSize: '24B',
-    summary: '高效的开放权重模型，支持长上下文、函数调用以及文档理解类任务。',
-    capabilities: ['长上下文', '函数调用', '文档理解'],
-    logo: '/model-logos/mistral.svg',
+    id: 'MINIMAX_M',
+    name: 'MiniMax M 系列',
+    publisher: 'MiniMax',
+    mark: 'M',
+    summary: '面向长上下文和复杂任务处理，登记内网具备权重文件的 MiniMax M 具体版本。',
+    capabilities: ['长上下文', '复杂任务', '通用对话'],
     theme: 'red',
-  },
-  {
-    id: 'google-gemma-3-12b-it',
-    name: 'Gemma 3',
-    publisher: 'Google',
-    parameterSize: '12B',
-    summary: '面向本地部署的轻量多模态模型，适合文本与视觉内容理解场景。',
-    capabilities: ['多模态', '多语言', '轻量部署'],
-    logo: '/model-logos/google.svg',
-    theme: 'cyan',
   },
 ];
 
@@ -90,6 +80,7 @@ export default function ModelsPage() {
   const [activeTab, setActiveTab] = useState('catalog');
   const [keyword, setKeyword] = useState('');
   const [open, setOpen] = useState(false);
+  const [editingModel, setEditingModel] = useState<Model | null>(null);
   const [form] = Form.useForm();
 
   function load() {
@@ -113,7 +104,6 @@ export default function ModelsPage() {
       const searchableText = [
         model.name,
         model.publisher,
-        model.parameterSize,
         model.summary,
         ...model.capabilities,
       ].join(' ').toLowerCase();
@@ -123,38 +113,46 @@ export default function ModelsPage() {
   }, [keyword]);
 
   function openBlankForm() {
+    setEditingModel(null);
     form.resetFields();
     form.setFieldsValue({
       modelSource: 'with_weights',
       storageBackend: 'nfs',
-      storagePath: '/models',
+      storagePath: '/data/acmp/models/',
     });
     setOpen(true);
   }
 
   function registerCatalogModel(model: CatalogModel) {
+    setEditingModel(null);
+    form.resetFields();
     form.setFieldsValue({
-      name: model.id,
-      displayName: model.name,
+      modelFamily: model.id,
       modelSource: 'with_weights',
       storageBackend: 'nfs',
-      storagePath: `/models/${model.id}`,
-      description: model.summary,
+      storagePath: '/data/acmp/models/',
     });
     setOpen(true);
   }
 
-  function isRegistered(model: CatalogModel) {
-    return items.some(function matches(item) {
-      return item.name === model.id;
-    });
+  function editModel(model: Model) {
+    setEditingModel(model);
+    form.resetFields();
+    form.setFieldsValue(model);
+    setOpen(true);
   }
 
   async function submit(values: Partial<Model>) {
     try {
-      await api.createModel(values);
-      message.success('模型已登记');
+      if (editingModel) {
+        await api.updateModel(editingModel.id, values);
+        message.success('模型信息已更新');
+      } else {
+        await api.createModel(values);
+        message.success('模型已登记');
+      }
       setOpen(false);
+      setEditingModel(null);
       form.resetFields();
       load();
       setActiveTab('registered');
@@ -186,7 +184,7 @@ export default function ModelsPage() {
               setKeyword(event.target.value);
             }}
           />
-          <span>精选 {filteredCatalog.length} 个开放模型</span>
+          <span>{filteredCatalog.length} 个模型系列</span>
         </div>
 
         {filteredCatalog.length === 0 ? (
@@ -196,15 +194,13 @@ export default function ModelsPage() {
         ) : (
           <div className="model-card-grid">
             {filteredCatalog.map(function renderModel(model) {
-              const registered = isRegistered(model);
-
               return (
                 <article className="model-card" key={model.id}>
                   <div className={`model-card-visual ${model.theme}`}>
                     <div className="model-logo">
-                      <img src={model.logo} alt={`${model.publisher} 标识`} />
+                      <strong>{model.mark}</strong>
                     </div>
-                    <span>{model.parameterSize}</span>
+                    <span>模型系列</span>
                   </div>
 
                   <div className="model-card-body">
@@ -219,14 +215,13 @@ export default function ModelsPage() {
                     </div>
 
                     <Button
-                      type={registered ? 'default' : 'primary'}
-                      icon={registered ? <CheckCircleOutlined /> : <PlusOutlined />}
-                      disabled={registered}
+                      type="primary"
+                      icon={<PlusOutlined />}
                       onClick={function handleRegister() {
                         registerCatalogModel(model);
                       }}
                     >
-                      {registered ? '已登记' : '登记到平台'}
+                      登记该系列模型
                     </Button>
                   </div>
                 </article>
@@ -259,7 +254,10 @@ export default function ModelsPage() {
                   <h3>{model.displayName || model.name}</h3>
                   <code>{model.name}</code>
                 </div>
-                <Tag color="green">已登记</Tag>
+                <div>
+                  <Tag color="green">已登记</Tag>
+                  <Tag>{model.modelFamily ? MODEL_FAMILY_LABELS[model.modelFamily] : '未归属系列'}</Tag>
+                </div>
               </div>
 
               <p>{model.description || '暂无模型描述'}</p>
@@ -280,14 +278,24 @@ export default function ModelsPage() {
                 <code>{model.storagePath || '-'}</code>
               </div>
 
-              <Popconfirm
-                title="确认删除模型记录？"
-                onConfirm={function confirmDelete() {
-                  remove(model.id);
-                }}
-              >
-                <Button danger icon={<DeleteOutlined />}>删除记录</Button>
-              </Popconfirm>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button
+                  icon={<EditOutlined />}
+                  onClick={function handleEdit() {
+                    editModel(model);
+                  }}
+                >
+                  修改
+                </Button>
+                <Popconfirm
+                  title="确认删除模型记录？"
+                  onConfirm={function confirmDelete() {
+                    remove(model.id);
+                  }}
+                >
+                  <Button danger icon={<DeleteOutlined />}>删除记录</Button>
+                </Popconfirm>
+              </div>
             </article>
           );
         })}
@@ -313,7 +321,7 @@ export default function ModelsPage() {
         items={[
           {
             key: 'catalog',
-            label: '精选模型',
+            label: '模型系列',
             children: renderCatalog(),
           },
           {
@@ -325,11 +333,12 @@ export default function ModelsPage() {
       />
 
       <Drawer
-        title="登记模型"
+        title={editingModel ? '修改已登记模型' : '登记模型'}
         open={open}
         width={540}
         onClose={function closeDrawer() {
           setOpen(false);
+          setEditingModel(null);
         }}
       >
         <Form form={form} layout="vertical" onFinish={submit}>
@@ -343,6 +352,14 @@ export default function ModelsPage() {
 
           <Form.Item name="displayName" label="展示名称">
             <Input />
+          </Form.Item>
+
+          <Form.Item
+            name="modelFamily"
+            label="所属模型系列"
+            rules={[{ required: true, message: '请选择所属模型系列' }]}
+          >
+            <Select options={MODEL_FAMILY_OPTIONS} placeholder="选择模型系列" />
           </Form.Item>
 
           <Form.Item
@@ -368,10 +385,14 @@ export default function ModelsPage() {
 
           <Form.Item
             name="storagePath"
-            label="模型存储路径"
-            rules={[{ required: true, message: '请输入模型存储路径' }]}
+            label="GPU 主机模型绝对目录"
+            extra="示例：/data/acmp/models/Qwen2.5-3B-Instruct；目录中应直接包含 config.json 和模型权重文件。"
+            rules={[
+              { required: true, message: '请输入 GPU 主机模型绝对目录' },
+              { pattern: /^\//, message: '请输入以 / 开头的 Linux 绝对路径' },
+            ]}
           >
-            <Input className="mono" />
+            <Input className="mono" placeholder="/data/acmp/models/Qwen2.5-3B-Instruct" />
           </Form.Item>
 
           <Form.Item name="fileSizeMb" label="文件大小 MiB">
@@ -383,7 +404,7 @@ export default function ModelsPage() {
           </Form.Item>
 
           <Button type="primary" htmlType="submit" block>
-            保存模型
+            {editingModel ? '保存修改' : '保存模型'}
           </Button>
         </Form>
       </Drawer>

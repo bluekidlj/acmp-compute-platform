@@ -6,6 +6,7 @@
         <result column="name" property="name"/>
         <result column="display_name" property="displayName"/>
         <result column="description" property="description"/>
+        <result column="model_family" property="modelFamily"/>
         <result column="model_source" property="modelSource"/>
         <result column="storage_backend" property="storageBackend"/>
         <result column="storage_path" property="storagePath"/>
@@ -14,14 +15,15 @@
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
     <insert id="insert">
-        INSERT INTO model_source (id, name, display_name, description, model_source,
+        INSERT INTO model_source (id, name, display_name, description, model_family, model_source,
             storage_backend, storage_path, file_size_mb, created_at, updated_at)
-        VALUES (#{id}, #{name}, #{displayName}, #{description}, #{modelSource},
+        VALUES (#{id}, #{name}, #{displayName}, #{description}, #{modelFamily}, #{modelSource},
             #{storageBackend}, #{storagePath}, #{fileSizeMb}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
     <update id="update">
         UPDATE model_source
         SET name = #{name}, display_name = #{displayName}, description = #{description},
+            model_family = #{modelFamily},
             model_source = #{modelSource}, storage_backend = #{storageBackend},
             storage_path = #{storagePath}, file_size_mb = #{fileSizeMb},
             updated_at = CURRENT_TIMESTAMP

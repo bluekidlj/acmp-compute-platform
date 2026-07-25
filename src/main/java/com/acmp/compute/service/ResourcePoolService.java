@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -71,9 +72,6 @@ public class ResourcePoolService {
         if (gpu.getResourcePoolId() != null || gpu.getComputeSpecId() != null) {
             throw new BadRequestException("Gpu 已经加入资源池");
         }
-        if (specMapper.findByName(request.getName()).isPresent()) {
-            throw new BadRequestException("算力规格名称已存在: " + request.getName());
-        }
         if (request.getCpuCores() == null || request.getCpuCores() <= 0
                 || request.getMemoryGib() == null || request.getMemoryGib() <= 0) {
             throw new BadRequestException("CPU 和内存必须大于 0");
@@ -88,6 +86,19 @@ public class ResourcePoolService {
         }
 
         String gpuShare = validateShare(pool, request.getGpuShare());
+        ComputeSpec reusableSpec = findReusableSpec(pool, gpu, request, gpuShare);
+        if (reusableSpec != null) {
+            // 算力规格描述资源类型；相同参数的物理卡共享同一条规格。
+            if (gpuMapper.assignPoolAndSpec(gpuId, poolId, reusableSpec.getId()) != 1) {
+                throw new BadRequestException("Gpu 入池失败或已经被加入其他资源池");
+            }
+            return specService.getById(reusableSpec.getId());
+        }
+
+        if (specMapper.findByName(request.getName()).isPresent()) {
+            throw new BadRequestException("算力规格名称已存在: " + request.getName());
+        }
+
         String specId = UUID.randomUUID().toString();
         ComputeSpec spec = ComputeSpec.builder()
                 .id(specId)
@@ -113,6 +124,31 @@ public class ResourcePoolService {
         }
 
         return specService.getById(specId);
+    }
+
+    /**
+     * 使用资源字段精确匹配规格，展示名称和描述不影响规格复用。
+     */
+    private ComputeSpec findReusableSpec(
+            ResourcePool pool,
+            GpuDevice gpu,
+            GpuJoinSpecRequest request,
+            String gpuShare) {
+        List<ComputeSpec> poolSpecs = specMapper.findByResourcePoolId(pool.getId());
+        for (ComputeSpec spec : poolSpecs) {
+            boolean sameResources = spec.getGpuBrand() == gpu.getGpuBrand()
+                    && Objects.equals(spec.getGpuModel(), gpu.getGpuModel())
+                    && Objects.equals(spec.getGpuMemoryMb(), gpu.getMemoryMb())
+                    && Objects.equals(spec.getSpecType(), pool.getPoolType())
+                    && Objects.equals(spec.getGpuCount(), 1)
+                    && Objects.equals(spec.getCpuCores(), request.getCpuCores())
+                    && Objects.equals(spec.getMemoryGib(), request.getMemoryGib())
+                    && Objects.equals(spec.getGpuShare(), gpuShare);
+            if (sameResources) {
+                return spec;
+            }
+        }
+        return null;
     }
 
     private ResourcePool corePool(String id) {
@@ -147,9 +183,14 @@ public class ResourcePoolService {
         List<ResourcePoolResponse.SpecBrief> briefs = new ArrayList<>();
         List<ComputeSpec> specs = specMapper.findByResourcePoolId(pool.getId());
         for (ComputeSpec spec : specs) {
+            SpecResponse specDetail = specService.getById(spec.getId());
             briefs.add(ResourcePoolResponse.SpecBrief.builder().id(spec.getId()).name(spec.getName())
                     .displayName(spec.getDisplayName()).specType(spec.getSpecType())
                     .gpuBrand(spec.getGpuBrand())
+                    .gpuShare(spec.getGpuShare())
+                    .totalNodes(specDetail.getCapacityNodes())
+                    .availableNodes(Math.max(0,
+                            specDetail.getCapacityNodes() - specDetail.getAllocatedNodes()))
                     .build());
         }
         int total = gpuMapper.countByPool(pool.getId());

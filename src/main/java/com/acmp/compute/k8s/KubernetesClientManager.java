@@ -13,6 +13,7 @@ import io.kubernetes.client.openapi.models.V1ObjectMeta;
 import io.kubernetes.client.openapi.models.V1Service;
 import io.kubernetes.client.util.ClientBuilder;
 import io.kubernetes.client.util.KubeConfig;
+import io.kubernetes.client.util.Yaml;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.MediaType;
@@ -100,15 +101,24 @@ public class KubernetesClientManager {
      * 创建 Namespace。已存在表示目标状态已经满足，不视为失败。
      */
     public void createNamespace(String clusterId, String namespace) {
+        V1Namespace body = new V1Namespace().metadata(new V1ObjectMeta().name(namespace));
+        log.info("K8S YAML 提交: clusterId={}, kind=Namespace, name={}\n{}",
+                clusterId, namespace, yaml(body));
         try {
             new CoreV1Api(getClient(clusterId))
-                    .createNamespace(new V1Namespace()
-                            .metadata(new V1ObjectMeta().name(namespace)))
+                    .createNamespace(body)
                     .execute();
+            log.info("K8S API 成功: clusterId={}, kind=Namespace, name={}",
+                    clusterId, namespace);
         } catch (ApiException e) {
-            if (e.getCode() != 409) {
-                throw operationError("创建 Namespace", e);
+            if (e.getCode() == 409) {
+                log.info("K8S API 跳过: clusterId={}, kind=Namespace, name={}, reason=already-exists",
+                        clusterId, namespace);
+                return;
             }
+            log.error("K8S API 失败: clusterId={}, kind=Namespace, name={}, code={}, body={}",
+                    clusterId, namespace, e.getCode(), e.getResponseBody());
+            throw operationError("创建 Namespace", e);
         }
     }
 
@@ -123,15 +133,37 @@ public class KubernetesClientManager {
             String namespace,
             V1Deployment deployment,
             V1Service service) {
+        String deploymentName = deployment.getMetadata() == null
+                ? "unknown" : deployment.getMetadata().getName();
+        String serviceName = service.getMetadata() == null
+                ? "unknown" : service.getMetadata().getName();
+
+        log.info("K8S YAML 提交: clusterId={}, namespace={}, kind=Deployment, name={}\n{}",
+                clusterId, namespace, deploymentName, yaml(deployment));
         try {
             new AppsV1Api(getClient(clusterId))
                     .createNamespacedDeployment(namespace, deployment)
                     .execute();
+            log.info("K8S API 成功: clusterId={}, namespace={}, kind=Deployment, name={}",
+                    clusterId, namespace, deploymentName);
+        } catch (ApiException e) {
+            log.error("K8S API 失败: clusterId={}, namespace={}, kind=Deployment, name={}, code={}, body={}",
+                    clusterId, namespace, deploymentName, e.getCode(), e.getResponseBody());
+            throw operationError("创建 vLLM Deployment", e);
+        }
+
+        log.info("K8S YAML 提交: clusterId={}, namespace={}, kind=Service, name={}\n{}",
+                clusterId, namespace, serviceName, yaml(service));
+        try {
             new CoreV1Api(getClient(clusterId))
                     .createNamespacedService(namespace, service)
                     .execute();
+            log.info("K8S API 成功: clusterId={}, namespace={}, kind=Service, name={}",
+                    clusterId, namespace, serviceName);
         } catch (ApiException e) {
-            throw operationError("创建 vLLM Deployment/Service", e);
+            log.error("K8S API 失败: clusterId={}, namespace={}, kind=Service, name={}, code={}, body={}",
+                    clusterId, namespace, serviceName, e.getCode(), e.getResponseBody());
+            throw operationError("创建 vLLM Service", e);
         }
     }
 
@@ -294,5 +326,14 @@ public class KubernetesClientManager {
             detail = e.getMessage();
         }
         return new IllegalStateException(operation + "失败(" + e.getCode() + "): " + detail, e);
+    }
+
+    private String yaml(Object resource) {
+        try {
+            return Yaml.dump(resource);
+        } catch (Exception exception) {
+            // 日志序列化失败不能阻塞 Kubernetes 主流程。
+            return "# YAML 日志序列化失败: " + exception.getMessage();
+        }
     }
 }

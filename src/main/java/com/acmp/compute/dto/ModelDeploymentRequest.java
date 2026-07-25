@@ -13,7 +13,7 @@ import java.util.Map;
  * 关键变化：
  *   - 入口路径：POST /api/v1/projects/{projectId}/deployments
  *   - 必填 specName（全局 ComputeSpec.name），平台按 spec.poolType 路由到对应项目池
- *   - replicas 1.0 限定为 1
+ *   - replicas 表示副本数，每个副本占用一个租户规格节点
  *   - gpuCount/cpuCores/memoryGib 等从规格默认读取（不需用户填）
  */
 @Data
@@ -25,7 +25,8 @@ public class ModelDeploymentRequest {
     @NotBlank
     private String specName;
 
-    /** 1.0 严格限制 1 */
+    /** 副本数，默认 1；实际可用上限由租户剩余规格配额校验。 */
+    @Min(1)
     private Integer replicas = 1;
 
     @NotBlank

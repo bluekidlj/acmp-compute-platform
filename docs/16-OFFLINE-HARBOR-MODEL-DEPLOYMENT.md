@@ -112,28 +112,21 @@ spec:
 | `displayName` | `Qwen2.5 7B Instruct` | 页面展示名称 |
 | `modelSource` | `with_weights` | 使用本地权重 |
 | `storageBackend` | `local_hostpath` | GPU 节点本地路径 |
-| `storagePath` | `/data/acmp/models` | 模型根目录，不包含模型名 |
+| `storagePath` | `/data/acmp/models/Qwen2.5-7B-Instruct` | GPU 主机模型完整绝对目录 |
 | `fileSizeMb` | `15360` | 可选，用于容量检查 |
 | `revision` | 完整 commit hash | 建议新增，锁定模型版本 |
 | `checksum` | SHA-256 | 建议新增，验证文件完整性 |
 | `status` | `READY` | 建议新增，仅 READY 可部署 |
 
-当前代码只接受/展示 `nfs`，但实际生成的是 `hostPath`。在完成字段改造前，可以暂时填写：
+当前代码使用 `nfs` 表示 NFS 或本地挂载，实际生成 Kubernetes `hostPath`：
 
 ```text
 storageBackend = nfs
-storagePath    = /data/acmp/models
+storagePath    = /data/acmp/models/Qwen2.5-7B-Instruct
 name           = Qwen2.5-7B-Instruct
 ```
 
-后端会得到完整宿主机路径：
-
-```text
-/data/acmp/models/Qwen2.5-7B-Instruct
-```
-
-`storagePath` 必须填写根目录。不要填写
-`/data/acmp/models/Qwen2.5-7B-Instruct`，否则当前后端还会追加一次名称。
+`storagePath` 必须直接填写 GPU 主机上的完整模型目录，后端不再追加模型名称。
 
 ### 3.2 部署请求
 
@@ -142,6 +135,7 @@ name           = Qwen2.5-7B-Instruct
 ```text
 模型             = Qwen2.5-7B-Instruct
 vLLM 镜像        = harbor.acmp.local/ai-runtime/vllm-openai:0.10.0
+GPU 主机模型路径 = /data/acmp/models/Qwen2.5-7B-Instruct（由模型登记信息只读带出）
 容器内模型路径   = /models/Qwen2.5-7B-Instruct
 服务端口         = 8000
 副本数           = 1
@@ -198,7 +192,7 @@ ACMP 后端提交 Deployment 前应检查：
 
 1. 模型记录存在且状态为 `READY`；
 2. 镜像必须属于允许的 Harbor 域名和项目；
-3. 模型宿主机路径由后端根据登记记录生成，不能信任前端提交任意 `hostPath`；
+3. 模型宿主机路径由后端直接读取模型登记记录，不能信任部署请求提交任意 `hostPath`；
 4. 目标集群至少存在一个满足 GPU 和模型存储标签的 Ready 节点；
 5. Tenant Namespace 中存在 Harbor 拉取 Secret；
 6. 配额足够；
@@ -856,4 +850,3 @@ docker system df
 - [Kubernetes 私有仓库 ImagePullSecrets](https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/)
 - [Kubernetes Volumes](https://kubernetes.io/docs/concepts/storage/volumes/)
 - [Hugging Face 模型下载](https://huggingface.co/docs/huggingface_hub/en/guides/download)
-

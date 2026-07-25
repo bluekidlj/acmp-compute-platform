@@ -112,7 +112,7 @@ export default function ResourcePoolsPage() {
 
     setSelectedGpu(gpu);
     form.setFieldsValue({
-      name: `${modelName || 'gpu'}-${gpu.gpuIndex}-${suffix}`,
+      name: `${modelName || 'gpu'}-${suffix}`,
       displayName: drawerPool.poolType === 'EXCLUSIVE'
         ? `${gpu.gpuModel || 'Gpu'} 独享单卡`
         : `${gpu.gpuModel || 'Gpu'} 共享 1/4`,
@@ -141,7 +141,7 @@ export default function ResourcePoolsPage() {
 
     try {
       await api.joinPoolGpu(drawerPool.id, selectedGpu.id, values);
-      message.success('Gpu 已入池，算力规格已创建');
+      message.success('Gpu 已入池并关联算力规格');
       setDrawerPool(null);
       setSelectedGpu(null);
       form.resetFields();
@@ -162,7 +162,7 @@ export default function ResourcePoolsPage() {
       <div className="page-heading">
         <div>
           <h1>资源池</h1>
-          <p>Gpu 入池时同步创建单 Gpu 算力规格，0.1 版本不提供移出操作</p>
+          <p>Gpu 入池时优先复用相同算力规格，没有匹配规格时自动创建</p>
         </div>
       </div>
 
@@ -190,7 +190,7 @@ export default function ResourcePoolsPage() {
       </div>
 
       <Drawer
-        title={drawerPool ? `Gpu 入池并创建规格 · ${drawerPool.name}` : 'Gpu 入池'}
+        title={drawerPool ? `Gpu 入池并关联规格 · ${drawerPool.name}` : 'Gpu 入池'}
         open={Boolean(drawerPool)}
         width={680}
         onClose={function closeDrawer() {
@@ -336,7 +336,7 @@ export default function ResourcePoolsPage() {
               disabled={!selectedGpu}
               block
             >
-              确认入池并创建规格
+              确认入池并关联规格
             </Button>
           </Form>
         </div>
@@ -352,6 +352,155 @@ export default function ResourcePoolsPage() {
     const gpus = (poolGpus[pool.id] || []).filter(function byBrand(gpu) {
       return poolBrand === 'ALL' || gpu.gpuBrand === poolBrand;
     });
+    const sharedRows = Array.from(gpus.reduce(function groupBySpec(map, gpu) {
+      const key = gpu.computeSpecId || `unbound-${gpu.nodeName}-${gpu.gpuBrand}-${gpu.gpuModel}`;
+      const current = map.get(key);
+
+      if (current) {
+        current.nodeNames.add(gpu.nodeName);
+        if (gpu.status !== 'READY') {
+          current.status = gpu.status;
+        }
+        if (gpu.usageStatus !== 'IDLE') {
+          current.usageStatus = gpu.usageStatus;
+        }
+      } else {
+        map.set(key, {
+          key,
+          nodeNames: new Set([gpu.nodeName]),
+          gpuBrand: gpu.gpuBrand,
+          gpuModel: gpu.gpuModel,
+          computeSpecId: gpu.computeSpecId,
+          status: gpu.status,
+          usageStatus: gpu.usageStatus,
+        });
+      }
+      return map;
+    }, new Map<string, {
+      key: string;
+      nodeNames: Set<string>;
+      gpuBrand: GpuBrand | null;
+      gpuModel: string | null;
+      computeSpecId: string | null;
+      status: string;
+      usageStatus: string;
+    }>()).values());
+    const sharedColumns = [
+      {
+        title: 'Kubernetes Node',
+        dataIndex: 'nodeNames',
+        render: function renderNodes(value: Set<string>) {
+          return Array.from(value).join('、');
+        },
+      },
+      {
+        title: '品牌',
+        dataIndex: 'gpuBrand',
+        width: 100,
+        render: function renderBrand(value: GpuBrand | null) {
+          return value ? <Tag>{BRAND_LABELS[value]}</Tag> : '-';
+        },
+      },
+      { title: 'Gpu 型号', dataIndex: 'gpuModel' },
+      {
+        title: 'vGPU 规格',
+        dataIndex: 'computeSpecId',
+        render: function renderSpec(specId: string | null) {
+          const spec = pool.specs.find(function findSpec(item) {
+            return item.id === specId;
+          });
+          return spec ? spec.displayName || spec.name : '-';
+        },
+      },
+      {
+        title: '切分比例',
+        dataIndex: 'computeSpecId',
+        width: 110,
+        render: function renderShare(specId: string | null) {
+          const spec = pool.specs.find(function findSpec(item) {
+            return item.id === specId;
+          });
+          return spec?.gpuShare || '-';
+        },
+      },
+      {
+        title: '总规格节点数',
+        dataIndex: 'computeSpecId',
+        width: 150,
+        render: function renderTotalNodes(specId: string | null) {
+          const spec = pool.specs.find(function findSpec(item) {
+            return item.id === specId;
+          });
+          return spec?.totalNodes ?? '-';
+        },
+      },
+      {
+        title: '可用规格节点数',
+        dataIndex: 'computeSpecId',
+        width: 150,
+        render: function renderAvailableNodes(specId: string | null) {
+          const spec = pool.specs.find(function findSpec(item) {
+            return item.id === specId;
+          });
+          return spec?.availableNodes ?? '-';
+        },
+      },
+      {
+        title: 'Gpu 状态',
+        dataIndex: 'status',
+        width: 120,
+        render: function renderStatus(value: string) {
+          return <StatusBadge value={value} />;
+        },
+      },
+      {
+        title: '使用状态',
+        dataIndex: 'usageStatus',
+        width: 120,
+        render: function renderUsage(value: string) {
+          return <StatusBadge value={value} />;
+        },
+      },
+    ];
+    const exclusiveColumns = [
+      { title: 'Kubernetes Node', dataIndex: 'nodeName' },
+      { title: '物理卡编号', dataIndex: 'gpuIndex', width: 110 },
+      {
+        title: '品牌',
+        dataIndex: 'gpuBrand',
+        width: 100,
+        render: function renderBrand(value: GpuBrand | null) {
+          return value ? <Tag>{BRAND_LABELS[value]}</Tag> : '-';
+        },
+      },
+      { title: 'Gpu 型号', dataIndex: 'gpuModel' },
+      {
+        title: '对应算力规格',
+        dataIndex: 'computeSpecId',
+        render: function renderSpec(specId: string | null) {
+          const spec = pool.specs.find(function findSpec(item) {
+            return item.id === specId;
+          });
+          return spec ? spec.displayName || spec.name : '-';
+        },
+      },
+      {
+        title: 'Gpu 状态',
+        dataIndex: 'status',
+        width: 120,
+        render: function renderStatus(value: string) {
+          return <StatusBadge value={value} />;
+        },
+      },
+      {
+        title: '使用状态',
+        dataIndex: 'usageStatus',
+        width: 120,
+        render: function renderUsage(value: string) {
+          return <StatusBadge value={value} />;
+        },
+      },
+    ];
 
     return (
       <div>
@@ -384,53 +533,27 @@ export default function ResourcePoolsPage() {
           </Space>
         </div>
 
-        <Table
-          rowKey="id"
-          pagination={false}
-          dataSource={gpus}
-          locale={{
-            emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该资源池暂无 Gpu" />,
-          }}
-          columns={[
-            { title: 'Kubernetes Node', dataIndex: 'nodeName' },
-            { title: 'Gpu 编号', dataIndex: 'gpuIndex', width: 100 },
-            {
-              title: '品牌',
-              dataIndex: 'gpuBrand',
-              width: 100,
-              render: function renderBrand(value: GpuBrand | null) {
-                return value ? <Tag>{BRAND_LABELS[value]}</Tag> : '-';
-              },
-            },
-            { title: 'Gpu 型号', dataIndex: 'gpuModel' },
-            {
-              title: '对应算力规格',
-              dataIndex: 'computeSpecId',
-              render: function renderSpec(specId) {
-                const spec = pool.specs.find(function findSpec(item) {
-                  return item.id === specId;
-                });
-                return spec ? spec.displayName || spec.name : '-';
-              },
-            },
-            {
-              title: 'Gpu 状态',
-              dataIndex: 'status',
-              width: 120,
-              render: function renderStatus(value) {
-                return <StatusBadge value={value} />;
-              },
-            },
-            {
-              title: '使用状态',
-              dataIndex: 'usageStatus',
-              width: 120,
-              render: function renderUsage(value) {
-                return <StatusBadge value={value} />;
-              },
-            },
-          ]}
-        />
+        {pool.poolType === 'SHARED' ? (
+          <Table
+            rowKey="key"
+            pagination={false}
+            dataSource={sharedRows}
+            locale={{
+              emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该共享池暂无 vGPU 规格" />,
+            }}
+            columns={sharedColumns}
+          />
+        ) : (
+          <Table
+            rowKey="id"
+            pagination={false}
+            dataSource={gpus}
+            locale={{
+              emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该独享池暂无物理 Gpu" />,
+            }}
+            columns={exclusiveColumns}
+          />
+        )}
       </div>
     );
   }

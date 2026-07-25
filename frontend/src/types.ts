@@ -100,6 +100,9 @@ export interface ResourcePoolSpecBrief {
   displayName: string;
   specType: SpecType;
   gpuBrand: GpuBrand;
+  gpuShare: '1/8' | '1/4' | '1/2' | null;
+  totalNodes: number;
+  availableNodes: number;
 }
 
 export interface ResourcePool {
@@ -203,6 +206,7 @@ export interface Model {
   name: string;
   displayName: string | null;
   description: string | null;
+  modelFamily: 'DEEPSEEK' | 'QWEN' | 'GLM' | 'MINIMAX_M' | null;
   modelSource: string;
   storageBackend: string;
   storagePath: string;

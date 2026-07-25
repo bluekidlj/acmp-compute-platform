@@ -23,7 +23,6 @@ import com.acmp.compute.mapper.GpuDeviceMapper;
 import com.acmp.compute.mapper.ModelDeploymentMapper;
 import com.acmp.compute.mapper.ProjectMapper;
 import com.acmp.compute.security.UserPrincipal;
-import com.acmp.compute.util.NfsStoragePathResolver;
 import io.kubernetes.client.openapi.models.V1Deployment;
 import io.kubernetes.client.openapi.models.V1Service;
 import lombok.RequiredArgsConstructor;
@@ -93,9 +92,16 @@ public class ModelDeploymentService {
         String modelSource = request.getModelSource();
         if (request.getModelId() != null && !request.getModelId().isBlank()) {
             ModelResponse model = modelService.getById(request.getModelId());
-            hostModelPath = NfsStoragePathResolver.resolve(model.getStoragePath(), model.getName());
+            // 模型登记保存的是 GPU 主机完整绝对目录，直接写入 hostPath.path。
+            hostModelPath = model.getStoragePath();
             modelSource = model.getModelSource();
         }
+
+        log.info("推理部署准备: projectId={}, tenantId={}, clusterId={}, namespace={}, specId={}, "
+                        + "specName={}, specType={}, replicas={}, image={}, modelId={}, "
+                        + "hostModelPath={}, containerModelPath={}, port={}",
+                projectId, project.getTenantId(), clusterId, namespace, spec.getId(), spec.getName(),
+                spec.getSpecType(), replicas, image, request.getModelId(), hostModelPath, modelPath, port);
 
         ModelDeployment record = ModelDeployment.builder().id(id).projectId(projectId)
                 .tenantId(project.getTenantId())
@@ -109,7 +115,9 @@ public class ModelDeploymentService {
 
         try {
             // Tenant 不再永久绑定 Namespace；部署时按 Tenant ID 创建稳定 Namespace。
+            log.info("推理部署阶段开始: deploymentId={}, stage=create-namespace", id);
             clientManager.createNamespace(clusterId, namespace);
+            log.info("推理部署阶段开始: deploymentId={}, stage=build-kubernetes-resources", id);
             V1Deployment deployment = K8sResourceBuilder.buildVllmDeployment(
                     deploymentName, namespace, image, modelPath, port, spec, replicas, hostModelPath,
                     request.getEnvVars(), request.getCommand(), request.getArgs());
@@ -118,18 +126,23 @@ public class ModelDeploymentService {
                     namespace,
                     deploymentName,
                     port);
+            log.info("推理部署阶段开始: deploymentId={}, stage=submit-deployment-service", id);
             clientManager.createVllmDeploymentAndService(clusterId, namespace, deployment, service);
             String url = "http://" + serviceName + "." + namespace + ".svc.cluster.local:" + port;
             mapper.updateStatus(id, "SUBMITTED", url);
             record.setStatus("SUBMITTED");
             record.setServiceUrl(url);
+            log.info("推理部署提交成功: deploymentId={}, deploymentName={}, serviceName={}, serviceUrl={}",
+                    id, deploymentName, serviceName, url);
         } catch (Exception e) {
             quotaService.changeUsed(quota.getId(), -replicas);
             mapper.updateStatus(id, "FAILED", null);
             mapper.updateFailure(id, shortMessage(e.getMessage()));
             record.setStatus("FAILED");
             record.setFailureMessage(shortMessage(e.getMessage()));
-            log.error("推理服务提交 Kubernetes 失败: deployment={}, error={}", id, e.getMessage(), e);
+            log.error("推理服务提交 Kubernetes 失败: deploymentId={}, clusterId={}, namespace={}, "
+                            + "deploymentName={}, serviceName={}, error={}",
+                    id, clusterId, namespace, deploymentName, serviceName, e.getMessage(), e);
         }
         ModelDeployment saved = mapper.findById(id).orElse(record);
         return response(saved, null);

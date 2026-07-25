@@ -179,6 +179,9 @@ export const api = {
   async createModel(body: Partial<Model>): Promise<Model> {
     return (await client.post<Model>('/models', body)).data;
   },
+  async updateModel(id: string, body: Partial<Model>): Promise<Model> {
+    return (await client.put<Model>(`/models/${id}`, body)).data;
+  },
   async deleteModel(id: string): Promise<void> {
     await client.delete(`/models/${id}`);
   },

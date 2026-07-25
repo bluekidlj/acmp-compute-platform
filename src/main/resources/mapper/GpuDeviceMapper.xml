@@ -90,6 +90,13 @@
     <select id="findByComputeSpecId" resultMap="BaseResultMap">
         SELECT * FROM gpu_device
         WHERE compute_spec_id = #{computeSpecId}
+        ORDER BY cluster_id, node_name, gpu_index
+        LIMIT 1
+    </select>
+
+    <select id="countByComputeSpecId" resultType="int">
+        SELECT COUNT(*) FROM gpu_device
+        WHERE compute_spec_id = #{computeSpecId}
     </select>
 
     <update id="assignPool">

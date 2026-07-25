@@ -40,7 +40,7 @@
   │                                           │
   │                                           │ 7. 部署推理服务
   │                                           │ POST /api/v1/projects/{id}/deployments
-  │                                           │   { specName, replicas:1, image, ... }
+  │                                           │   { specName, replicas, image, ... }
   │                                           ↓
   │                                  校验项目成员
   │                                  加载 spec → spec.poolType
@@ -75,9 +75,10 @@ L2' 项目已用:      prq.used_nodes          (部署时累加)
        ∑ prq.total ≤ pool.allocated ≤ pool.total
 ```
 
-### 2.3 replicas 限制
+### 2.3 副本数
 
-1.0 严格 `replicas == 1`，否则 400。
+`replicas` 默认为 1，每个副本占用一个租户规格节点。前端最大值取当前租户该规格的
+剩余节点数，后端再次校验剩余配额，避免提交超过配额的 Deployment。
 
 ### 2.4 超分池（OVERSELL）
 

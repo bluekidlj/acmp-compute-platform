@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons';
-import { Alert, Button, Descriptions, Drawer, Form, Input, InputNumber, message, Select, Space, Steps, Table, Tag } from 'antd';
+import { Alert, Button, Descriptions, Drawer, Form, Input, InputNumber, message, Popconfirm, Select, Space, Steps, Table, Tag } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api/real';
 import StatusBadge from '../../components/StatusBadge';
@@ -8,7 +8,8 @@ import type { ComputeSpec, DeploymentRequest, Model, ModelDeployment, Project, T
 
 interface DeployForm {
   name: string;
-  modelId: string;
+  runtimeMode: 'DEMO' | 'VLLM';
+  modelId?: string;
   specId: string;
   image: string;
   port: number;
@@ -28,7 +29,11 @@ export default function ProjectDetailPage() {
   const [deployments, setDeployments] = useState<ModelDeployment[]>([]);
   const [drawer, setDrawer] = useState(false);
   const [step, setStep] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm<DeployForm>();
+  const runtimeMode = Form.useWatch('runtimeMode', form) || 'DEMO';
+  const selectedSpecId = Form.useWatch('specId', form);
+  const selectedModelId = Form.useWatch('modelId', form);
 
   function load() {
     api.project(projectId)
@@ -55,28 +60,38 @@ export default function ProjectDetailPage() {
     setStep(0);
     form.resetFields();
     form.setFieldsValue({
-      image: 'vllm/vllm-openai:0.10.0',
-      port: 8000,
+      runtimeMode: 'DEMO',
+      image: 'hashicorp/http-echo:1.0.0',
+      port: 5678,
       replicas: 1,
-      modelPath: '/models/Qwen2.5-3B-Instruct',
+      modelPath: '/models',
     });
     setDrawer(true);
   }
 
   async function submit(values: DeployForm) {
-    const model = models.find(function find(item) { return item.id === values.modelId; });
     const spec = specs.find(function find(item) { return item.id === values.specId; });
-    if (!model || !spec) {
-      message.error('模型或算力规格不存在');
+    const model = models.find(function find(item) { return item.id === values.modelId; });
+    if (!spec) {
+      message.error('算力规格不存在');
       return;
     }
-    const argsParts = [
-      `serve ${values.modelPath}`,
-      `--served-model-name ${model.displayName || model.name}`,
-      '--host 0.0.0.0',
-      `--port ${values.port}`,
-    ];
-    if (values.maxModelLength) {
+    if (values.runtimeMode === 'VLLM' && !model) {
+      message.error('请选择真实推理使用的模型');
+      return;
+    }
+
+    const demoMode = values.runtimeMode === 'DEMO';
+    const modelName = demoMode ? 'acmp-demo-model' : (model?.displayName || model?.name || '');
+    const argsParts = demoMode
+      ? ['-listen=:5678', '-text=ACMP-demo-inference-service-ready']
+      : [
+          `serve ${values.modelPath}`,
+          `--served-model-name ${modelName}`,
+          '--host 0.0.0.0',
+          `--port ${values.port}`,
+        ];
+    if (!demoMode && values.maxModelLength) {
       argsParts.push(`--max-model-len ${values.maxModelLength}`);
     }
     const body: DeploymentRequest = {
@@ -85,13 +100,14 @@ export default function ProjectDetailPage() {
       replicas: values.replicas,
       image: values.image,
       port: values.port,
-      command: 'vllm',
+      command: demoMode ? '/http-echo' : 'vllm',
       args: argsParts.join(' '),
-      modelId: model.id,
-      modelSource: model.modelSource,
+      modelId: demoMode ? undefined : model?.id,
+      modelSource: demoMode ? 'without_weights' : model?.modelSource,
       modelIdOrPath: values.modelPath,
-      modelName: model.displayName || model.name,
+      modelName,
     };
+    setSubmitting(true);
     try {
       const created = await api.createDeployment(projectId, body);
       message.success('推理服务已提交 Kubernetes');
@@ -99,6 +115,17 @@ export default function ProjectDetailPage() {
       navigate(`/deployments/${projectId}/${created.id}`);
     } catch (exception) {
       message.error(exception instanceof Error ? exception.message : '部署失败');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function confirmDeployment() {
+    try {
+      const values = await form.validateFields();
+      await submit(values);
+    } catch {
+      // 校验错误由表单字段直接显示，不能触发部署接口。
     }
   }
 
@@ -106,6 +133,12 @@ export default function ProjectDetailPage() {
     return null;
   }
   const specMap = Object.fromEntries(specs.map(function map(item) { return [item.id, item]; }));
+  const selectedQuota = quotas.find(function findQuota(item) {
+    return item.specId === selectedSpecId;
+  });
+  const selectedModel = models.find(function findModel(item) {
+    return item.id === selectedModelId;
+  });
 
   return (
     <div>
@@ -156,13 +189,55 @@ export default function ProjectDetailPage() {
 
       <Drawer title="部署推理服务" open={drawer} width={620} onClose={function close() { setDrawer(false); }}>
         <Steps current={step} size="small" items={[{ title: '业务信息' }, { title: '算力规格' }, { title: '运行配置' }]} style={{ marginBottom: 26 }} />
-        <Form form={form} layout="vertical" onFinish={submit}>
+        <Form form={form} layout="vertical">
           <div style={{ display: step === 0 ? 'block' : 'none' }}>
             <Alert type="info" showIcon message={`所属租户：${tenant?.name}　所属项目：${project.name}`} style={{ marginBottom: 16 }} />
             <Form.Item name="name" label="服务名称" rules={[{ required: true }]}><Input placeholder="qwen25-3b-demo" /></Form.Item>
-            <Form.Item name="modelId" label="模型" rules={[{ required: true }]}>
-              <Select options={models.map(function option(model) { return { value: model.id, label: `${model.displayName || model.name} · ${model.storagePath}` }; })} />
+            <Form.Item name="runtimeMode" label="运行模式" rules={[{ required: true }]}>
+              <Select
+                options={[
+                  { value: 'DEMO', label: '流程演示镜像（轻量，无需真实模型）' },
+                  { value: 'VLLM', label: 'vLLM 真实推理（需要真实 GPU 和模型）' },
+                ]}
+                onChange={function changeRuntime(value: 'DEMO' | 'VLLM') {
+                  if (value === 'DEMO') {
+                    form.setFieldsValue({
+                      image: 'hashicorp/http-echo:1.0.0',
+                      port: 5678,
+                      modelId: undefined,
+                      modelPath: '/models',
+                      maxModelLength: undefined,
+                    });
+                  } else {
+                    form.setFieldsValue({
+                      image: 'vllm/vllm-openai:0.10.0',
+                      port: 8000,
+                      modelPath: '/models/Qwen2.5-3B-Instruct',
+                    });
+                  }
+                }}
+              />
             </Form.Item>
+            {runtimeMode === 'VLLM' && (
+              <Form.Item name="modelId" label="模型" rules={[{ required: true }]}>
+                <Select
+                  options={models.map(function option(model) {
+                    return {
+                      value: model.id,
+                      label: `${model.displayName || model.name} · ${model.storagePath}`,
+                    };
+                  })}
+                  onChange={function changeModel(modelId: string) {
+                    const model = models.find(function find(item) {
+                      return item.id === modelId;
+                    });
+                    if (model) {
+                      form.setFieldValue('modelPath', `/models/${model.name}`);
+                    }
+                  }}
+                />
+              </Form.Item>
+            )}
           </div>
           <div style={{ display: step === 1 ? 'block' : 'none' }}>
             <Form.Item name="specId" label="可用算力规格" rules={[{ required: true }]}>
@@ -184,24 +259,110 @@ export default function ProjectDetailPage() {
             </Form.Item>
             <Form.Item
               name="replicas"
-              label="算力规格节点数"
-              rules={[{ required: true, message: '请输入算力规格节点数' }]}
+              label="副本数"
+              extra={selectedQuota
+                ? `每个副本占用 1 个规格节点，当前最多可部署 ${selectedQuota.remaining} 个副本`
+                : '请选择算力规格后设置副本数'}
+              rules={[{ required: true, message: '请输入副本数' }]}
             >
-              <InputNumber min={1} style={{ width: '100%' }} />
+              <InputNumber
+                min={1}
+                max={selectedQuota?.remaining}
+                precision={0}
+                disabled={!selectedQuota}
+                style={{ width: '100%' }}
+              />
             </Form.Item>
           </div>
           <div style={{ display: step === 2 ? 'block' : 'none' }}>
-            <Form.Item name="image" label="vLLM 镜像" rules={[{ required: true }]}><Input className="mono" /></Form.Item>
-            <Form.Item name="modelPath" label="容器内模型路径" rules={[{ required: true }]}><Input className="mono" /></Form.Item>
+            <Form.Item name="image" label="容器镜像" rules={[{ required: true }]}><Input className="mono" /></Form.Item>
+            {runtimeMode === 'VLLM' && (
+              <>
+                <Form.Item
+                  label="GPU 主机模型绝对目录"
+                  extra="来自模型广场登记信息，将写入 Kubernetes volumes.hostPath.path。"
+                >
+                  <Input
+                    className="mono"
+                    readOnly
+                    value={selectedModel?.storagePath || ''}
+                    placeholder="/data/acmp/models/Qwen2.5-3B-Instruct"
+                  />
+                </Form.Item>
+                <Form.Item
+                  name="modelPath"
+                  label="容器内模型路径"
+                  extra="示例：/models/Qwen2.5-3B-Instruct；将写入 volumeMounts.mountPath 和 vllm serve 参数。"
+                  rules={[
+                    { required: true, message: '请输入容器内模型路径' },
+                    { pattern: /^\//, message: '请输入以 / 开头的容器绝对路径' },
+                  ]}
+                >
+                  <Input className="mono" placeholder="/models/Qwen2.5-3B-Instruct" />
+                </Form.Item>
+              </>
+            )}
             <Space style={{ width: '100%' }} align="start">
               <Form.Item name="port" label="服务端口" rules={[{ required: true }]}><InputNumber min={1} max={65535} /></Form.Item>
-              <Form.Item name="maxModelLength" label="最大上下文（可选）"><InputNumber min={512} step={512} /></Form.Item>
+              {runtimeMode === 'VLLM' && (
+                <Form.Item name="maxModelLength" label="最大上下文（可选）"><InputNumber min={512} step={512} /></Form.Item>
+              )}
             </Space>
-            <Alert type="warning" showIcon message="Docker Desktop 无真实 CUDA；真实 Qwen 3B 请部署到内网 Gpu 集群。" />
+            {runtimeMode === 'DEMO' ? (
+              <Alert
+                type="success"
+                showIcon
+                message="演示模式仍会申请所选 GPU 规格，并真实创建 Deployment、Pod 和 Service；不加载模型文件。"
+              />
+            ) : (
+              <Alert type="warning" showIcon message="Docker Desktop 无真实 CUDA；真实模型请部署到内网 GPU 集群。" />
+            )}
+            <Alert
+              type="info"
+              showIcon
+              message="请检查镜像、模型路径、端口和最大上下文，确认无误后再提交部署。"
+              style={{ marginTop: 12 }}
+            />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24 }}>
-            <Button disabled={step === 0} onClick={function previous() { setStep(step - 1); }}>上一步</Button>
-            {step < 2 ? <Button type="primary" onClick={async function next() { try { await form.validateFields(step === 0 ? ['name', 'modelId'] : ['specId', 'replicas']); setStep(step + 1); } catch { return; } }}>下一步</Button> : <Button type="primary" htmlType="submit">提交部署</Button>}
+            <Button
+              htmlType="button"
+              disabled={step === 0 || submitting}
+              onClick={function previous() { setStep(step - 1); }}
+            >
+              上一步
+            </Button>
+            {step < 2 ? (
+              <Button
+                type="primary"
+                htmlType="button"
+                onClick={async function next() {
+                  try {
+                    const stepFields = step === 0
+                      ? (runtimeMode === 'VLLM' ? ['name', 'runtimeMode', 'modelId'] : ['name', 'runtimeMode'])
+                      : ['specId', 'replicas'];
+                    await form.validateFields(stepFields);
+                    setStep(step + 1);
+                  } catch {
+                    return;
+                  }
+                }}
+              >
+                下一步
+              </Button>
+            ) : (
+              <Popconfirm
+                title="确认提交推理服务？"
+                description="提交后将创建 Kubernetes Deployment 和 Service。"
+                okText="确认部署"
+                cancelText="继续修改"
+                onConfirm={confirmDeployment}
+              >
+                <Button type="primary" htmlType="button" loading={submitting}>
+                  确认并部署
+                </Button>
+              </Popconfirm>
+            )}
           </div>
         </Form>
       </Drawer>

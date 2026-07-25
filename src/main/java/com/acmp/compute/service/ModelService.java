@@ -6,7 +6,6 @@ import com.acmp.compute.entity.Model;
 import com.acmp.compute.exception.BadRequestException;
 import com.acmp.compute.exception.ResourceNotFoundException;
 import com.acmp.compute.mapper.ModelMapper;
-import com.acmp.compute.util.NfsStoragePathResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -14,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -23,6 +23,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class ModelService {
+    private static final Set<String> MODEL_FAMILIES =
+            Set.of("DEEPSEEK", "QWEN", "GLM", "MINIMAX_M");
 
     private final ModelMapper modelMapper;
 
@@ -37,20 +39,22 @@ public class ModelService {
             backend = "nfs";
         }
         String storagePath = request.getStoragePath();
-        String fullPath = NfsStoragePathResolver.resolve(storagePath, request.getName());
+        validateStoragePath(storagePath);
+        validateModelFamily(request.getModelFamily());
         Model model = Model.builder()
                 .id(UUID.randomUUID().toString())
                 .name(request.getName())
                 .displayName(request.getDisplayName())
                 .description(request.getDescription())
+                .modelFamily(request.getModelFamily())
                 .modelSource(request.getModelSource() != null ? request.getModelSource() : "with_weights")
                 .storageBackend(backend)
                 .storagePath(storagePath)
                 .fileSizeMb(request.getFileSizeMb())
                 .build();
         modelMapper.insert(model);
-        log.info("✓ 新增模型: {} (backend={}, path={})", model.getName(), backend, fullPath);
-        return toResponse(model, fullPath);
+        log.info("✓ 新增模型: {} (backend={}, path={})", model.getName(), backend, storagePath);
+        return toResponse(model);
     }
 
     public ModelResponse getById(String id) {
@@ -58,8 +62,7 @@ public class ModelService {
         if (model == null) {
             throw new ResourceNotFoundException("模型不存在: " + id);
         }
-        String fullPath = NfsStoragePathResolver.resolve(model.getStoragePath(), model.getName());
-        return toResponse(model, fullPath);
+        return toResponse(model);
     }
 
     public ModelResponse getByName(String name) {
@@ -67,16 +70,14 @@ public class ModelService {
         if (model == null) {
             throw new ResourceNotFoundException("模型不存在: " + name);
         }
-        String fullPath = NfsStoragePathResolver.resolve(model.getStoragePath(), model.getName());
-        return toResponse(model, fullPath);
+        return toResponse(model);
     }
 
     public List<ModelResponse> list() {
         List<ModelResponse> result = new ArrayList<>();
         List<Model> models = modelMapper.findAll();
         for (Model model : models) {
-            String fullPath = NfsStoragePathResolver.resolve(model.getStoragePath(), model.getName());
-            result.add(toResponse(model, fullPath));
+            result.add(toResponse(model));
         }
         return result;
     }
@@ -98,20 +99,22 @@ public class ModelService {
             backend = existing.getStorageBackend();
         }
         String storagePath = request.getStoragePath();
+        validateStoragePath(storagePath);
+        validateModelFamily(request.getModelFamily());
         Model updated = Model.builder()
                 .id(id)
                 .name(request.getName())
                 .displayName(request.getDisplayName())
                 .description(request.getDescription())
+                .modelFamily(request.getModelFamily())
                 .modelSource(request.getModelSource() != null ? request.getModelSource() : existing.getModelSource())
                 .storageBackend(backend)
                 .storagePath(storagePath)
                 .fileSizeMb(request.getFileSizeMb())
                 .build();
         modelMapper.update(updated);
-        String fullPath = NfsStoragePathResolver.resolve(storagePath, request.getName());
         log.info("✓ 更新模型: {}", updated.getName());
-        return toResponse(updated, fullPath);
+        return toResponse(updated);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -124,12 +127,25 @@ public class ModelService {
         log.info("✓ 已删除模型: {}", id);
     }
 
-    private ModelResponse toResponse(Model model, String fullPath) {
+    private void validateStoragePath(String storagePath) {
+        if (storagePath == null || !storagePath.startsWith("/")) {
+            throw new BadRequestException("模型存储路径必须是 GPU 主机上的 Linux 绝对路径");
+        }
+    }
+
+    private void validateModelFamily(String modelFamily) {
+        if (!MODEL_FAMILIES.contains(modelFamily)) {
+            throw new BadRequestException("不支持的模型系列: " + modelFamily);
+        }
+    }
+
+    private ModelResponse toResponse(Model model) {
         return ModelResponse.builder()
                 .id(model.getId())
                 .name(model.getName())
                 .displayName(model.getDisplayName())
                 .description(model.getDescription())
+                .modelFamily(model.getModelFamily())
                 .modelSource(model.getModelSource())
                 .storageBackend(model.getStorageBackend())
                 .storagePath(model.getStoragePath())
