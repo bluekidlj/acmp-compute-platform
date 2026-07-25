@@ -25,6 +25,7 @@ public class ComputeSpec {
     private String specType;
     private String resourcePoolId;
     private String gpuModel;
+    private Long gpuMemoryMb;
     private Integer gpuCount;
     private Integer cpuCores;
     private Integer memoryGib;

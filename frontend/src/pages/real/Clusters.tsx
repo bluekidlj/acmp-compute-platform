@@ -92,19 +92,19 @@ export default function ClustersPage() {
             }}
             columns={[
               { title: '集群名称', dataIndex: 'name', render: function render(value) { return <strong>{value}</strong>; } },
-              { title: 'Kubernetes', dataIndex: 'kubernetesVersion', render: function render(value) { return value || '-'; } },
-              { title: 'Node', dataIndex: 'nodeCount', width: 90 },
-              { title: 'Gpu', dataIndex: 'gpuCount', width: 90 },
+              { title: 'Kubernetes版本', dataIndex: 'kubernetesVersion', render: function render(value) { return value || '同步后获取'; } },
+              { title: '节点数', dataIndex: 'nodeCount', width: 90 },
+              { title: 'GPU设备数', dataIndex: 'gpuCount', width: 110 },
               { title: '状态', dataIndex: 'status', width: 120, render: function render(value) { return <StatusBadge value={value} />; } },
               { title: '最近同步', dataIndex: 'lastSyncAt', render: function render(value) { return formatTime(value); } },
-              { title: '同步信息', dataIndex: 'syncMessage', ellipsis: true, render: function render(value) { return value || '-'; } },
               {
                 title: '操作',
-                width: 190,
+                width: 250,
                 render: function renderActions(_, record: PhysicalCluster) {
                   return (
                     <Space onClick={function stop(event) { event.stopPropagation(); }}>
                       <Button size="small" icon={<ReloadOutlined />} onClick={function sync() { syncCluster(record.id); }}>同步</Button>
+                      <Button size="small" onClick={function detail() { navigate(`/clusters/${record.id}`); }}>详情</Button>
                       <Popconfirm title="确认删除该集群？" onConfirm={function remove() { deleteCluster(record.id); }}>
                         <Button size="small" danger>删除</Button>
                       </Popconfirm>

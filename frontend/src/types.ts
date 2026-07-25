@@ -1,6 +1,7 @@
 export type UserRole = 'PLATFORM_ADMIN' | 'ORG_ADMIN' | 'INFERENCE_USER';
 export type ClusterStatus = 'ACTIVE' | 'INACTIVE' | 'ERROR';
 export type SpecType = 'EXCLUSIVE' | 'SHARED';
+export type GpuBrand = 'NVIDIA' | 'HYGON' | 'HUAWEI_ASCEND';
 export type DeploymentStatus = 'PENDING' | 'SUBMITTED' | 'RUNNING' | 'FAILED';
 
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -30,10 +31,41 @@ export interface PhysicalCluster {
   updatedAt: string;
 }
 
+export interface MonitoringPoint {
+  timestamp: number;
+  value: number;
+}
+
+export interface MonitoringSeries {
+  metric: string;
+  unit: string;
+  points: MonitoringPoint[];
+}
+
+export interface ClusterMonitoringSummary {
+  clusterId: string;
+  name: string;
+  status: ClusterStatus;
+  nodeCount: number;
+  readyNodeCount: number;
+  gpuCount: number;
+  cpuUsagePercent: number | null;
+  memoryUsagePercent: number | null;
+  gpuUsagePercent: number | null;
+  gpuMemoryUsedMib: number | null;
+  lastCollectedAt: string | null;
+}
+
+export interface ClusterMonitoringDetail {
+  summary: ClusterMonitoringSummary;
+  series: MonitoringSeries[];
+}
+
 export interface ClusterNode {
   id: string;
   clusterId: string;
   name: string;
+  internalIp: string | null;
   cpuCores: number;
   memoryBytes: number;
   gpuCount: number;
@@ -50,6 +82,7 @@ export interface GpuDevice {
   nodeName: string;
   gpuIndex: number;
   uuid: string | null;
+  gpuBrand: GpuBrand | null;
   gpuModel: string | null;
   memoryMb: number | null;
   driverVersion: string | null;
@@ -66,6 +99,7 @@ export interface ResourcePoolSpecBrief {
   name: string;
   displayName: string;
   specType: SpecType;
+  gpuBrand: GpuBrand;
 }
 
 export interface ResourcePool {
@@ -84,10 +118,11 @@ export interface ComputeSpec {
   id: string;
   name: string;
   displayName: string | null;
-  gpuBrand: 'NVIDIA' | 'HYGON' | 'HUAWEI_ASCEND';
+  gpuBrand: GpuBrand;
   specType: SpecType;
   resourcePoolId: string;
   gpuModel: string | null;
+  gpuMemoryMb: number | null;
   gpuCount: number;
   cpuCores: number;
   memoryGib: number;
@@ -109,7 +144,7 @@ export interface ComputeSpec {
 export interface SpecRequest {
   name: string;
   displayName?: string;
-  gpuBrand: 'NVIDIA' | 'HYGON' | 'HUAWEI_ASCEND';
+  gpuBrand: GpuBrand;
   specType: SpecType;
   resourcePoolId: string;
   gpuModel?: string;
@@ -139,6 +174,7 @@ export interface TenantSpecQuota {
   resourcePoolId: string;
   resourcePoolName: string | null;
   poolType: SpecType;
+  gpuBrand: GpuBrand;
   gpuModel: string | null;
   gpuShare: '1/8' | '1/4' | '1/2' | null;
   cpuCores: number;

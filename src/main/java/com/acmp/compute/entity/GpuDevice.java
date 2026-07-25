@@ -18,6 +18,7 @@ public class GpuDevice {
     private String nodeName;
     private Integer gpuIndex;
     private String uuid;
+    private GpuBrand gpuBrand;
     private String gpuModel;
     private Long memoryMb;
     private String driverVersion;

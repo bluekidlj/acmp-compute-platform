@@ -15,6 +15,7 @@ public class ClusterNode {
     private String id;
     private String clusterId;
     private String name;
+    private String internalIp;
     private Integer cpuCores;
     private Long memoryBytes;
     private Integer gpuCount;

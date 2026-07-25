@@ -5,14 +5,21 @@ import {
   DatabaseOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { Descriptions, Drawer, Empty, message, Progress, Tabs, Tag } from 'antd';
+import { Descriptions, Drawer, Empty, message, Progress, Select, Tabs, Tag } from 'antd';
 import { api } from '../../api/real';
 import StatusBadge from '../../components/StatusBadge';
-import type { ComputeSpec } from '../../types';
+import type { ComputeSpec, GpuBrand } from '../../types';
+
+const BRAND_LABELS: Record<GpuBrand, string> = {
+  NVIDIA: '英伟达',
+  HYGON: '海光',
+  HUAWEI_ASCEND: '华为',
+};
 
 export default function SpecsPage() {
   const [items, setItems] = useState<ComputeSpec[]>([]);
   const [selected, setSelected] = useState<ComputeSpec | null>(null);
+  const [brand, setBrand] = useState<GpuBrand | 'ALL'>('ALL');
 
   useEffect(function loadSpecs() {
     api.specs()
@@ -23,10 +30,10 @@ export default function SpecsPage() {
   }, []);
 
   const exclusive = items.filter(function isExclusive(spec) {
-    return spec.specType === 'EXCLUSIVE';
+    return spec.specType === 'EXCLUSIVE' && (brand === 'ALL' || spec.gpuBrand === brand);
   });
   const shared = items.filter(function isShared(spec) {
-    return spec.specType === 'SHARED';
+    return spec.specType === 'SHARED' && (brand === 'ALL' || spec.gpuBrand === brand);
   });
 
   return (
@@ -36,6 +43,21 @@ export default function SpecsPage() {
           <h1>算力规格</h1>
           <p>Gpu 入池时形成的只读算力套餐，点击卡片查看规格和来源 Gpu</p>
         </div>
+      </div>
+
+      <div className="toolbar">
+        <span>按品牌查看算力规格</span>
+        <Select
+          value={brand}
+          style={{ width: 140 }}
+          options={[
+            { value: 'ALL', label: '全部品牌' },
+            { value: 'NVIDIA', label: '英伟达' },
+            { value: 'HYGON', label: '海光' },
+            { value: 'HUAWEI_ASCEND', label: '华为' },
+          ]}
+          onChange={function filterBrand(value: GpuBrand | 'ALL') { setBrand(value); }}
+        />
       </div>
 
       <Tabs
@@ -79,6 +101,7 @@ export default function SpecsPage() {
               <Descriptions.Item label="所属资源池">
                 {selected.resourcePoolName || selected.resourcePoolId}
               </Descriptions.Item>
+              <Descriptions.Item label="品牌">{BRAND_LABELS[selected.gpuBrand]}</Descriptions.Item>
               <Descriptions.Item label="可提供节点">
                 {selected.capacityNodes}
               </Descriptions.Item>
@@ -150,6 +173,7 @@ export default function SpecsPage() {
                 <Tag color={spec.specType === 'EXCLUSIVE' ? 'green' : 'cyan'}>
                   {spec.specType === 'EXCLUSIVE' ? '独享' : `共享 ${spec.gpuShare}`}
                 </Tag>
+                <Tag>{BRAND_LABELS[spec.gpuBrand]}</Tag>
               </div>
 
               <h3>{spec.displayName || spec.name}</h3>

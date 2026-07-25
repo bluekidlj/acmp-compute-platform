@@ -10,6 +10,7 @@
         <result column="node_name" property="nodeName"/>
         <result column="gpu_index" property="gpuIndex"/>
         <result column="uuid" property="uuid"/>
+        <result column="gpu_brand" property="gpuBrand"/>
         <result column="gpu_model" property="gpuModel"/>
         <result column="memory_mb" property="memoryMb"/>
         <result column="driver_version" property="driverVersion"/>
@@ -25,12 +26,12 @@
 
     <insert id="insert">
         INSERT INTO gpu_device
-            (id, cluster_id, node_id, node_name, gpu_index, uuid, gpu_model,
+            (id, cluster_id, node_id, node_name, gpu_index, uuid, gpu_brand, gpu_model,
              memory_mb, driver_version, cuda_version, status, resource_pool_id, compute_spec_id,
              usage_status, last_sync_at)
         VALUES
             (#{id}, #{clusterId}, #{nodeId}, #{nodeName}, #{gpuIndex}, #{uuid},
-             #{gpuModel}, #{memoryMb}, #{driverVersion}, #{cudaVersion}, #{status},
+             #{gpuBrand}, #{gpuModel}, #{memoryMb}, #{driverVersion}, #{cudaVersion}, #{status},
              #{resourcePoolId}, #{computeSpecId}, #{usageStatus}, CURRENT_TIMESTAMP)
     </insert>
 
@@ -39,6 +40,7 @@
         UPDATE gpu_device
         SET node_id = #{nodeId},
             uuid = #{uuid},
+            gpu_brand = #{gpuBrand},
             gpu_model = #{gpuModel},
             memory_mb = #{memoryMb},
             driver_version = #{driverVersion},
@@ -74,7 +76,8 @@
 
     <select id="findByNodeId" resultMap="BaseResultMap">
         SELECT * FROM gpu_device
-        WHERE node_id = #{nodeId}
+        <!-- Node 详情只展示本次同步仍存在的设备。 -->
+        WHERE node_id = #{nodeId} AND status != 'OFFLINE'
         ORDER BY gpu_index
     </select>
 

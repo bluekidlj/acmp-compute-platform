@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Descriptions, Drawer, Form, Input, InputNumber, message, Popconfirm, Select, Space, Table, Tabs } from 'antd';
+import { Button, Descriptions, Drawer, Form, Input, InputNumber, message, Popconfirm, Select, Space, Table, Tabs, Tag } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api/real';
 import StatusBadge from '../../components/StatusBadge';
-import type { ComputeSpec, Project, Tenant, TenantSpecQuota } from '../../types';
+import type { ComputeSpec, GpuBrand, Project, Tenant, TenantSpecQuota } from '../../types';
+
+const BRAND_LABELS: Record<GpuBrand, string> = {
+  NVIDIA: '英伟达',
+  HYGON: '海光',
+  HUAWEI_ASCEND: '华为',
+};
 
 export default function TenantDetailPage() {
   const { tenantId = '' } = useParams();
@@ -14,6 +20,7 @@ export default function TenantDetailPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [specs, setSpecs] = useState<ComputeSpec[]>([]);
   const [quotaOpen, setQuotaOpen] = useState(false);
+  const [quotaBrand, setQuotaBrand] = useState<GpuBrand | 'ALL'>('ALL');
   const [projectOpen, setProjectOpen] = useState(false);
   const [quotaForm] = Form.useForm();
   const [projectForm] = Form.useForm();
@@ -110,6 +117,14 @@ export default function TenantDetailPage() {
                   <div className="mono quota-spec-name">{value}</div>
                 </div>
               );
+            },
+          },
+          {
+            title: '品牌',
+            dataIndex: 'gpuBrand',
+            width: 90,
+            render: function renderBrand(value: GpuBrand) {
+              return <Tag>{BRAND_LABELS[value] || value}</Tag>;
             },
           },
           {
@@ -224,6 +239,8 @@ export default function TenantDetailPage() {
                       icon={<PlusOutlined />}
                       disabled={assignableSpecs.length === 0}
                       onClick={function openQuotaDrawer() {
+                        setQuotaBrand('ALL');
+                        quotaForm.resetFields();
                         setQuotaOpen(true);
                       }}
                     >
@@ -275,14 +292,31 @@ export default function TenantDetailPage() {
       </div>
       <Drawer title="分配算力规格节点" open={quotaOpen} width={520} onClose={function close() { setQuotaOpen(false); }}>
         <Form form={quotaForm} layout="vertical" onFinish={createQuota}>
+          <Form.Item label="品牌">
+            <Select
+              value={quotaBrand}
+              options={[
+                { value: 'ALL', label: '全部品牌' },
+                { value: 'NVIDIA', label: '英伟达' },
+                { value: 'HYGON', label: '海光' },
+                { value: 'HUAWEI_ASCEND', label: '华为' },
+              ]}
+              onChange={function selectBrand(value: GpuBrand | 'ALL') {
+                setQuotaBrand(value);
+                quotaForm.setFieldValue('specId', undefined);
+              }}
+            />
+          </Form.Item>
           <Form.Item name="specId" label="算力规格" rules={[{ required: true }]}>
             <Select
               placeholder="选择尚有可分配节点的规格"
-              options={assignableSpecs.map(function option(spec) {
+              options={assignableSpecs.filter(function byBrand(spec) {
+                return quotaBrand === 'ALL' || spec.gpuBrand === quotaBrand;
+              }).map(function option(spec) {
                 const availableNodes = spec.capacityNodes - spec.allocatedNodes;
                 return {
                   value: spec.id,
-                  label: `${spec.specType === 'EXCLUSIVE' ? '独享' : `共享 ${spec.gpuShare}`} · ${spec.displayName || spec.name} · 可分配 ${availableNodes}`,
+                  label: `${BRAND_LABELS[spec.gpuBrand]} · ${spec.specType === 'EXCLUSIVE' ? '独享' : `共享 ${spec.gpuShare}`} · ${spec.displayName || spec.name} · 可分配 ${availableNodes}`,
                 };
               })}
             />

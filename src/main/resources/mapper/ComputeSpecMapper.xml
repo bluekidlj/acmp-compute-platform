@@ -10,6 +10,7 @@
         <result column="spec_type" property="specType"/>
         <result column="resource_pool_id" property="resourcePoolId"/>
         <result column="gpu_model" property="gpuModel"/>
+        <result column="gpu_memory_mb" property="gpuMemoryMb"/>
         <result column="gpu_count" property="gpuCount"/>
         <result column="cpu_cores" property="cpuCores"/>
         <result column="memory_gib" property="memoryGib"/>
@@ -23,11 +24,11 @@
     <insert id="insert">
         INSERT INTO compute_spec
              (id, name, display_name, gpu_brand, spec_type, resource_pool_id,
-             gpu_model, gpu_count, cpu_cores, memory_gib, gpu_share, description, status,
+             gpu_model, gpu_memory_mb, gpu_count, cpu_cores, memory_gib, gpu_share, description, status,
              created_at, updated_at)
         VALUES
              (#{id}, #{name}, #{displayName}, #{gpuBrand}, #{specType}, #{resourcePoolId},
-             #{gpuModel}, #{gpuCount}, #{cpuCores}, #{memoryGib}, #{gpuShare},
+             #{gpuModel}, #{gpuMemoryMb}, #{gpuCount}, #{cpuCores}, #{memoryGib}, #{gpuShare},
              #{description}, #{status},
              CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>
@@ -39,6 +40,7 @@
             spec_type = #{specType},
             resource_pool_id = #{resourcePoolId},
             gpu_model = #{gpuModel},
+            gpu_memory_mb = #{gpuMemoryMb},
             gpu_count = #{gpuCount},
             cpu_cores = #{cpuCores},
             memory_gib = #{memoryGib},

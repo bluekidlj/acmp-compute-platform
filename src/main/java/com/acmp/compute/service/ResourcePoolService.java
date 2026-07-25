@@ -4,7 +4,6 @@ import com.acmp.compute.dto.GpuJoinSpecRequest;
 import com.acmp.compute.dto.ResourcePoolResponse;
 import com.acmp.compute.dto.SpecResponse;
 import com.acmp.compute.entity.ComputeSpec;
-import com.acmp.compute.entity.GpuBrand;
 import com.acmp.compute.entity.GpuDevice;
 import com.acmp.compute.entity.ResourcePool;
 import com.acmp.compute.exception.BadRequestException;
@@ -79,6 +78,14 @@ public class ResourcePoolService {
                 || request.getMemoryGib() == null || request.getMemoryGib() <= 0) {
             throw new BadRequestException("CPU 和内存必须大于 0");
         }
+        if (gpu.getGpuBrand() == null) {
+            throw new BadRequestException("Gpu 品牌未识别，请先重新同步集群库存");
+        }
+        if ("SHARED".equals(pool.getPoolType())
+                && gpu.getGpuBrand() != com.acmp.compute.entity.GpuBrand.NVIDIA
+                && (gpu.getMemoryMb() == null || gpu.getMemoryMb() <= 0)) {
+            throw new BadRequestException("海光或华为共享 Gpu 必须先识别显存容量");
+        }
 
         String gpuShare = validateShare(pool, request.getGpuShare());
         String specId = UUID.randomUUID().toString();
@@ -86,10 +93,11 @@ public class ResourcePoolService {
                 .id(specId)
                 .name(request.getName())
                 .displayName(request.getDisplayName())
-                .gpuBrand(GpuBrand.NVIDIA)
+                .gpuBrand(gpu.getGpuBrand())
                 .specType(pool.getPoolType())
                 .resourcePoolId(pool.getId())
                 .gpuModel(gpu.getGpuModel())
+                .gpuMemoryMb(gpu.getMemoryMb())
                 .gpuCount(1)
                 .cpuCores(request.getCpuCores())
                 .memoryGib(request.getMemoryGib())
@@ -141,6 +149,7 @@ public class ResourcePoolService {
         for (ComputeSpec spec : specs) {
             briefs.add(ResourcePoolResponse.SpecBrief.builder().id(spec.getId()).name(spec.getName())
                     .displayName(spec.getDisplayName()).specType(spec.getSpecType())
+                    .gpuBrand(spec.getGpuBrand())
                     .build());
         }
         int total = gpuMapper.countByPool(pool.getId());

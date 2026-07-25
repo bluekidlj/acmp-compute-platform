@@ -44,6 +44,11 @@ acmp:
     connect-timeout-seconds: ${K8S_CONNECT_TIMEOUT_SECONDS:5}
     read-timeout-seconds: ${K8S_READ_TIMEOUT_SECONDS:15}
     call-timeout-seconds: ${K8S_CALL_TIMEOUT_SECONDS:30}
+  monitoring:
+    # 两节点 MVP 使用一套 Prometheus。未配置时监控接口仍返回集群资产，曲线为空。
+    prometheus-url: ${PROMETHEUS_URL:}
+    connect-timeout-seconds: ${PROMETHEUS_CONNECT_TIMEOUT_SECONDS:3}
+    read-timeout-seconds: ${PROMETHEUS_READ_TIMEOUT_SECONDS:10}
 # 日志
 logging:
   level:

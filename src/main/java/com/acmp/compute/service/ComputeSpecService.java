@@ -4,7 +4,6 @@ import com.acmp.compute.dto.SpecRequest;
 import com.acmp.compute.dto.SpecResponse;
 import com.acmp.compute.entity.ComputeSpec;
 import com.acmp.compute.entity.GpuDevice;
-import com.acmp.compute.entity.GpuBrand;
 import com.acmp.compute.entity.ResourcePool;
 import com.acmp.compute.exception.BadRequestException;
 import com.acmp.compute.exception.ResourceNotFoundException;
@@ -112,9 +111,6 @@ public class ComputeSpecService {
             throw new BadRequestException("规格类型与资源池类型不匹配");
         }
         if ("SHARED".equals(request.getSpecType())) {
-            if (request.getGpuBrand() != GpuBrand.NVIDIA) {
-                throw new BadRequestException("当前共享规格只支持 NVIDIA HAMi");
-            }
             validateGpuShare(request.getGpuShare());
         } else if (request.getGpuShare() != null && !request.getGpuShare().isBlank()) {
             throw new BadRequestException("独占规格不能设置 gpuShare");
@@ -134,7 +130,7 @@ public class ComputeSpecService {
                 .name(request.getName()).displayName(request.getDisplayName())
                 .gpuBrand(request.getGpuBrand()).specType(request.getSpecType())
                 .resourcePoolId(request.getResourcePoolId())
-                .gpuModel(request.getGpuModel()).gpuShare(request.getGpuShare())
+                .gpuModel(request.getGpuModel()).gpuMemoryMb(null).gpuShare(request.getGpuShare())
                 .gpuCount(1)
                 .cpuCores(request.getCpuCores()).memoryGib(request.getMemoryGib())
                 .description(request.getDescription()).status("active").build();
@@ -147,6 +143,7 @@ public class ComputeSpecService {
         return SpecResponse.builder().id(spec.getId()).name(spec.getName()).displayName(spec.getDisplayName())
                 .gpuBrand(spec.getGpuBrand()).specType(spec.getSpecType())
                 .resourcePoolId(spec.getResourcePoolId()).gpuModel(spec.getGpuModel())
+                .gpuMemoryMb(spec.getGpuMemoryMb())
                 .gpuShare(spec.getGpuShare())
                 .gpuCount(spec.getGpuCount()).cpuCores(spec.getCpuCores())
                 .memoryGib(spec.getMemoryGib()).description(spec.getDescription())

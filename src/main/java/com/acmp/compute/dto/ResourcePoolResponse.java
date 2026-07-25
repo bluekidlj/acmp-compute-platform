@@ -1,5 +1,6 @@
 package com.acmp.compute.dto;
 
+import com.acmp.compute.entity.GpuBrand;
 import lombok.Builder;
 import lombok.Data;
 
@@ -28,5 +29,6 @@ public class ResourcePoolResponse {
         private String name;
         private String displayName;
         private String specType;
+        private GpuBrand gpuBrand;
     }
 }

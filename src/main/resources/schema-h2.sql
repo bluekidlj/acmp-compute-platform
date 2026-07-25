@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS cluster_node (
     id VARCHAR(64) PRIMARY KEY,
     cluster_id VARCHAR(64) NOT NULL,
     name VARCHAR(128) NOT NULL,
+    internal_ip VARCHAR(64),
     cpu_cores INT DEFAULT 0,
     memory_bytes BIGINT DEFAULT 0,
     gpu_count INT DEFAULT 0,
@@ -64,6 +65,7 @@ CREATE TABLE IF NOT EXISTS cluster_node (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (cluster_id, name)
 );
+ALTER TABLE cluster_node ADD COLUMN IF NOT EXISTS internal_ip VARCHAR(64);
 CREATE INDEX IF NOT EXISTS idx_cluster_node_cluster ON cluster_node(cluster_id);
 
 CREATE TABLE IF NOT EXISTS gpu_device (
@@ -73,6 +75,7 @@ CREATE TABLE IF NOT EXISTS gpu_device (
     node_name VARCHAR(128) NOT NULL,
     gpu_index INT NOT NULL,
     uuid VARCHAR(128),
+    gpu_brand VARCHAR(32),
     gpu_model VARCHAR(128),
     memory_mb BIGINT,
     driver_version VARCHAR(64),
@@ -90,6 +93,7 @@ CREATE INDEX IF NOT EXISTS idx_gpu_device_cluster ON gpu_device(cluster_id);
 CREATE INDEX IF NOT EXISTS idx_gpu_device_node ON gpu_device(node_id);
 CREATE INDEX IF NOT EXISTS idx_gpu_device_pool ON gpu_device(resource_pool_id);
 ALTER TABLE gpu_device ADD COLUMN IF NOT EXISTS compute_spec_id VARCHAR(64);
+ALTER TABLE gpu_device ADD COLUMN IF NOT EXISTS gpu_brand VARCHAR(32);
 CREATE INDEX IF NOT EXISTS idx_gpu_device_spec ON gpu_device(compute_spec_id);
 
 -- ─────────── 算力规格 ───────────
@@ -101,6 +105,7 @@ CREATE TABLE IF NOT EXISTS compute_spec (
     spec_type           VARCHAR(20) NOT NULL,
     resource_pool_id    VARCHAR(64) NOT NULL,
     gpu_model           VARCHAR(128),
+    gpu_memory_mb       BIGINT,
     gpu_count           INT NOT NULL DEFAULT 1,
     cpu_cores           INT NOT NULL DEFAULT 4,
     memory_gib          INT NOT NULL DEFAULT 16,
@@ -110,6 +115,7 @@ CREATE TABLE IF NOT EXISTS compute_spec (
     created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE compute_spec ADD COLUMN IF NOT EXISTS gpu_memory_mb BIGINT;
 CREATE TABLE IF NOT EXISTS tenant (
     id VARCHAR(64) PRIMARY KEY,
     name VARCHAR(128) UNIQUE NOT NULL,

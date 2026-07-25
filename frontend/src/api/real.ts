@@ -3,6 +3,8 @@ import type {
   ChatCompletionResponse,
   ChatMessage,
   ClusterNode,
+  ClusterMonitoringDetail,
+  ClusterMonitoringSummary,
   ComputeSpec,
   DeploymentRequest,
   GpuDevice,
@@ -75,8 +77,29 @@ export const api = {
   async nodes(clusterId: string): Promise<ClusterNode[]> {
     return (await client.get<ClusterNode[]>(`/clusters/${clusterId}/nodes`)).data;
   },
+
+  /**
+   * 集群监控列表。指标为空表示 Prometheus 未配置、不可达或暂时无数据。
+   */
+  async clusterMonitoring(): Promise<ClusterMonitoringSummary[]> {
+    return (await client.get<ClusterMonitoringSummary[]>('/monitoring/clusters')).data;
+  },
+
+  /**
+   * 查询固定时间范围内的集群监控摘要和曲线。
+   * start/end 使用 ISO-8601，step 单位为秒。
+   */
+  async clusterMonitoringDetail(
+    clusterId: string,
+    params: { start: string; end: string; step: number },
+  ): Promise<ClusterMonitoringDetail> {
+    return (await client.get<ClusterMonitoringDetail>(`/monitoring/clusters/${clusterId}`, { params })).data;
+  },
   async gpus(clusterId: string): Promise<GpuDevice[]> {
     return (await client.get<GpuDevice[]>(`/clusters/${clusterId}/gpus`)).data;
+  },
+  async nodeGpus(clusterId: string, nodeId: string): Promise<GpuDevice[]> {
+    return (await client.get<GpuDevice[]>(`/clusters/${clusterId}/nodes/${nodeId}/gpus`)).data;
   },
 
   async pools(): Promise<ResourcePool[]> {

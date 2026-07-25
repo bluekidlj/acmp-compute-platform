@@ -1,6 +1,7 @@
 package com.acmp.compute.service;
 
 import com.acmp.compute.entity.ClusterNode;
+import com.acmp.compute.entity.GpuBrand;
 import com.acmp.compute.entity.GpuDevice;
 import com.acmp.compute.entity.PhysicalCluster;
 import com.acmp.compute.exception.ResourceNotFoundException;
@@ -13,9 +14,12 @@ import io.kubernetes.client.custom.Quantity;
 import io.kubernetes.client.openapi.ApiException;
 import io.kubernetes.client.openapi.ApiClient;
 import io.kubernetes.client.openapi.apis.CoreV1Api;
+import io.kubernetes.client.openapi.apis.VersionApi;
 import io.kubernetes.client.openapi.models.V1Node;
+import io.kubernetes.client.openapi.models.V1NodeAddress;
 import io.kubernetes.client.openapi.models.V1NodeCondition;
 import io.kubernetes.client.openapi.models.V1NodeList;
+import io.kubernetes.client.openapi.models.VersionInfo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -51,6 +55,7 @@ public class ClusterInventoryService {
         try {
             ApiClient client = clientManager.getClient(clusterId);
             V1NodeList nodeList = new CoreV1Api(client).listNode().execute();
+            VersionInfo version = new VersionApi(client).getCode().execute();
             List<V1Node> nodes = nodeList == null ? null : nodeList.getItems();
             if (nodes == null) {
                 nodes = new ArrayList<>();
@@ -73,6 +78,7 @@ public class ClusterInventoryService {
             }
 
             cluster.setStatus("ACTIVE");
+            cluster.setKubernetesVersion(version == null ? null : version.getGitVersion());
             cluster.setNodeCount(nodes.size());
             cluster.setGpuCount(gpuTotal);
             cluster.setLastSyncAt(java.time.Instant.now());
@@ -113,17 +119,30 @@ public class ClusterInventoryService {
         return gpuMapper.findByNodeId(nodeId);
     }
 
+    /**
+     * 查询指定集群中某个真实 Node 的 GPU，避免混用其他集群的 nodeId。
+     */
+    public List<GpuDevice> listGpusByNode(String clusterId, String nodeId) {
+        ClusterNode node = nodeMapper.findById(nodeId)
+                .orElseThrow(() -> new ResourceNotFoundException("节点不存在: " + nodeId));
+        if (!clusterId.equals(node.getClusterId())) {
+            throw new ResourceNotFoundException("该集群中不存在节点: " + nodeId);
+        }
+        return gpuMapper.findByNodeId(nodeId);
+    }
+
     private ClusterNode toNode(String clusterId, V1Node source) {
         String name = source.getMetadata() == null ? "unknown" : source.getMetadata().getName();
         Map<String, Quantity> allocatable = source.getStatus() == null ? null : source.getStatus().getAllocatable();
-        int gpuCount = readGpuCount(allocatable);
+        AcceleratorInventory accelerator = accelerator(allocatable);
         return ClusterNode.builder()
                 .id(stableId("node", clusterId, name))
                 .clusterId(clusterId)
                 .name(name)
+                .internalIp(internalIp(source))
                 .cpuCores((int) quantity(allocatable, "cpu"))
                 .memoryBytes(quantity(allocatable, "memory"))
-                .gpuCount(gpuCount)
+                .gpuCount(accelerator.count)
                 .status(nodeStatus(source))
                 .labelsJson(json(source.getMetadata() == null ? null : source.getMetadata().getLabels()))
                 .taintsJson(json(source.getSpec() == null ? null : source.getSpec().getTaints()))
@@ -131,22 +150,44 @@ public class ClusterInventoryService {
                 .build();
     }
 
+    /**
+     * 拓扑只展示 Kubernetes Node 上报的 InternalIP，不推测宿主机地址。
+     */
+    private String internalIp(V1Node node) {
+        if (node.getStatus() == null || node.getStatus().getAddresses() == null) {
+            return null;
+        }
+        for (V1NodeAddress address : node.getStatus().getAddresses()) {
+            if (address != null && "InternalIP".equals(address.getType())) {
+                return address.getAddress();
+            }
+        }
+        return null;
+    }
+
     private int syncGpus(ClusterNode node, V1Node source) {
-        int count = node.getGpuCount() == null ? 0 : node.getGpuCount();
+        Map<String, Quantity> allocatable = source.getStatus() == null ? null : source.getStatus().getAllocatable();
+        AcceleratorInventory accelerator = accelerator(allocatable);
+        int count = accelerator.count;
         Map<String, String> labels = source.getMetadata() == null ? null : source.getMetadata().getLabels();
         Map<String, String> annotations = source.getMetadata() == null ? null : source.getMetadata().getAnnotations();
         String model = first(labels, "nvidia.com/gpu.product", "nvidia.com/gpu.family",
-                "accelerator", "huawei.com/ascend-model", "amd.com/gpu.product");
-        String driver = first(labels, "nvidia.com/cuda.driver-version.full", "nvidia.com/cuda.driver.major");
+                "accelerator", "huawei.com/ascend-model", "hygon.com/dcu.product", "amd.com/gpu.product");
+        if ((model == null || model.isBlank()) && accelerator.model != null) {
+            model = accelerator.model;
+        }
+        String driver = first(labels, "nvidia.com/cuda.driver-version.full",
+                "nvidia.com/cuda.driver.major", "hygon.com/driver-version", "huawei.com/driver-version");
         String cuda = first(labels, "nvidia.com/cuda.runtime-version.full", "nvidia.com/cuda.runtime.major");
-        Long memoryMb = number(first(annotations, "nvidia.com/gpu-memory", "gpu-memory-mb"));
+        Long memoryMb = number(first(annotations, "nvidia.com/gpu-memory", "gpu-memory-mb",
+                "hygon.com/dcu-memory", "huawei.com/ascend-memory"));
 
         for (int index = 0; index < count; index++) {
             Optional<GpuDevice> old = gpuMapper.findByIdentity(node.getClusterId(), node.getName(), index);
             GpuDevice device = GpuDevice.builder()
                     .id(stableId("gpu", node.getClusterId(), node.getName(), String.valueOf(index)))
                     .clusterId(node.getClusterId()).nodeId(node.getId()).nodeName(node.getName())
-                    .gpuIndex(index).gpuModel(model).memoryMb(memoryMb)
+                    .gpuIndex(index).gpuBrand(accelerator.brand).gpuModel(model).memoryMb(memoryMb)
                     .driverVersion(driver).cudaVersion(cuda)
                     .status("READY".equals(node.getStatus()) ? "READY" : "OFFLINE")
                     .usageStatus("IDLE").lastSyncAt(java.time.Instant.now()).build();
@@ -162,13 +203,41 @@ public class ClusterInventoryService {
         return count;
     }
 
-    private int readGpuCount(Map<String, Quantity> values) {
-        long total = quantity(values, "nvidia.com/gpu");
-        total += quantity(values, "amd.com/gpu");
-        total += quantity(values, "amd.com/dcu");
-        total += quantity(values, "huawei.com/Ascend910");
-        total += quantity(values, "huawei.com/ascend910");
-        return (int) total;
+    private AcceleratorInventory accelerator(Map<String, Quantity> values) {
+        int nvidia = (int) quantity(values, "nvidia.com/gpu");
+        int hygon = (int) firstPositiveQuantity(values,
+                "hygon.com/dcunum", "hygon.com/dcu", "amd.com/dcu", "amd.com/gpu");
+        int ascend = 0;
+        String ascendModel = null;
+        if (values != null) {
+            for (Map.Entry<String, Quantity> entry : values.entrySet()) {
+                String key = entry.getKey();
+                if (key != null
+                        && (key.startsWith("huawei.com/Ascend") || key.startsWith("huawei.com/ascend"))
+                        && !key.endsWith("-memory")
+                        && !key.endsWith("-core")) {
+                    ascend += quantity(entry.getValue());
+                    if (ascendModel == null && key.contains("/")) {
+                        ascendModel = key.substring(key.indexOf('/') + 1);
+                    }
+                }
+            }
+        }
+
+        int brands = (nvidia > 0 ? 1 : 0) + (hygon > 0 ? 1 : 0) + (ascend > 0 ? 1 : 0);
+        if (brands > 1) {
+            log.warn("节点同时暴露多个加速器品牌资源，MVP 按 NVIDIA、海光、华为优先级识别");
+        }
+        if (nvidia > 0) {
+            return new AcceleratorInventory(GpuBrand.NVIDIA, nvidia, null);
+        }
+        if (hygon > 0) {
+            return new AcceleratorInventory(GpuBrand.HYGON, hygon, null);
+        }
+        if (ascend > 0) {
+            return new AcceleratorInventory(GpuBrand.HUAWEI_ASCEND, ascend, ascendModel);
+        }
+        return new AcceleratorInventory(null, 0, null);
     }
 
     private long quantity(Map<String, Quantity> values, String key) {
@@ -179,6 +248,39 @@ public class ClusterInventoryService {
             return values.get(key).getNumber().longValue();
         } catch (Exception e) {
             return 0L;
+        }
+    }
+
+    private long quantity(Quantity value) {
+        if (value == null) {
+            return 0L;
+        }
+        try {
+            return value.getNumber().longValue();
+        } catch (Exception e) {
+            return 0L;
+        }
+    }
+
+    private long firstPositiveQuantity(Map<String, Quantity> values, String... keys) {
+        for (String key : keys) {
+            long value = quantity(values, key);
+            if (value > 0) {
+                return value;
+            }
+        }
+        return 0L;
+    }
+
+    private static final class AcceleratorInventory {
+        private final GpuBrand brand;
+        private final int count;
+        private final String model;
+
+        private AcceleratorInventory(GpuBrand brand, int count, String model) {
+            this.brand = brand;
+            this.count = count;
+            this.model = model;
         }
     }
 

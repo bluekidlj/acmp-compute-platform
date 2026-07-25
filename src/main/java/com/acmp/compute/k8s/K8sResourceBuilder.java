@@ -114,7 +114,9 @@ public final class K8sResourceBuilder {
                         .replicas(replicas)
                         .selector(new V1LabelSelector().matchLabels(labels))
                         .template(new V1PodTemplateSpec()
-                                .metadata(new V1ObjectMeta().labels(labels))
+                                .metadata(new V1ObjectMeta()
+                                        .labels(labels)
+                                        .annotations(podAnnotations(spec)))
                                 .spec(podSpec)));
     }
 
@@ -145,18 +147,23 @@ public final class K8sResourceBuilder {
 
     private static V1ResourceRequirements resources(ComputeSpec spec) {
         Map<String, Quantity> limits = new HashMap<>();
-        limits.put(gpuResourceKey(spec.getGpuBrand()), Quantity.fromString(String.valueOf(spec.getGpuCount())));
+        limits.put(gpuResourceKey(spec), Quantity.fromString(String.valueOf(spec.getGpuCount())));
         limits.put("cpu", Quantity.fromString(String.valueOf(spec.getCpuCores())));
         limits.put("memory", Quantity.fromString(spec.getMemoryGib() + "Gi"));
 
-        if ("SHARED".equals(spec.getSpecType()) && spec.getGpuBrand() == GpuBrand.NVIDIA) {
+        if ("SHARED".equals(spec.getSpecType())) {
             int percent = gpuSharePercent(spec.getGpuShare());
-            limits.put(
-                    "nvidia.com/gpumem-percentage",
-                    Quantity.fromString(String.valueOf(percent)));
-            limits.put(
-                    "nvidia.com/gpucores",
-                    Quantity.fromString(String.valueOf(percent)));
+            if (spec.getGpuBrand() == GpuBrand.HYGON) {
+                limits.put("hygon.com/dcucores", Quantity.fromString(String.valueOf(percent)));
+                limits.put("hygon.com/dcumem", Quantity.fromString(String.valueOf(sharedMemoryMb(spec, percent))));
+            } else if (spec.getGpuBrand() == GpuBrand.HUAWEI_ASCEND) {
+                String resource = ascendResourceKey(spec.getGpuModel());
+                limits.put(resource + "-core", Quantity.fromString(String.valueOf(percent)));
+                limits.put(resource + "-memory", Quantity.fromString(String.valueOf(sharedMemoryMb(spec, percent))));
+            } else {
+                limits.put("nvidia.com/gpumem-percentage", Quantity.fromString(String.valueOf(percent)));
+                limits.put("nvidia.com/gpucores", Quantity.fromString(String.valueOf(percent)));
+            }
         }
 
         return new V1ResourceRequirements()
@@ -166,12 +173,46 @@ public final class K8sResourceBuilder {
 
     private static String gpuResourceKey(GpuBrand brand) {
         if (brand == GpuBrand.HYGON) {
-            return "amd.com/dcu";
+            return "hygon.com/dcunum";
         }
         if (brand == GpuBrand.HUAWEI_ASCEND) {
-            return "huawei.com/ascend910";
+            throw new IllegalArgumentException("华为昇腾资源键必须根据具体型号生成");
         }
         return "nvidia.com/gpu";
+    }
+
+    private static String gpuResourceKey(ComputeSpec spec) {
+        if (spec.getGpuBrand() == GpuBrand.HUAWEI_ASCEND) {
+            return ascendResourceKey(spec.getGpuModel());
+        }
+        return gpuResourceKey(spec.getGpuBrand());
+    }
+
+    private static int sharedMemoryMb(ComputeSpec spec, int percent) {
+        if (spec.getGpuMemoryMb() == null || spec.getGpuMemoryMb() <= 0) {
+            throw new IllegalArgumentException("共享规格缺少 Gpu 显存容量");
+        }
+        return Math.max(1, (int) (spec.getGpuMemoryMb() * percent / 100));
+    }
+
+    private static String ascendResourceKey(String model) {
+        String value = model == null ? "" : model.toUpperCase().replace("-", "").replace("_", "");
+        if (value.contains("910B4")) return "huawei.com/Ascend910B4";
+        if (value.contains("910B3")) return "huawei.com/Ascend910B3";
+        if (value.contains("910B2")) return "huawei.com/Ascend910B2";
+        if (value.contains("910C")) return "huawei.com/Ascend910C";
+        if (value.contains("910B")) return "huawei.com/Ascend910B";
+        if (value.contains("910A")) return "huawei.com/Ascend910A";
+        if (value.contains("310P")) return "huawei.com/Ascend310P";
+        throw new IllegalArgumentException("无法根据型号生成华为昇腾资源键: " + model);
+    }
+
+    private static Map<String, String> podAnnotations(ComputeSpec spec) {
+        Map<String, String> annotations = new HashMap<>();
+        if ("SHARED".equals(spec.getSpecType()) && spec.getGpuBrand() == GpuBrand.HUAWEI_ASCEND) {
+            annotations.put("huawei.com/vnpu-mode", "hami-core");
+        }
+        return annotations;
     }
 
     /**

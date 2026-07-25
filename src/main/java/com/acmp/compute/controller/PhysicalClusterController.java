@@ -76,6 +76,18 @@ public class PhysicalClusterController {
     }
 
     /**
+     * 查询指定真实 Node 上发现的 GPU 设备。
+     *
+     * @param id 集群 ID
+     * @param nodeId Node 库存 ID
+     */
+    @GetMapping("/{id}/nodes/{nodeId}/gpus")
+    public ResponseEntity<List<GpuDevice>> listNodeGpus(@PathVariable String id,
+                                                        @PathVariable String nodeId) {
+        return ResponseEntity.ok(clusterInventoryService.listGpusByNode(id, nodeId));
+    }
+
+    /**
      * 查询全部已注册集群。
      */
     @GetMapping

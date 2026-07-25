@@ -17,7 +17,19 @@ import {
 } from 'antd';
 import { api } from '../../api/real';
 import StatusBadge from '../../components/StatusBadge';
-import type { GpuDevice, PhysicalCluster, ResourcePool } from '../../types';
+import type { GpuBrand, GpuDevice, PhysicalCluster, ResourcePool } from '../../types';
+
+const BRAND_LABELS: Record<GpuBrand, string> = {
+  NVIDIA: '英伟达',
+  HYGON: '海光',
+  HUAWEI_ASCEND: '华为',
+};
+const BRAND_OPTIONS = [
+  { value: 'ALL', label: '全部品牌' },
+  { value: 'NVIDIA', label: '英伟达' },
+  { value: 'HYGON', label: '海光' },
+  { value: 'HUAWEI_ASCEND', label: '华为' },
+];
 
 interface JoinGpuForm {
   name: string;
@@ -38,6 +50,8 @@ export default function ResourcePoolsPage() {
   const [clusterId, setClusterId] = useState<string>();
   const [available, setAvailable] = useState<GpuDevice[]>([]);
   const [selectedGpu, setSelectedGpu] = useState<GpuDevice | null>(null);
+  const [joinBrand, setJoinBrand] = useState<GpuBrand | 'ALL'>('ALL');
+  const [poolBrand, setPoolBrand] = useState<GpuBrand | 'ALL'>('ALL');
   const [form] = Form.useForm<JoinGpuForm>();
 
   function load() {
@@ -72,6 +86,7 @@ export default function ResourcePoolsPage() {
   async function chooseCluster(id: string) {
     setClusterId(id);
     setSelectedGpu(null);
+    setJoinBrand('ALL');
     form.resetFields();
 
     try {
@@ -112,6 +127,7 @@ export default function ResourcePoolsPage() {
     setClusterId(undefined);
     setAvailable([]);
     setSelectedGpu(null);
+    setJoinBrand('ALL');
     form.resetFields();
   }
 
@@ -197,10 +213,22 @@ export default function ResourcePoolsPage() {
             })}
           />
 
+          <Select
+            style={{ width: '100%', marginBottom: 14 }}
+            value={joinBrand}
+            options={BRAND_OPTIONS}
+            onChange={function filterBrand(value: GpuBrand | 'ALL') {
+              setJoinBrand(value);
+              setSelectedGpu(null);
+            }}
+          />
+
           <Table
             rowKey="id"
             size="small"
-            dataSource={available}
+            dataSource={available.filter(function byBrand(gpu) {
+              return joinBrand === 'ALL' || gpu.gpuBrand === joinBrand;
+            })}
             pagination={false}
             rowSelection={{
               type: 'radio',
@@ -220,6 +248,14 @@ export default function ResourcePoolsPage() {
             columns={[
               { title: 'Kubernetes Node', dataIndex: 'nodeName' },
               { title: '编号', dataIndex: 'gpuIndex', width: 64 },
+              {
+                title: '品牌',
+                dataIndex: 'gpuBrand',
+                width: 90,
+                render: function renderBrand(value: GpuBrand | null) {
+                  return value ? <Tag>{BRAND_LABELS[value]}</Tag> : '-';
+                },
+              },
               { title: 'Gpu 型号', dataIndex: 'gpuModel' },
             ]}
             locale={{
@@ -235,6 +271,7 @@ export default function ResourcePoolsPage() {
             <div className="selected-gpu-summary">
               <span>{selectedGpu.nodeName}</span>
               <strong>Gpu {selectedGpu.gpuIndex}</strong>
+              <Tag>{selectedGpu.gpuBrand ? BRAND_LABELS[selectedGpu.gpuBrand] : '品牌未知'}</Tag>
               <span>{selectedGpu.gpuModel || '型号未知'}</span>
               <Tag>Gpu 数量固定为 1</Tag>
             </div>
@@ -312,7 +349,9 @@ export default function ResourcePoolsPage() {
       return <Empty description="资源池不存在" />;
     }
 
-    const gpus = poolGpus[pool.id] || [];
+    const gpus = (poolGpus[pool.id] || []).filter(function byBrand(gpu) {
+      return poolBrand === 'ALL' || gpu.gpuBrand === poolBrand;
+    });
 
     return (
       <div>
@@ -324,15 +363,25 @@ export default function ResourcePoolsPage() {
             <span>算力规格：<strong className="resource-value">{pool.specs.length}</strong></span>
           </Space>
 
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={function handleJoin() {
-              openJoinDrawer(pool);
-            }}
-          >
-            加入 Gpu
-          </Button>
+          <Space>
+            <Select
+              value={poolBrand}
+              options={BRAND_OPTIONS}
+              style={{ width: 130 }}
+              onChange={function filterPoolBrand(value: GpuBrand | 'ALL') {
+                setPoolBrand(value);
+              }}
+            />
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={function handleJoin() {
+                openJoinDrawer(pool);
+              }}
+            >
+              加入 Gpu
+            </Button>
+          </Space>
         </div>
 
         <Table
@@ -345,6 +394,14 @@ export default function ResourcePoolsPage() {
           columns={[
             { title: 'Kubernetes Node', dataIndex: 'nodeName' },
             { title: 'Gpu 编号', dataIndex: 'gpuIndex', width: 100 },
+            {
+              title: '品牌',
+              dataIndex: 'gpuBrand',
+              width: 100,
+              render: function renderBrand(value: GpuBrand | null) {
+                return value ? <Tag>{BRAND_LABELS[value]}</Tag> : '-';
+              },
+            },
             { title: 'Gpu 型号', dataIndex: 'gpuModel' },
             {
               title: '对应算力规格',

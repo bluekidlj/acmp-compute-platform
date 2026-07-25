@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   AppstoreOutlined,
+  AlertOutlined,
   ApiOutlined,
   ClusterOutlined,
   DatabaseOutlined,
   DeploymentUnitOutlined,
   ExperimentOutlined,
+  LineChartOutlined,
   LogoutOutlined,
   ProjectOutlined,
   SettingOutlined,
@@ -83,9 +85,24 @@ export default function RealLayout() {
         ],
       },
       {
-        key: '/innovation-lab',
+        key: 'monitoring',
+        icon: <LineChartOutlined />,
+        label: '监控运维',
+        children: [
+          { key: '/monitoring/deployments', icon: <DeploymentUnitOutlined />, label: '推理服务监控' },
+          { key: '/monitoring/clusters', icon: <ClusterOutlined />, label: '集群监控' },
+          { key: '/monitoring/alerts', icon: <AlertOutlined />, label: '监控告警' },
+        ],
+      },
+      {
+        key: 'innovation-lab',
         icon: <ExperimentOutlined />,
         label: '创新实验室',
+        children: [
+          { key: '/innovation-lab/workload', icon: <LineChartOutlined />, label: '负载感知' },
+          { key: '/innovation-lab/twin', icon: <ApiOutlined />, label: '数字孪生' },
+          { key: '/innovation-lab/strategy', icon: <ExperimentOutlined />, label: '策略仿真' },
+        ],
       },
     ];
   }, []);
@@ -99,41 +116,42 @@ export default function RealLayout() {
     navigate('/login');
   }
 
-  const selectedKey = location.pathname.startsWith('/clusters')
-    ? '/clusters'
-    : location.pathname.startsWith('/resource-pools')
-      ? '/resource-pools'
-      : location.pathname.startsWith('/specs')
-        ? '/specs'
-        : location.pathname.startsWith('/tenants')
-          ? '/tenants'
-          : location.pathname.startsWith('/projects')
-            ? '/projects'
-            : location.pathname.startsWith('/models')
-              ? '/models'
-              : location.pathname.startsWith('/deployments')
-                ? '/deployments'
-                : location.pathname.startsWith('/innovation-lab')
-                  ? '/innovation-lab'
-                : '/';
+  const routeMenuKeys = [
+    '/monitoring/deployments',
+    '/monitoring/clusters',
+    '/monitoring/alerts',
+    '/innovation-lab/twin',
+    '/innovation-lab/strategy',
+    '/innovation-lab/workload',
+    '/resource-pools',
+    '/deployments',
+    '/clusters',
+    '/projects',
+    '/tenants',
+    '/models',
+    '/specs',
+  ];
+  const selectedKey = routeMenuKeys.find(function matchRoute(key) {
+    return location.pathname.startsWith(key);
+  }) || '/';
 
-  const currentPageName = selectedKey === '/'
-    ? '平台概览'
-    : selectedKey === '/clusters'
-      ? '集群管理'
-      : selectedKey === '/resource-pools'
-        ? '资源池'
-        : selectedKey === '/specs'
-          ? '算力规格'
-          : selectedKey === '/tenants'
-            ? '租户'
-            : selectedKey === '/projects'
-              ? '项目'
-              : selectedKey === '/models'
-                ? '模型广场'
-                : selectedKey === '/deployments'
-                  ? '推理服务'
-                  : '创新实验室';
+  const pageNames: Record<string, string> = {
+    '/': '平台概览',
+    '/clusters': '集群管理',
+    '/resource-pools': '资源池',
+    '/specs': '算力规格',
+    '/tenants': '租户',
+    '/projects': '项目',
+    '/models': '模型广场',
+    '/deployments': '推理服务',
+    '/monitoring/deployments': '监控运维 / 推理服务监控',
+    '/monitoring/clusters': '监控运维 / 集群监控',
+    '/monitoring/alerts': '监控运维 / 监控告警',
+    '/innovation-lab/workload': '创新实验室 / 负载感知',
+    '/innovation-lab/twin': '创新实验室 / 数字孪生',
+    '/innovation-lab/strategy': '创新实验室 / 策略仿真',
+  };
+  const currentPageName = pageNames[selectedKey] || '平台概览';
 
   return (
     <Layout className="app-shell">
@@ -161,7 +179,7 @@ export default function RealLayout() {
           mode="inline"
           theme="dark"
           selectedKeys={[selectedKey]}
-          defaultOpenKeys={['resources', 'business']}
+          defaultOpenKeys={['resources', 'business', 'monitoring', 'innovation-lab']}
           items={items}
           onClick={handleMenuClick}
           className="app-menu"

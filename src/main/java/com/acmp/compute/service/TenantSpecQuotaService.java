@@ -132,7 +132,7 @@ public class TenantSpecQuotaService {
                 .resourcePoolId(s.getResourcePoolId())
                 .resourcePoolName(pool == null ? null : pool.getName())
                 .poolType(s.getSpecType())
-                .gpuModel(s.getGpuModel()).gpuShare(s.getGpuShare())
+                .gpuBrand(s.getGpuBrand()).gpuModel(s.getGpuModel()).gpuShare(s.getGpuShare())
                 .cpuCores(s.getCpuCores()).memoryGib(s.getMemoryGib())
                 .capacityNodes(specService.capacityNodes(s))
                 .total(q.getTotal()).used(q.getUsed())

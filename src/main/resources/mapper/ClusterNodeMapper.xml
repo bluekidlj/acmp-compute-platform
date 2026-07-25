@@ -7,6 +7,7 @@
         <id column="id" property="id"/>
         <result column="cluster_id" property="clusterId"/>
         <result column="name" property="name"/>
+        <result column="internal_ip" property="internalIp"/>
         <result column="cpu_cores" property="cpuCores"/>
         <result column="memory_bytes" property="memoryBytes"/>
         <result column="gpu_count" property="gpuCount"/>
@@ -20,16 +21,17 @@
 
     <insert id="insert">
         INSERT INTO cluster_node
-            (id, cluster_id, name, cpu_cores, memory_bytes, gpu_count,
+            (id, cluster_id, name, internal_ip, cpu_cores, memory_bytes, gpu_count,
              status, labels_json, taints_json, last_sync_at)
         VALUES
-            (#{id}, #{clusterId}, #{name}, #{cpuCores}, #{memoryBytes}, #{gpuCount},
+            (#{id}, #{clusterId}, #{name}, #{internalIp}, #{cpuCores}, #{memoryBytes}, #{gpuCount},
              #{status}, #{labelsJson}, #{taintsJson}, CURRENT_TIMESTAMP)
     </insert>
 
     <update id="updateDiscovered">
         UPDATE cluster_node
-        SET cpu_cores = #{cpuCores},
+        SET internal_ip = #{internalIp},
+            cpu_cores = #{cpuCores},
             memory_bytes = #{memoryBytes},
             gpu_count = #{gpuCount},
             status = #{status},
