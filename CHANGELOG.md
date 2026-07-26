@@ -46,6 +46,13 @@
 - 新增发布目录总启动脚本 `start-all.sh`，按目录方式启动后端 Jar 和 Nginx 前端
 - 新增 `docs/27-LINUX-FRONTEND-BACKEND-DEPLOYMENT.md`，说明打包、启动、日志和排查方式
 
+### Changed
+- 发布脚本改为先 `clean package`，避免旧 Jar 残留导致 mapper 资源错乱
+- Nginx 代理改为显式保留 `/api` 前缀的转发方式，并增加访问日志 / 超时配置
+- 启动脚本增加 Java / Nginx / 文件存在性预检，避免进程秒退后只剩空日志
+- 启动与打包日志统一为带时间戳、级别、上下文的输出格式，便于离线排障
+- 业务运行期日志改为仅由 Logback 文件 appender 输出，stdout / stderr 仅保留为启动诊断日志
+
 ---
 
 ## [Unreleased] - 资源池详情修复
