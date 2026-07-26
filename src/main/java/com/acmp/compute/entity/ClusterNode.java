@@ -20,6 +20,8 @@ public class ClusterNode {
     private Long memoryBytes;
     private Integer gpuCount;
     private String status;
+    private String resourcePoolId;
+    private String computeSpecId;
     private String labelsJson;
     private String taintsJson;
     private Instant lastSyncAt;

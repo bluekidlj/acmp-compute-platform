@@ -76,4 +76,8 @@
     <delete id="deleteByTenantId">
         DELETE FROM tenant_spec_quota WHERE tenant_id = #{tenantId}
     </delete>
+
+    <delete id="deleteAll">
+        DELETE FROM tenant_spec_quota
+    </delete>
 </mapper>

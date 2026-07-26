@@ -41,7 +41,7 @@ export default function SpecsPage() {
       <div className="page-heading">
         <div>
           <h1>算力规格</h1>
-          <p>Gpu 入池时形成的只读算力套餐，点击卡片查看规格和来源 Gpu</p>
+          <p>Node 整体入池时形成的只读算力套餐，点击卡片查看规格和来源 GPU</p>
         </div>
       </div>
 

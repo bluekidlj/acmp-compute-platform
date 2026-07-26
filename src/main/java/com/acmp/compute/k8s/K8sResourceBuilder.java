@@ -86,6 +86,7 @@ public final class K8sResourceBuilder {
 
         V1PodSpec podSpec = new V1PodSpec()
                 .restartPolicy("Always")
+                .nodeSelector(schedulingNodeSelector(spec))
                 .addContainersItem(container);
 
         if (hostModelPath != null && !hostModelPath.isBlank()) {
@@ -213,6 +214,18 @@ public final class K8sResourceBuilder {
             annotations.put("huawei.com/vnpu-mode", "hami-core");
         }
         return annotations;
+    }
+
+    /**
+     * 规格标签保证 Pod 只进入相同资源池和相同算力规格的 Node。
+     */
+    private static Map<String, String> schedulingNodeSelector(ComputeSpec spec) {
+        Map<String, String> selector = new HashMap<>();
+        selector.put(KubernetesSchedulingLabels.POOL_TYPE,
+                KubernetesSchedulingLabels.value(spec.getSpecType()));
+        selector.put(KubernetesSchedulingLabels.COMPUTE_SPEC,
+                KubernetesSchedulingLabels.value(spec.getName()));
+        return selector;
     }
 
     /**

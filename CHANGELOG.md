@@ -42,6 +42,24 @@
 
 ---
 
+## [Unreleased] - Node 整体入池与规格调度方案
+
+### Added
+- 新增 Node 级资源池归属和算力规格字段
+- 新增整台 Node 全部 GPU 一次性入池接口，并自动调用 Kubernetes API 写入调度标签
+- 推理 Deployment 根据资源池类型和算力规格自动生成 `nodeSelector`
+- 新增静态单元测试验证 Deployment 调度标签
+
+### Changed
+- 资源池前端从逐张 GPU 选择改为 Node 选择、统一规格设置和 Node 列表展示
+- 移除逐张 GPU 入池接口，规格复用和容量统计改由 Node 批量入池驱动
+
+### Documentation
+- 新增 Node 全量 GPU 一次性加入独享池或共享池的 MVP 改造方案
+- 明确 Kubernetes Node 规格标签、Deployment nodeSelector、演示验收流程和后续 TODO
+
+---
+
 ## [Unreleased] - 监控运维 MVP
 
 ### Added

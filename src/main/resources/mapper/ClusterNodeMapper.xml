@@ -12,6 +12,8 @@
         <result column="memory_bytes" property="memoryBytes"/>
         <result column="gpu_count" property="gpuCount"/>
         <result column="status" property="status"/>
+        <result column="resource_pool_id" property="resourcePoolId"/>
+        <result column="compute_spec_id" property="computeSpecId"/>
         <result column="labels_json" property="labelsJson"/>
         <result column="taints_json" property="taintsJson"/>
         <result column="last_sync_at" property="lastSyncAt"/>
@@ -62,6 +64,22 @@
         WHERE cluster_id = #{clusterId}
         ORDER BY name
     </select>
+
+    <select id="findByPoolId" resultMap="BaseResultMap">
+        SELECT * FROM cluster_node
+        WHERE resource_pool_id = #{poolId}
+        ORDER BY name
+    </select>
+
+    <update id="assignPoolAndSpec">
+        UPDATE cluster_node
+        SET resource_pool_id = #{poolId},
+            compute_spec_id = #{computeSpecId},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND resource_pool_id IS NULL
+          AND compute_spec_id IS NULL
+    </update>
 
     <delete id="deleteByClusterId">
         DELETE FROM cluster_node WHERE cluster_id = #{clusterId}

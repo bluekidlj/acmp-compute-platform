@@ -1,22 +1,26 @@
 package com.acmp.compute.service;
 
-import com.acmp.compute.dto.GpuJoinSpecRequest;
+import com.acmp.compute.dto.NodeJoinSpecRequest;
 import com.acmp.compute.dto.ResourcePoolResponse;
 import com.acmp.compute.dto.SpecResponse;
+import com.acmp.compute.entity.ClusterNode;
 import com.acmp.compute.entity.ComputeSpec;
 import com.acmp.compute.entity.GpuDevice;
 import com.acmp.compute.entity.ResourcePool;
 import com.acmp.compute.exception.BadRequestException;
 import com.acmp.compute.exception.ResourceNotFoundException;
+import com.acmp.compute.k8s.KubernetesClientManager;
+import com.acmp.compute.k8s.KubernetesSchedulingLabels;
+import com.acmp.compute.mapper.ClusterNodeMapper;
 import com.acmp.compute.mapper.ComputeSpecMapper;
 import com.acmp.compute.mapper.GpuDeviceMapper;
 import com.acmp.compute.mapper.ResourcePoolMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -27,9 +31,11 @@ public class ResourcePoolService {
     public static final String SHARED_POOL_ID = "pool-shared";
 
     private final ResourcePoolMapper poolMapper;
+    private final ClusterNodeMapper nodeMapper;
     private final GpuDeviceMapper gpuMapper;
     private final ComputeSpecMapper specMapper;
     private final ComputeSpecService specService;
+    private final KubernetesClientManager kubernetesClientManager;
 
     public List<ResourcePoolResponse> list() {
         List<ResourcePoolResponse> result = new ArrayList<>();
@@ -53,52 +59,86 @@ public class ResourcePoolService {
         return gpuMapper.findByPoolId(id);
     }
 
-    /**
-     * Gpu 入池和规格创建是同一个数据库事务。
-     *
-     * <p>Gpu 型号、规格类型、资源池和固定单 Gpu 约束由后端确定，避免前端提交冲突字段。
-     */
-    @Transactional
-    public SpecResponse joinGpu(
-            String poolId,
-            String gpuId,
-            GpuJoinSpecRequest request) {
-        ResourcePool pool = corePool(poolId);
-        GpuDevice gpu = gpuMapper.findById(gpuId).orElse(null);
+    public List<ClusterNode> listNodes(String id) {
+        corePool(id);
+        return nodeMapper.findByPoolId(id);
+    }
 
-        if (gpu == null) {
-            throw new ResourceNotFoundException("Gpu 不存在: " + gpuId);
+    /**
+     * 将一台 Node 当前发现的全部在线 GPU 一次性加入同一个资源池和规格。
+     */
+    public SpecResponse joinNode(
+            String poolId,
+            String nodeId,
+            NodeJoinSpecRequest request) {
+        ResourcePool pool = corePool(poolId);
+        ClusterNode node = nodeMapper.findById(nodeId).orElse(null);
+        if (node == null) {
+            throw new ResourceNotFoundException("Node 不存在: " + nodeId);
         }
-        if (gpu.getResourcePoolId() != null || gpu.getComputeSpecId() != null) {
-            throw new BadRequestException("Gpu 已经加入资源池");
+        if (!"READY".equals(node.getStatus())) {
+            throw new BadRequestException("Node 当前不可用: " + node.getName());
+        }
+        if (node.getResourcePoolId() != null || node.getComputeSpecId() != null) {
+            throw new BadRequestException("Node 已经加入资源池");
         }
         if (request.getCpuCores() == null || request.getCpuCores() <= 0
                 || request.getMemoryGib() == null || request.getMemoryGib() <= 0) {
             throw new BadRequestException("CPU 和内存必须大于 0");
         }
-        if (gpu.getGpuBrand() == null) {
+
+        List<GpuDevice> nodeGpus = gpuMapper.findByNodeId(nodeId);
+        if (nodeGpus.isEmpty()) {
+            throw new BadRequestException("Node 没有可入池的 GPU");
+        }
+        GpuDevice sourceGpu = nodeGpus.get(0);
+        if (sourceGpu.getGpuBrand() == null) {
             throw new BadRequestException("Gpu 品牌未识别，请先重新同步集群库存");
         }
+        validateNodeGpus(nodeGpus, sourceGpu);
+
         if ("SHARED".equals(pool.getPoolType())
-                && gpu.getGpuBrand() != com.acmp.compute.entity.GpuBrand.NVIDIA
-                && (gpu.getMemoryMb() == null || gpu.getMemoryMb() <= 0)) {
+                && sourceGpu.getGpuBrand() != com.acmp.compute.entity.GpuBrand.NVIDIA
+                && (sourceGpu.getMemoryMb() == null || sourceGpu.getMemoryMb() <= 0)) {
             throw new BadRequestException("海光或华为共享 Gpu 必须先识别显存容量");
         }
 
         String gpuShare = validateShare(pool, request.getGpuShare());
-        ComputeSpec reusableSpec = findReusableSpec(pool, gpu, request, gpuShare);
-        if (reusableSpec != null) {
-            // 算力规格描述资源类型；相同参数的物理卡共享同一条规格。
-            if (gpuMapper.assignPoolAndSpec(gpuId, poolId, reusableSpec.getId()) != 1) {
-                throw new BadRequestException("Gpu 入池失败或已经被加入其他资源池");
-            }
-            return specService.getById(reusableSpec.getId());
+        ComputeSpec spec = findReusableSpec(pool, sourceGpu, request, gpuShare);
+        if (spec == null) {
+            spec = createSpec(pool, sourceGpu, request, gpuShare);
         }
 
+        Map<String, String> labels = Map.of(
+                KubernetesSchedulingLabels.POOL_TYPE,
+                KubernetesSchedulingLabels.value(pool.getPoolType()),
+                KubernetesSchedulingLabels.COMPUTE_SPEC,
+                KubernetesSchedulingLabels.value(spec.getName()),
+                KubernetesSchedulingLabels.GPU_BRAND,
+                KubernetesSchedulingLabels.value(sourceGpu.getGpuBrand().name()),
+                KubernetesSchedulingLabels.GPU_MODEL,
+                KubernetesSchedulingLabels.value(sourceGpu.getGpuModel()));
+        kubernetesClientManager.labelNode(node.getClusterId(), node.getName(), labels);
+
+        if (nodeMapper.assignPoolAndSpec(nodeId, poolId, spec.getId()) != 1) {
+            throw new BadRequestException("Node 入池失败或已经被加入其他资源池");
+        }
+        int assignedGpus = gpuMapper.assignNodePoolAndSpec(nodeId, poolId, spec.getId());
+        if (assignedGpus != nodeGpus.size()) {
+            throw new BadRequestException("Node GPU 批量入池数量不一致，预期 "
+                    + nodeGpus.size() + "，实际 " + assignedGpus);
+        }
+        return specService.getById(spec.getId());
+    }
+
+    private ComputeSpec createSpec(
+            ResourcePool pool,
+            GpuDevice gpu,
+            NodeJoinSpecRequest request,
+            String gpuShare) {
         if (specMapper.findByName(request.getName()).isPresent()) {
-            throw new BadRequestException("算力规格名称已存在: " + request.getName());
+            throw new BadRequestException("算力规格名称已存在但资源参数不同: " + request.getName());
         }
-
         String specId = UUID.randomUUID().toString();
         ComputeSpec spec = ComputeSpec.builder()
                 .id(specId)
@@ -116,14 +156,22 @@ public class ResourcePoolService {
                 .description(request.getDescription())
                 .status("active")
                 .build();
-
         specMapper.insert(spec);
+        return spec;
+    }
 
-        if (gpuMapper.assignPoolAndSpec(gpuId, poolId, specId) != 1) {
-            throw new BadRequestException("Gpu 入池失败或已经被加入其他资源池");
+    private void validateNodeGpus(List<GpuDevice> nodeGpus, GpuDevice sourceGpu) {
+        for (GpuDevice gpu : nodeGpus) {
+            if (gpu.getResourcePoolId() != null || gpu.getComputeSpecId() != null) {
+                throw new BadRequestException("Node 中存在已经入池的 GPU，不能混合维护");
+            }
+            boolean sameHardware = gpu.getGpuBrand() == sourceGpu.getGpuBrand()
+                    && Objects.equals(gpu.getGpuModel(), sourceGpu.getGpuModel())
+                    && Objects.equals(gpu.getMemoryMb(), sourceGpu.getMemoryMb());
+            if (!sameHardware) {
+                throw new BadRequestException("MVP 暂不支持同一 Node 存在不同品牌或型号的 GPU");
+            }
         }
-
-        return specService.getById(specId);
     }
 
     /**
@@ -132,7 +180,7 @@ public class ResourcePoolService {
     private ComputeSpec findReusableSpec(
             ResourcePool pool,
             GpuDevice gpu,
-            GpuJoinSpecRequest request,
+            NodeJoinSpecRequest request,
             String gpuShare) {
         List<ComputeSpec> poolSpecs = specMapper.findByResourcePoolId(pool.getId());
         for (ComputeSpec spec : poolSpecs) {

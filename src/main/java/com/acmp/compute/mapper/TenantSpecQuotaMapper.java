@@ -22,4 +22,5 @@ public interface TenantSpecQuotaMapper {
     int countUsedByTenantId(@Param("tenantId") String tenantId);
     int deleteById(@Param("id") String id);
     int deleteByTenantId(@Param("tenantId") String tenantId);
+    int deleteAll();
 }

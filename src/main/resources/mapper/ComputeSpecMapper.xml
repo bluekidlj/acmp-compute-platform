@@ -78,4 +78,8 @@
     <delete id="deleteById">
         DELETE FROM compute_spec WHERE id = #{id}
     </delete>
+
+    <delete id="deleteAll">
+        DELETE FROM compute_spec
+    </delete>
 </mapper>

@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS cluster_node (
     memory_bytes BIGINT DEFAULT 0,
     gpu_count INT DEFAULT 0,
     status VARCHAR(32) DEFAULT 'UNKNOWN',
+    resource_pool_id VARCHAR(64),
+    compute_spec_id VARCHAR(64),
     labels_json CLOB,
     taints_json CLOB,
     last_sync_at TIMESTAMP,
@@ -66,7 +68,10 @@ CREATE TABLE IF NOT EXISTS cluster_node (
     UNIQUE (cluster_id, name)
 );
 ALTER TABLE cluster_node ADD COLUMN IF NOT EXISTS internal_ip VARCHAR(64);
+ALTER TABLE cluster_node ADD COLUMN IF NOT EXISTS resource_pool_id VARCHAR(64);
+ALTER TABLE cluster_node ADD COLUMN IF NOT EXISTS compute_spec_id VARCHAR(64);
 CREATE INDEX IF NOT EXISTS idx_cluster_node_cluster ON cluster_node(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_cluster_node_pool ON cluster_node(resource_pool_id);
 
 CREATE TABLE IF NOT EXISTS gpu_device (
     id VARCHAR(64) PRIMARY KEY,
@@ -125,11 +130,8 @@ CREATE TABLE IF NOT EXISTS tenant (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE TABLE IF NOT EXISTS tenant_member (
-    tenant_id VARCHAR(64) NOT NULL,
-    user_id VARCHAR(64) NOT NULL,
-    PRIMARY KEY (tenant_id, user_id)
-);
+-- 平台不维护租户成员关系；升级旧 Demo 数据库时同步删除历史表。
+DROP TABLE IF EXISTS tenant_member;
 CREATE TABLE IF NOT EXISTS tenant_spec_quota (
     id VARCHAR(64) PRIMARY KEY,
     tenant_id VARCHAR(64) NOT NULL,

@@ -108,9 +108,12 @@ export const api = {
   async poolGpus(poolId: string): Promise<GpuDevice[]> {
     return (await client.get<GpuDevice[]>(`/resource-pools/${poolId}/gpus`)).data;
   },
-  async joinPoolGpu(
+  async poolNodes(poolId: string): Promise<ClusterNode[]> {
+    return (await client.get<ClusterNode[]>(`/resource-pools/${poolId}/nodes`)).data;
+  },
+  async joinPoolNode(
     poolId: string,
-    gpuId: string,
+    nodeId: string,
     body: {
       name: string;
       displayName?: string;
@@ -122,7 +125,7 @@ export const api = {
   ): Promise<ComputeSpec> {
     return (
       await client.post<ComputeSpec>(
-        `/resource-pools/${poolId}/gpus/${gpuId}/join`,
+        `/resource-pools/${poolId}/nodes/${nodeId}/join`,
         body,
       )
     ).data;

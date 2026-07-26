@@ -51,6 +51,18 @@
         SELECT * FROM physical_cluster ORDER BY created_at DESC
     </select>
 
+    <update id="resetInventory">
+        UPDATE physical_cluster
+        SET status = 'RESETTING',
+            kubernetes_version = NULL,
+            node_count = 0,
+            gpu_count = 0,
+            last_sync_at = NULL,
+            sync_message = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
     <delete id="deleteById">
         DELETE FROM physical_cluster WHERE id = #{id}
     </delete>

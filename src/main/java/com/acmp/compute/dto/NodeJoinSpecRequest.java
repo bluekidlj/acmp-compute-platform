@@ -7,13 +7,12 @@ import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotNull;
 
 /**
- * Gpu 入池时同步创建算力规格的请求。
+ * 整台 Kubernetes Node 加入资源池时使用的统一算力规格参数。
  *
- * <p>Gpu 型号、品牌、规格类型、资源池和 Gpu 数量均由后端根据目标 Gpu 和资源池确定，
- * 前端只提交管理员需要填写的规格信息。
+ * <p>Node、GPU 品牌、型号、数量和资源池类型均由后端库存确定。
  */
 @Data
-public class GpuJoinSpecRequest {
+public class NodeJoinSpecRequest {
 
     @NotBlank
     private String name;

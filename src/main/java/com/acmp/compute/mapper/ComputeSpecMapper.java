@@ -16,5 +16,6 @@ public interface ComputeSpecMapper {
     List<ComputeSpec> findAll();
     List<ComputeSpec> findBySpecType(@Param("specType") String specType);
     int deleteById(@Param("id") String id);
+    int deleteAll();
     List<ComputeSpec> findByResourcePoolId(@Param("resourcePoolId") String poolId);
 }

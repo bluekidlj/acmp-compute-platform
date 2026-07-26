@@ -16,5 +16,9 @@ public interface ClusterNodeMapper {
                                                @Param("name") String name);
     Optional<ClusterNode> findById(@Param("id") String id);
     List<ClusterNode> findByClusterId(@Param("clusterId") String clusterId);
+    List<ClusterNode> findByPoolId(@Param("poolId") String poolId);
+    int assignPoolAndSpec(@Param("id") String id,
+                          @Param("poolId") String poolId,
+                          @Param("computeSpecId") String computeSpecId);
     int deleteByClusterId(@Param("clusterId") String clusterId);
 }

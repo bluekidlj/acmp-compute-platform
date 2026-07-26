@@ -13,5 +13,6 @@ public interface PhysicalClusterMapper {
     int update(PhysicalCluster entity);
     Optional<PhysicalCluster> findById(@Param("id") String id);
     List<PhysicalCluster> findAll();
+    int resetInventory(@Param("id") String id);
     int deleteById(@Param("id") String id);
 }

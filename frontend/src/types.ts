@@ -70,6 +70,8 @@ export interface ClusterNode {
   memoryBytes: number;
   gpuCount: number;
   status: string;
+  resourcePoolId: string | null;
+  computeSpecId: string | null;
   labelsJson: string | null;
   taintsJson: string | null;
   lastSyncAt: string;

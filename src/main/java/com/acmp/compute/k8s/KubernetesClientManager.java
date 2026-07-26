@@ -3,14 +3,18 @@ package com.acmp.compute.k8s;
 import com.acmp.compute.entity.PhysicalCluster;
 import com.acmp.compute.mapper.PhysicalClusterMapper;
 import com.acmp.compute.security.EncryptionService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.kubernetes.client.openapi.ApiClient;
 import io.kubernetes.client.openapi.ApiException;
 import io.kubernetes.client.openapi.apis.AppsV1Api;
 import io.kubernetes.client.openapi.apis.CoreV1Api;
 import io.kubernetes.client.openapi.models.V1Deployment;
 import io.kubernetes.client.openapi.models.V1Namespace;
+import io.kubernetes.client.openapi.models.V1Node;
+import io.kubernetes.client.openapi.models.V1NodeList;
 import io.kubernetes.client.openapi.models.V1ObjectMeta;
 import io.kubernetes.client.openapi.models.V1Service;
+import io.kubernetes.client.custom.V1Patch;
 import io.kubernetes.client.util.ClientBuilder;
 import io.kubernetes.client.util.KubeConfig;
 import io.kubernetes.client.util.Yaml;
@@ -26,6 +30,7 @@ import org.springframework.stereotype.Service;
 import java.io.StringReader;
 import java.io.IOException;
 import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -43,6 +48,7 @@ public class KubernetesClientManager {
 
     private final PhysicalClusterMapper clusterMapper;
     private final EncryptionService encryptionService;
+    private final ObjectMapper objectMapper;
     private final Map<String, ApiClient> clients = new ConcurrentHashMap<>();
 
     @Value("${acmp.kubernetes.connect-timeout-seconds:5}")
@@ -119,6 +125,74 @@ public class KubernetesClientManager {
             log.error("K8S API 失败: clusterId={}, kind=Namespace, name={}, code={}, body={}",
                     clusterId, namespace, e.getCode(), e.getResponseBody());
             throw operationError("创建 Namespace", e);
+        }
+    }
+
+    /**
+     * 给真实 Kubernetes Node 写入 ACMP 调度标签。
+     */
+    public void labelNode(String clusterId, String nodeName, Map<String, String> labels) {
+        try {
+            String patchJson = objectMapper.writeValueAsString(
+                    Map.of("metadata", Map.of("labels", labels)));
+            log.info("K8S Node 标签提交: clusterId={}, nodeName={}, patch={}",
+                    clusterId, nodeName, patchJson);
+            new CoreV1Api(getClient(clusterId))
+                    .patchNode(nodeName, new V1Patch(patchJson))
+                    .fieldManager("acmp-compute")
+                    .execute();
+            log.info("K8S Node 标签成功: clusterId={}, nodeName={}, labels={}",
+                    clusterId, nodeName, labels);
+        } catch (ApiException exception) {
+            log.error("K8S Node 标签失败: clusterId={}, nodeName={}, code={}, body={}",
+                    clusterId, nodeName, exception.getCode(), exception.getResponseBody());
+            throw operationError("更新 Node 调度标签", exception);
+        } catch (Exception exception) {
+            throw new IllegalStateException("生成 Node 标签 Patch 失败: " + exception.getMessage(),
+                    exception);
+        }
+    }
+
+    /**
+     * 删除一个集群所有真实 Node 上由 ACMP 管理的调度标签。
+     */
+    public int removeAcmpNodeLabels(String clusterId) {
+        try {
+            V1NodeList nodeList = new CoreV1Api(getClient(clusterId)).listNode().execute();
+            int updated = 0;
+            for (V1Node node : nodeList.getItems()) {
+                if (node.getMetadata() == null || node.getMetadata().getName() == null) {
+                    continue;
+                }
+                String nodeName = node.getMetadata().getName();
+                Map<String, Object> removedLabels = new LinkedHashMap<>();
+                removedLabels.put(KubernetesSchedulingLabels.POOL_TYPE, null);
+                removedLabels.put(KubernetesSchedulingLabels.COMPUTE_SPEC, null);
+                removedLabels.put(KubernetesSchedulingLabels.GPU_BRAND, null);
+                removedLabels.put(KubernetesSchedulingLabels.GPU_MODEL, null);
+                Map<String, Object> metadata = new LinkedHashMap<>();
+                metadata.put("labels", removedLabels);
+                Map<String, Object> patchBody = new LinkedHashMap<>();
+                patchBody.put("metadata", metadata);
+                String patchJson = objectMapper.writeValueAsString(patchBody);
+
+                log.info("K8S Node 标签清理提交: clusterId={}, nodeName={}, patch={}",
+                        clusterId, nodeName, patchJson);
+                new CoreV1Api(getClient(clusterId))
+                        .patchNode(nodeName, new V1Patch(patchJson))
+                        .fieldManager("acmp-compute-reset")
+                        .execute();
+                updated++;
+                log.info("K8S Node 标签清理成功: clusterId={}, nodeName={}", clusterId, nodeName);
+            }
+            return updated;
+        } catch (ApiException exception) {
+            log.error("K8S Node 标签清理失败: clusterId={}, code={}, body={}",
+                    clusterId, exception.getCode(), exception.getResponseBody());
+            throw operationError("清理 ACMP Node 标签", exception);
+        } catch (Exception exception) {
+            throw new IllegalStateException("清理 ACMP Node 标签失败: " + exception.getMessage(),
+                    exception);
         }
     }
 

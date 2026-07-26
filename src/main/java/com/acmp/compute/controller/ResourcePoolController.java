@@ -1,8 +1,9 @@
 package com.acmp.compute.controller;
 
-import com.acmp.compute.dto.GpuJoinSpecRequest;
+import com.acmp.compute.dto.NodeJoinSpecRequest;
 import com.acmp.compute.dto.ResourcePoolResponse;
 import com.acmp.compute.dto.SpecResponse;
+import com.acmp.compute.entity.ClusterNode;
 import com.acmp.compute.entity.GpuDevice;
 import com.acmp.compute.service.ResourcePoolService;
 import lombok.RequiredArgsConstructor;
@@ -55,17 +56,23 @@ public class ResourcePoolController {
     }
 
     /**
-     * 将一张 Gpu 加入指定资源池；相同资源参数复用已有规格，否则创建规格。
-     *
-     * <p>0.1 版本不提供移出、转池和重新切分。
+     * 查询已经整体加入指定资源池的 Node。
      */
-    @PostMapping("/{id}/gpus/{gpuId}/join")
+    @GetMapping("/{id}/nodes")
+    public ResponseEntity<List<ClusterNode>> listNodes(@PathVariable String id) {
+        return ResponseEntity.ok(service.listNodes(id));
+    }
+
+    /**
+     * 将一台 Node 的全部 GPU 一次性加入指定资源池并写入 Kubernetes 调度标签。
+     */
+    @PostMapping("/{id}/nodes/{nodeId}/join")
     @PreAuthorize("hasRole('PLATFORM_ADMIN')")
-    public ResponseEntity<SpecResponse> joinGpu(
+    public ResponseEntity<SpecResponse> joinNode(
             @PathVariable String id,
-            @PathVariable String gpuId,
-            @Valid @RequestBody GpuJoinSpecRequest request) {
-        return ResponseEntity.ok(service.joinGpu(id, gpuId, request));
+            @PathVariable String nodeId,
+            @Valid @RequestBody NodeJoinSpecRequest request) {
+        return ResponseEntity.ok(service.joinNode(id, nodeId, request));
     }
 
 }

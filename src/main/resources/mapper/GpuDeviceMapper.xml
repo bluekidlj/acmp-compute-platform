@@ -115,6 +115,17 @@
           AND compute_spec_id IS NULL
     </update>
 
+    <update id="assignNodePoolAndSpec">
+        UPDATE gpu_device
+        SET resource_pool_id = #{poolId},
+            compute_spec_id = #{computeSpecId},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE node_id = #{nodeId}
+          AND status != 'OFFLINE'
+          AND resource_pool_id IS NULL
+          AND compute_spec_id IS NULL
+    </update>
+
     <select id="countByPool" resultType="int">
         SELECT COUNT(*) FROM gpu_device WHERE resource_pool_id = #{poolId}
     </select>
