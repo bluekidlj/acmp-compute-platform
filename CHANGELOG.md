@@ -6,6 +6,28 @@
 
 ---
 
+## [Unreleased] - Linux Kubernetes Demo 集群脚本
+
+### Added
+- 新增 Ubuntu Master/Worker 安装脚本，固定 containerd 1.7.27、Kubernetes 1.28.15 和必要的 runc、CNI、crictl 版本
+- 新增阿里云 Ubuntu、Kubernetes 软件源和 Kubernetes 核心镜像仓库配置
+- 新增 Master 初始化、Flannel 安装、永久 Worker Join 命令生成及 Worker 加入脚本
+- 新增在 Master 上为指定真实 Worker 安装 Fake GPU Operator、模拟 Tesla V100 并验证资源上报的脚本
+- 新增 VM 克隆后重置脚本，用于清理 Kubernetes 残留、重置 machine-id 并保留基础安装环境
+- 新增 VM 克隆后网络初始化脚本，用于修改主机名、IP 和 SSH host key
+- 新增 [Linux Kubernetes Demo 集群安装说明](scripts/linux-k8s/README.md)
+
+---
+
+## [Unreleased] - 资源池详情修复
+
+### Fixed
+- 固定资源池查询时自动补齐独享池和共享池，避免旧 Demo 数据库缺初始化数据导致详情接口返回 Not Found
+- 新增资源池详情路由和页面，资源池列表可直接进入详情并查看规格和已入池 Node
+- 算力规格支持删除；未被配额或推理服务引用时释放关联 Node/GPU 入池归属并删除规格
+
+---
+
 ## [Unreleased] - 集群调试重置
 
 ### Added

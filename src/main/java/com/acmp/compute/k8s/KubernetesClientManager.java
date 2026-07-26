@@ -14,7 +14,6 @@ import io.kubernetes.client.openapi.models.V1Node;
 import io.kubernetes.client.openapi.models.V1NodeList;
 import io.kubernetes.client.openapi.models.V1ObjectMeta;
 import io.kubernetes.client.openapi.models.V1Service;
-import io.kubernetes.client.custom.V1Patch;
 import io.kubernetes.client.util.ClientBuilder;
 import io.kubernetes.client.util.KubeConfig;
 import io.kubernetes.client.util.Yaml;
@@ -29,6 +28,8 @@ import org.springframework.stereotype.Service;
 
 import java.io.StringReader;
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.LinkedHashMap;
 import java.util.Optional;
@@ -45,6 +46,10 @@ import java.util.concurrent.TimeUnit;
 @Service
 @RequiredArgsConstructor
 public class KubernetesClientManager {
+    private static final MediaType JSON_MEDIA_TYPE =
+            MediaType.get("application/json; charset=utf-8");
+    private static final MediaType MERGE_PATCH_MEDIA_TYPE =
+            MediaType.get("application/merge-patch+json");
 
     private final PhysicalClusterMapper clusterMapper;
     private final EncryptionService encryptionService;
@@ -137,18 +142,13 @@ public class KubernetesClientManager {
                     Map.of("metadata", Map.of("labels", labels)));
             log.info("K8S Node 标签提交: clusterId={}, nodeName={}, patch={}",
                     clusterId, nodeName, patchJson);
-            new CoreV1Api(getClient(clusterId))
-                    .patchNode(nodeName, new V1Patch(patchJson))
-                    .fieldManager("acmp-compute")
-                    .execute();
+            patchNodeMerge(clusterId, nodeName, patchJson, "更新 Node 调度标签");
             log.info("K8S Node 标签成功: clusterId={}, nodeName={}, labels={}",
                     clusterId, nodeName, labels);
-        } catch (ApiException exception) {
-            log.error("K8S Node 标签失败: clusterId={}, nodeName={}, code={}, body={}",
-                    clusterId, nodeName, exception.getCode(), exception.getResponseBody());
-            throw operationError("更新 Node 调度标签", exception);
         } catch (Exception exception) {
-            throw new IllegalStateException("生成 Node 标签 Patch 失败: " + exception.getMessage(),
+            log.error("K8S Node 标签失败: clusterId={}, nodeName={}, error={}",
+                    clusterId, nodeName, exception.getMessage());
+            throw new IllegalStateException("更新 Node 调度标签失败: " + exception.getMessage(),
                     exception);
         }
     }
@@ -178,10 +178,7 @@ public class KubernetesClientManager {
 
                 log.info("K8S Node 标签清理提交: clusterId={}, nodeName={}, patch={}",
                         clusterId, nodeName, patchJson);
-                new CoreV1Api(getClient(clusterId))
-                        .patchNode(nodeName, new V1Patch(patchJson))
-                        .fieldManager("acmp-compute-reset")
-                        .execute();
+                patchNodeMerge(clusterId, nodeName, patchJson, "清理 ACMP Node 标签");
                 updated++;
                 log.info("K8S Node 标签清理成功: clusterId={}, nodeName={}", clusterId, nodeName);
             }
@@ -325,7 +322,7 @@ public class KubernetesClientManager {
                 .url(proxyUrl)
                 .post(RequestBody.create(
                         jsonBody,
-                        MediaType.get("application/json; charset=utf-8")))
+                        JSON_MEDIA_TYPE))
                 .build();
 
         try (Response response = proxyClient.newCall(request).execute()) {
@@ -354,6 +351,31 @@ public class KubernetesClientManager {
     private void requireDnsLabel(String value, String fieldName) {
         if (value == null || !value.matches("[a-z0-9]([-a-z0-9]*[a-z0-9])?")) {
             throw new IllegalArgumentException(fieldName + " 名称不合法: " + value);
+        }
+    }
+
+    private void patchNodeMerge(
+            String clusterId,
+            String nodeName,
+            String patchJson,
+            String operation) {
+        ApiClient client = getClient(clusterId);
+        String encodedNodeName = URLEncoder.encode(nodeName, StandardCharsets.UTF_8)
+                .replace("+", "%20");
+        String url = client.getBasePath() + "/api/v1/nodes/" + encodedNodeName;
+        Request request = new Request.Builder()
+                .url(url)
+                .patch(RequestBody.create(patchJson, MERGE_PATCH_MEDIA_TYPE))
+                .build();
+        try (Response response = client.getHttpClient().newCall(request).execute()) {
+            String body = response.body() == null ? "" : response.body().string();
+            if (!response.isSuccessful()) {
+                throw new IllegalStateException(operation + "失败("
+                        + response.code() + "): " + body);
+            }
+        } catch (IOException exception) {
+            throw new IllegalStateException(operation + "失败: " + exception.getMessage(),
+                    exception);
         }
     }
 

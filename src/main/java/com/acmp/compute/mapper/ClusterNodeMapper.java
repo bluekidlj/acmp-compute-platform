@@ -20,5 +20,6 @@ public interface ClusterNodeMapper {
     int assignPoolAndSpec(@Param("id") String id,
                           @Param("poolId") String poolId,
                           @Param("computeSpecId") String computeSpecId);
+    int clearPoolBySpecId(@Param("computeSpecId") String computeSpecId);
     int deleteByClusterId(@Param("clusterId") String clusterId);
 }

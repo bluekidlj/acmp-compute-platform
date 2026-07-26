@@ -71,6 +71,10 @@
         ORDER BY created_at DESC
     </select>
 
+    <select id="countBySpecId" resultType="int">
+        SELECT COUNT(*) FROM model_deployment WHERE spec_id = #{specId}
+    </select>
+
     <delete id="deleteById">
         DELETE FROM model_deployment WHERE id = #{id}
     </delete>

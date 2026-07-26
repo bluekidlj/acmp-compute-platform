@@ -3,6 +3,8 @@ package com.acmp.compute.controller;
 import com.acmp.compute.dto.SpecResponse;
 import com.acmp.compute.service.ComputeSpecService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -39,6 +41,16 @@ public class ComputeSpecController {
     @GetMapping("/{id}")
     public ResponseEntity<SpecResponse> getById(@PathVariable String id) {
         return ResponseEntity.ok(specService.getById(id));
+    }
+
+    /**
+     * 删除未被租户配额和推理服务使用的 Spec，并释放对应 Node/GPU 入池归属。
+     */
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
+    public ResponseEntity<Void> delete(@PathVariable String id) {
+        specService.delete(id);
+        return ResponseEntity.noContent().build();
     }
 
 }

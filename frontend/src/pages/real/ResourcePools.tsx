@@ -17,6 +17,7 @@ import {
 } from 'antd';
 import { api } from '../../api/real';
 import StatusBadge from '../../components/StatusBadge';
+import { useNavigate } from 'react-router-dom';
 import type {
   ClusterNode,
   GpuBrand,
@@ -52,6 +53,7 @@ interface NodeWithGpus {
 }
 
 export default function ResourcePoolsPage() {
+  const navigate = useNavigate();
   const [pools, setPools] = useState<ResourcePool[]>([]);
   const [clusters, setClusters] = useState<PhysicalCluster[]>([]);
   const [poolNodes, setPoolNodes] = useState<Record<string, NodeWithGpus[]>>({});
@@ -371,6 +373,9 @@ export default function ResourcePoolsPage() {
             <Button type="primary" icon={<PlusOutlined />} onClick={function open() { openJoinDrawer(pool); }}>
               加入 Node
             </Button>
+            <Button onClick={function detail() { navigate(`/resource-pools/${pool.id}`); }}>
+              查看详情
+            </Button>
           </Space>
         </div>
 
@@ -380,6 +385,14 @@ export default function ResourcePoolsPage() {
           }}
           pagination={false}
           dataSource={nodes}
+          onRow={function row(record) {
+            return {
+              onClick: function go() {
+                navigate(`/clusters/${record.node.clusterId}/nodes/${record.node.id}`);
+              },
+              style: { cursor: 'pointer' },
+            };
+          }}
           locale={{
             emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该资源池暂无 Node" />,
           }}

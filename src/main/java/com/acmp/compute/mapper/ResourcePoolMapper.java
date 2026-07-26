@@ -9,4 +9,6 @@ import java.util.Optional;
 @Mapper
 public interface ResourcePoolMapper {
     Optional<ResourcePool> findById(@Param("id") String id);
+
+    int upsert(ResourcePool pool);
 }

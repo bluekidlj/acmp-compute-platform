@@ -38,6 +38,7 @@ public class ResourcePoolService {
     private final KubernetesClientManager kubernetesClientManager;
 
     public List<ResourcePoolResponse> list() {
+        ensureCorePools();
         List<ResourcePoolResponse> result = new ArrayList<>();
         ResourcePool exclusive = poolMapper.findById(EXCLUSIVE_POOL_ID).orElse(null);
         ResourcePool shared = poolMapper.findById(SHARED_POOL_ID).orElse(null);
@@ -51,6 +52,7 @@ public class ResourcePoolService {
     }
 
     public ResourcePoolResponse getById(String id) {
+        ensureCorePools();
         return toResponse(corePool(id));
     }
 
@@ -208,6 +210,30 @@ public class ResourcePoolService {
             throw new ResourceNotFoundException("资源池未初始化: " + id);
         }
         return pool;
+    }
+
+    /**
+     * Demo 数据库可能被手工清理或从旧版本升级而缺少固定池，查询入口自动补齐。
+     */
+    private void ensureCorePools() {
+        if (poolMapper.findById(EXCLUSIVE_POOL_ID).isEmpty()) {
+            poolMapper.upsert(ResourcePool.builder()
+                    .id(EXCLUSIVE_POOL_ID)
+                    .poolType("EXCLUSIVE")
+                    .name("独享池")
+                    .description("整卡独占资源池")
+                    .status("active")
+                    .build());
+        }
+        if (poolMapper.findById(SHARED_POOL_ID).isEmpty()) {
+            poolMapper.upsert(ResourcePool.builder()
+                    .id(SHARED_POOL_ID)
+                    .poolType("SHARED")
+                    .name("共享池")
+                    .description("HAMi 虚拟 GPU 共享资源池")
+                    .status("active")
+                    .build());
+        }
     }
 
     private String validateShare(ResourcePool pool, String gpuShare) {

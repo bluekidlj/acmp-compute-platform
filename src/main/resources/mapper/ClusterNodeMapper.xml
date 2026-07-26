@@ -81,6 +81,14 @@
           AND compute_spec_id IS NULL
     </update>
 
+    <update id="clearPoolBySpecId">
+        UPDATE cluster_node
+        SET resource_pool_id = NULL,
+            compute_spec_id = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE compute_spec_id = #{computeSpecId}
+    </update>
+
     <delete id="deleteByClusterId">
         DELETE FROM cluster_node WHERE cluster_id = #{clusterId}
     </delete>

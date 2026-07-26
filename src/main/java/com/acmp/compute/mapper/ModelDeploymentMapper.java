@@ -17,5 +17,6 @@ public interface ModelDeploymentMapper {
     Optional<ModelDeployment> findById(@Param("id") String id);
     List<ModelDeployment> findAll();
     List<ModelDeployment> findByProjectId(@Param("projectId") String projectId);
+    int countBySpecId(@Param("specId") String specId);
     int deleteById(@Param("id") String id);
 }

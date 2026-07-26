@@ -7,8 +7,10 @@ import com.acmp.compute.entity.GpuDevice;
 import com.acmp.compute.entity.ResourcePool;
 import com.acmp.compute.exception.BadRequestException;
 import com.acmp.compute.exception.ResourceNotFoundException;
+import com.acmp.compute.mapper.ClusterNodeMapper;
 import com.acmp.compute.mapper.ComputeSpecMapper;
 import com.acmp.compute.mapper.GpuDeviceMapper;
+import com.acmp.compute.mapper.ModelDeploymentMapper;
 import com.acmp.compute.mapper.ResourcePoolMapper;
 import com.acmp.compute.mapper.TenantSpecQuotaMapper;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,8 @@ public class ComputeSpecService {
     private final ResourcePoolMapper poolMapper;
     private final TenantSpecQuotaMapper quotaMapper;
     private final GpuDeviceMapper gpuMapper;
+    private final ClusterNodeMapper nodeMapper;
+    private final ModelDeploymentMapper deploymentMapper;
 
     @Transactional
     public SpecResponse create(SpecRequest request) {
@@ -84,13 +88,18 @@ public class ComputeSpecService {
 
     @Transactional
     public void delete(String id) {
-        if (quotaMapper.countBySpecId(id) > 0) {
-            throw new BadRequestException("规格已分配给租户，不能删除");
-        }
         ComputeSpec spec = specMapper.findById(id).orElse(null);
         if (spec == null) {
             throw new ResourceNotFoundException("规格不存在: " + id);
         }
+        if (quotaMapper.countBySpecId(id) > 0) {
+            throw new BadRequestException("规格已分配给租户，不能删除");
+        }
+        if (deploymentMapper.countBySpecId(id) > 0) {
+            throw new BadRequestException("规格已有推理服务引用，不能删除");
+        }
+        gpuMapper.clearPoolBySpecId(id);
+        nodeMapper.clearPoolBySpecId(id);
         specMapper.deleteById(id);
     }
 

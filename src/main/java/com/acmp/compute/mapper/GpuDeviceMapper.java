@@ -28,6 +28,7 @@ public interface GpuDeviceMapper {
     int assignNodePoolAndSpec(@Param("nodeId") String nodeId,
                               @Param("poolId") String poolId,
                               @Param("computeSpecId") String computeSpecId);
+    int clearPoolBySpecId(@Param("computeSpecId") String computeSpecId);
     int countByPool(@Param("poolId") String poolId);
     int countAvailableByPoolAndModel(@Param("poolId") String poolId,
                                      @Param("gpuModel") String gpuModel);

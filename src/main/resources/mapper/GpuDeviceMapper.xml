@@ -126,6 +126,14 @@
           AND compute_spec_id IS NULL
     </update>
 
+    <update id="clearPoolBySpecId">
+        UPDATE gpu_device
+        SET resource_pool_id = NULL,
+            compute_spec_id = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE compute_spec_id = #{computeSpecId}
+    </update>
+
     <select id="countByPool" resultType="int">
         SELECT COUNT(*) FROM gpu_device WHERE resource_pool_id = #{poolId}
     </select>

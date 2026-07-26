@@ -15,4 +15,11 @@
     <select id="findById" resultMap="BaseResultMap">
         SELECT * FROM resource_pool WHERE id = #{id}
     </select>
+
+    <insert id="upsert">
+        MERGE INTO resource_pool
+            (id, pool_type, name, description, status, updated_at)
+        KEY(id) VALUES
+            (#{id}, #{poolType}, #{name}, #{description}, #{status}, CURRENT_TIMESTAMP)
+    </insert>
 </mapper>

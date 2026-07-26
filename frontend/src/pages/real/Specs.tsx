@@ -3,9 +3,10 @@ import {
   ApartmentOutlined,
   CloudServerOutlined,
   DatabaseOutlined,
+  DeleteOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { Descriptions, Drawer, Empty, message, Progress, Select, Tabs, Tag } from 'antd';
+import { Button, Descriptions, Drawer, Empty, message, Popconfirm, Progress, Select, Space, Tabs, Tag } from 'antd';
 import { api } from '../../api/real';
 import StatusBadge from '../../components/StatusBadge';
 import type { ComputeSpec, GpuBrand } from '../../types';
@@ -20,14 +21,33 @@ export default function SpecsPage() {
   const [items, setItems] = useState<ComputeSpec[]>([]);
   const [selected, setSelected] = useState<ComputeSpec | null>(null);
   const [brand, setBrand] = useState<GpuBrand | 'ALL'>('ALL');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  useEffect(function loadSpecs() {
+  function loadSpecs() {
     api.specs()
       .then(setItems)
       .catch(function handleFailure(exception) {
         message.error(exception.message);
       });
-  }, []);
+  }
+
+  useEffect(loadSpecs, []);
+
+  async function deleteSpec(spec: ComputeSpec) {
+    setDeletingId(spec.id);
+    try {
+      await api.deleteSpec(spec.id);
+      message.success('算力规格已删除');
+      if (selected?.id === spec.id) {
+        setSelected(null);
+      }
+      loadSpecs();
+    } catch (exception) {
+      message.error(exception instanceof Error ? exception.message : '算力规格删除失败');
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   const exclusive = items.filter(function isExclusive(spec) {
     return spec.specType === 'EXCLUSIVE' && (brand === 'ALL' || spec.gpuBrand === brand);
@@ -94,7 +114,20 @@ export default function SpecsPage() {
                 <h2>{selected.displayName || selected.name}</h2>
                 <code>{selected.name}</code>
               </div>
-              <StatusBadge value={selected.status} />
+              <Space>
+                <StatusBadge value={selected.status} />
+                <Popconfirm
+                  title="删除算力规格"
+                  description="删除后会释放关联 Node 和 GPU 的入池归属。"
+                  okText="删除"
+                  cancelText="取消"
+                  onConfirm={function confirm() { deleteSpec(selected); }}
+                >
+                  <Button danger icon={<DeleteOutlined />} loading={deletingId === selected.id}>
+                    删除
+                  </Button>
+                </Popconfirm>
+              </Space>
             </div>
 
             <Descriptions bordered column={2} size="small">
@@ -174,6 +207,29 @@ export default function SpecsPage() {
                   {spec.specType === 'EXCLUSIVE' ? '独享' : `共享 ${spec.gpuShare}`}
                 </Tag>
                 <Tag>{BRAND_LABELS[spec.gpuBrand]}</Tag>
+                <Popconfirm
+                  title="删除算力规格"
+                  description="删除后会释放关联 Node 和 GPU 的入池归属。"
+                  okText="删除"
+                  cancelText="取消"
+                  onConfirm={function confirm(event) {
+                    event?.stopPropagation();
+                    deleteSpec(spec);
+                  }}
+                  onCancel={function cancel(event) {
+                    event?.stopPropagation();
+                  }}
+                >
+                  <Button
+                    danger
+                    size="small"
+                    icon={<DeleteOutlined />}
+                    loading={deletingId === spec.id}
+                    onClick={function stop(event) {
+                      event.stopPropagation();
+                    }}
+                  />
+                </Popconfirm>
               </div>
 
               <h3>{spec.displayName || spec.name}</h3>

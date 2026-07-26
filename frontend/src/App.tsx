@@ -26,6 +26,7 @@ import {
 import ProjectDetailPage from './pages/real/ProjectDetail';
 import ProjectsPage from './pages/real/Projects';
 import ResourcePoolsPage from './pages/real/ResourcePools';
+import ResourcePoolDetailPage from './pages/real/ResourcePoolDetail';
 import SpecsPage from './pages/real/Specs';
 import TenantDetailPage from './pages/real/TenantDetail';
 import TenantsPage from './pages/real/Tenants';
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="/clusters/:clusterId" element={<ClusterDetailPage />} />
           <Route path="/clusters/:clusterId/nodes/:nodeId" element={<NodeDetailPage />} />
           <Route path="/resource-pools" element={<ResourcePoolsPage />} />
+          <Route path="/resource-pools/:poolId" element={<ResourcePoolDetailPage />} />
           <Route path="/specs" element={<SpecsPage />} />
           <Route path="/tenants" element={<TenantsPage />} />
           <Route path="/tenants/:tenantId" element={<TenantDetailPage />} />

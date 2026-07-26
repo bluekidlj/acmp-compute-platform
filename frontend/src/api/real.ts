@@ -116,11 +116,20 @@ export const api = {
   async pools(): Promise<ResourcePool[]> {
     return (await client.get<ResourcePool[]>('/resource-pools')).data;
   },
+  async pool(poolId: string): Promise<ResourcePool> {
+    return (await client.get<ResourcePool>(`/resource-pools/${poolId}`)).data;
+  },
   async poolGpus(poolId: string): Promise<GpuDevice[]> {
     return (await client.get<GpuDevice[]>(`/resource-pools/${poolId}/gpus`)).data;
   },
   async poolNodes(poolId: string): Promise<ClusterNode[]> {
-    return (await client.get<ClusterNode[]>(`/resource-pools/${poolId}/nodes`)).data;
+    const clusters = (await client.get<PhysicalCluster[]>('/clusters')).data;
+    const groups = await Promise.all(clusters.map(async function loadClusterNodes(cluster) {
+      return (await client.get<ClusterNode[]>(`/clusters/${cluster.id}/nodes`)).data;
+    }));
+    return groups.flat().filter(function byPool(node) {
+      return node.resourcePoolId === poolId;
+    });
   },
   async joinPoolNode(
     poolId: string,
@@ -144,6 +153,9 @@ export const api = {
 
   async specs(): Promise<ComputeSpec[]> {
     return (await client.get<ComputeSpec[]>('/specs')).data;
+  },
+  async deleteSpec(id: string): Promise<void> {
+    await client.delete(`/specs/${id}`);
   },
 
   async tenants(): Promise<Tenant[]> {
