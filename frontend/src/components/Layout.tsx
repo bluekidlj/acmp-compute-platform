@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Layout, Menu, Button, Dropdown, Space, Tag, theme, Switch, Select } from 'antd';
+import { Layout, Menu, Button, Dropdown, Space, theme, Select } from 'antd';
 import {
   DashboardOutlined,
   AppstoreOutlined,
@@ -25,7 +25,6 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useCluster } from '../contexts/ClusterContext';
 import { ROLE_LABELS } from '../types';
-import { USE_MOCK, setUseMock } from '../api/client';
 import { PSBC_GREEN, PSBC_COLORS } from '../theme';
 
 const { Header, Sider, Content } = Layout;
@@ -172,16 +171,6 @@ const AppLayout: React.FC = () => {
                 { value: 'cluster-sh-01', label: '上海测试 K8s 集群' },
               ]}
             />
-            <div style={{ width: 1, height: 20, background: PSBC_COLORS.border }} />
-            <Space size={4}>
-              <span style={{ fontSize: 12, color: '#6B7768' }}>Mock</span>
-              <Switch
-                size="small"
-                checked={USE_MOCK}
-                onChange={(v) => setUseMock(v)}
-                style={{ background: USE_MOCK ? PSBC_GREEN.token.colorPrimary : undefined }}
-              />
-            </Space>
           <Dropdown
             menu={{
               items: [

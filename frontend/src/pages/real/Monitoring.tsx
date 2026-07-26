@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Button, Card, Col, DatePicker, Row, Select, Space, Switch, Table, Tag, message } from 'antd';
+import { Button, Card, Col, DatePicker, Row, Select, Space, Table, Tag, message } from 'antd';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import * as echarts from 'echarts';
@@ -34,8 +34,6 @@ type NodeMonitoringRange = {
   end: Dayjs;
   step: number;
 };
-
-const NODE_MONITORING_MOCK_KEY = 'ACMP_NODE_MONITORING_MOCK';
 
 function formatPercent(value: number | null) {
   return value === null ? '-' : `${value.toFixed(1)}%`;
@@ -95,81 +93,6 @@ function queryRange(range: TimeRange, customRange?: [Dayjs, Dayjs]) {
   if (range === '6h') return { start: end.subtract(6, 'hour'), end, step: 300 };
   if (range === '24h') return { start: end.subtract(24, 'hour'), end, step: 900 };
   return { start: end.subtract(1, 'hour'), end, step: 60 };
-}
-
-function buildMockPoints(range: NodeMonitoringRange, baseValue: number, spread: number, wave: number, floor = 0, ceiling = 100) {
-  const points = [];
-  const totalSeconds = Math.max(range.end.diff(range.start, 'second'), range.step);
-  const count = Math.max(16, Math.floor(totalSeconds / range.step) + 1);
-  for (let index = 0; index < count; index += 1) {
-    const ratio = count === 1 ? 0 : index / (count - 1);
-    const angle = ratio * Math.PI * 2 * wave;
-    const drift = Math.sin(angle) * spread + Math.cos(angle * 0.5) * spread * 0.35;
-    const value = Math.max(floor, Math.min(ceiling, baseValue + drift));
-    points.push({
-      timestamp: range.start.add(index * range.step, 'second').unix(),
-      value: Number(value.toFixed(2)),
-    });
-  }
-  return points;
-}
-
-function buildMockMonitoringDetail(node: ClusterNode | null, cluster: PhysicalCluster | null, range: NodeMonitoringRange): NodeMonitoringDetail | null {
-  if (!node || !cluster) return null;
-  const gpuCount = Math.max(node.gpuCount || 0, node.name.includes('gpu') ? 4 : 0);
-  const gpuSeriesBase = [
-    { gpuIndex: 0, gpuLabel: 'GPU-0', gpuUsagePercent: 32, gpuMemoryUsedMib: 12600 },
-    { gpuIndex: 1, gpuLabel: 'GPU-1', gpuUsagePercent: 58, gpuMemoryUsedMib: 18400 },
-    { gpuIndex: 2, gpuLabel: 'GPU-2', gpuUsagePercent: 71, gpuMemoryUsedMib: 21000 },
-    { gpuIndex: 3, gpuLabel: 'GPU-3', gpuUsagePercent: 46, gpuMemoryUsedMib: 15600 },
-  ].slice(0, Math.max(gpuCount, 1));
-
-  const cpuSeries = buildMockPoints(range, 18, 6, 1.5);
-  const memorySeries = buildMockPoints(range, 72, 4.5, 1.1);
-  const diskSeries = buildMockPoints(range, 64, 3.2, 0.8);
-  const rxSeries = buildMockPoints(range, 0.52, 0.18, 2.4, 0, 50);
-  const txSeries = buildMockPoints(range, 0.86, 0.22, 1.8, 0, 50);
-  const loadSeries = buildMockPoints(range, 1.12, 0.28, 2.1, 0, 10);
-  const gpuUsageSeries = buildMockPoints(range, 62, 18, 1.7);
-  const gpuMemorySeries = buildMockPoints(range, 11240, 2200, 1.2, 0, 24000);
-
-  return {
-    summary: {
-      nodeId: node.id,
-      clusterId: cluster.id,
-      nodeName: node.name,
-      internalIp: node.internalIp,
-      status: node.status,
-      cpuCores: node.cpuCores,
-      memoryBytes: node.memoryBytes,
-      gpuCount,
-      cpuUsagePercent: cpuSeries[cpuSeries.length - 1]?.value ?? null,
-      memoryUsagePercent: memorySeries[memorySeries.length - 1]?.value ?? null,
-      diskUsagePercent: diskSeries[diskSeries.length - 1]?.value ?? null,
-      networkReceiveMbps: rxSeries[rxSeries.length - 1]?.value ?? null,
-      networkTransmitMbps: txSeries[txSeries.length - 1]?.value ?? null,
-      loadAverage1m: loadSeries[loadSeries.length - 1]?.value ?? null,
-      gpuUsagePercent: gpuUsageSeries[gpuUsageSeries.length - 1]?.value ?? null,
-      gpuMemoryUsedMib: gpuMemorySeries[gpuMemorySeries.length - 1]?.value ?? null,
-      lastCollectedAt: range.end.toISOString(),
-    },
-    series: [
-      { metric: 'cpu_usage_percent', unit: '%', points: cpuSeries },
-      { metric: 'memory_usage_percent', unit: '%', points: memorySeries },
-      { metric: 'disk_usage_percent', unit: '%', points: diskSeries },
-      { metric: 'network_receive_mbps', unit: 'Mbps', points: rxSeries },
-      { metric: 'network_transmit_mbps', unit: 'Mbps', points: txSeries },
-      { metric: 'load_average_1m', unit: 'load', points: loadSeries },
-      { metric: 'gpu_usage_percent', unit: '%', points: gpuUsageSeries },
-      { metric: 'gpu_memory_used_mib', unit: 'MiB', points: gpuMemorySeries },
-    ],
-    gpus: gpuSeriesBase.map((gpu, index) => ({
-      ...gpu,
-      gpuIndex: index,
-      gpuUsagePercent: Math.max(0, Math.min(100, gpu.gpuUsagePercent + index * 4)),
-      gpuMemoryUsedMib: gpu.gpuMemoryUsedMib + index * 900,
-    })),
-  };
 }
 
 function MonitoringChart(props: { title: string; unit: string; lines: ChartLine[]; labels?: string[]; density?: AxisDensity }) {
@@ -552,7 +475,6 @@ export function NodeMonitoringPage() {
   const [node, setNode] = useState<ClusterNode | null>(null);
   const [cluster, setCluster] = useState<PhysicalCluster | null>(null);
   const [monitoring, setMonitoring] = useState<NodeMonitoringDetail | null>(null);
-  const [mockMode, setMockMode] = useState(() => localStorage.getItem(NODE_MONITORING_MOCK_KEY) === 'true');
   const [range, setRange] = useState<TimeRange>('1h');
   const [density, setDensity] = useState<AxisDensity>('standard');
   const [customRange, setCustomRange] = useState<[Dayjs, Dayjs]>();
@@ -567,10 +489,6 @@ export function NodeMonitoringPage() {
         setCluster(clusterInfo);
         const currentNode = nodes.find(item => item.id === nodeId) || null;
         setNode(currentNode);
-        if (mockMode) {
-          setMonitoring(null);
-          return;
-        }
         const nodeMonitoring = await api.nodeMonitoringDetail(clusterId, nodeId, {
           start: selectedRange.start.toISOString(),
           end: selectedRange.end.toISOString(),
@@ -582,14 +500,10 @@ export function NodeMonitoringPage() {
       .finally(() => setLoading(false));
   }
 
-  useEffect(load, [clusterId, nodeId, range, customRange, mockMode]);
-  useEffect(() => {
-    localStorage.setItem(NODE_MONITORING_MOCK_KEY, mockMode ? 'true' : 'false');
-  }, [mockMode]);
+  useEffect(load, [clusterId, nodeId, range, customRange]);
 
   const selectedRange = queryRange(range, customRange);
-  const mockMonitoring = mockMode ? buildMockMonitoringDetail(node, cluster, selectedRange) : null;
-  const activeMonitoring = mockMonitoring || monitoring;
+  const activeMonitoring = monitoring;
   const summary = activeMonitoring?.summary;
   const gpus = activeMonitoring?.gpus || [];
 
@@ -605,10 +519,6 @@ export function NodeMonitoringPage() {
         subtitle={`${cluster?.name || '-'} · ${node?.internalIp || '-'}`}
         extra={(
           <Space>
-            <Space size={6}>
-              <Tag color={mockMode ? 'gold' : 'blue'}>{mockMode ? 'Mock 数据' : '真实数据'}</Tag>
-              <Switch checked={mockMode} onChange={setMockMode} />
-            </Space>
             <TimeRangeSelector
               value={range}
               onChange={setRange}
