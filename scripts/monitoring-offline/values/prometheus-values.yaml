@@ -1,0 +1,29 @@
+prometheus:
+  service:
+    type: NodePort
+    nodePort: 30090
+  prometheusSpec:
+    retention: 15d
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+    serviceMonitorNamespaceSelector: {}
+    podMonitorNamespaceSelector: {}
+    serviceMonitorSelector: {}
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelector: {}
+    podMonitorSelectorNilUsesHelmValues: false
+
+grafana:
+  enabled: true
+  persistence:
+    enabled: false
+
+alertmanager:
+  enabled: true
+
+kube-state-metrics:
+  enabled: true
+
+prometheus-node-exporter:
+  enabled: true
+

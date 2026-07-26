@@ -29,9 +29,12 @@ bin/
 # 运行时数据
 # ============================================
 data/
+.runtime/
+runtime/
 *.db
 *.mv.db
 *.trace.db
+*.pid
 
 # ============================================
 # 日志文件
@@ -74,8 +77,41 @@ dist/
 build/
 .next/
 .cache/
+.vite/
 *.tsbuildinfo
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+frontend/*.log
+frontend/*.log.*
+frontend/*.pid
+frontend/.vite/
+frontend/.eslintcache
+frontend/tsconfig.tsbuildinfo
+
+# ============================================
+# 监控与临时打包目录
+# ============================================
+tmp/
+temp/
+*/tmp/
+*/temp/
+
+# ============================================
+# 监控离线打包产物
+# ============================================
+acmp-monitoring-offline-bundle/
+acmp-monitoring-offline-bundle.tar.gz
+scripts/monitoring-offline/acmp-monitoring-offline-bundle/
+scripts/monitoring-offline/acmp-monitoring-offline-bundle.tar.gz
+scripts/monitoring-offline/**/images/
+scripts/monitoring-offline/**/rendered/
+scripts/monitoring-offline/**/charts/
+
+# ============================================
+# Linux 发布包
+# ============================================
+release/
+dist-release/
+package-release/

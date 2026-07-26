@@ -6,6 +6,15 @@
 
 ---
 
+## [Unreleased] - 监控组件离线安装脚本
+
+### Added
+- 新增监控组件外网离线包下载脚本，固定 Helm Chart、渲染最终 values、提取镜像并导出镜像 tar
+- 新增内网 containerd 镜像导入和 kube-prometheus-stack、gpu-operator 安装脚本
+- 新增监控安装验证脚本和离线安装说明，Prometheus 默认通过 NodePort 30090 提供给集群外 ACMP 后端访问
+
+---
+
 ## [Unreleased] - Linux Kubernetes Demo 集群脚本
 
 ### Added
@@ -16,6 +25,26 @@
 - 新增 VM 克隆后重置脚本，用于清理 Kubernetes 残留、重置 machine-id 并保留基础安装环境
 - 新增 VM 克隆后网络初始化脚本，用于修改主机名、IP 和 SSH host key
 - 新增 [Linux Kubernetes Demo 集群安装说明](scripts/linux-k8s/README.md)
+
+## [Unreleased] - Linux Jar 启动脚本
+
+### Added
+- 新增通用 Linux 启动脚本 `scripts/linux-app/start.sh`，支持 Jar + conf 目录式部署
+- 启动脚本自动创建 `log/` 目录，并将 stdout / stderr 分开落盘，便于离线环境排查
+- 启动脚本自动生成 PID 文件，支持重复启动检测和手工查看进程状态
+
+## [Unreleased] - Spring Boot 文件日志
+
+### Added
+- 新增 `src/main/resources/logback-spring.xml`，同时输出控制台日志和按天滚动的文件日志
+- 新增 `logging.file.path` 配置，默认写入 `./log` 目录，便于 Linux 目录式部署排查
+
+## [Unreleased] - Linux 前后端发布目录
+
+### Added
+- 新增 `scripts/linux-release/build-package.sh`，可在 Linux 上一次性构建前后端并组装发布目录
+- 新增发布目录总启动脚本 `start-all.sh`，按目录方式启动后端 Jar 和 Nginx 前端
+- 新增 `docs/27-LINUX-FRONTEND-BACKEND-DEPLOYMENT.md`，说明打包、启动、日志和排查方式
 
 ---
 

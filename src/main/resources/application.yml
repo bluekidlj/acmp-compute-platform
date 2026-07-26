@@ -51,6 +51,8 @@ acmp:
     read-timeout-seconds: ${PROMETHEUS_READ_TIMEOUT_SECONDS:10}
 # 日志
 logging:
+  file:
+    path: ${LOG_DIR:./log}
   level:
     com.acmp: INFO
     org.springframework.security: INFO
