@@ -32,6 +32,14 @@ public class ClusterMonitoringService {
             "100 * (1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])))";
     private static final String MEMORY_USAGE_PROMQL =
             "100 * (1 - (sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)))";
+    private static final String DISK_USAGE_PROMQL =
+            "100 * (1 - (sum(node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs\",mountpoint!~\"/run.*|/var/lib/kubelet/pods/.*|/boot.*\"}) / sum(node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs\",mountpoint!~\"/run.*|/var/lib/kubelet/pods/.*|/boot.*\"})))";
+    private static final String NETWORK_RECEIVE_PROMQL =
+            "sum(rate(node_network_receive_bytes_total{device!=\"lo\"}[5m])) / 1024 / 1024 * 8";
+    private static final String NETWORK_TRANSMIT_PROMQL =
+            "sum(rate(node_network_transmit_bytes_total{device!=\"lo\"}[5m])) / 1024 / 1024 * 8";
+    private static final String LOAD_1M_PROMQL =
+            "avg(node_load1)";
     private static final String GPU_USAGE_PROMQL =
             "avg(DCGM_FI_DEV_GPU_UTIL)";
     private static final String GPU_MEMORY_USED_PROMQL =
@@ -74,6 +82,14 @@ public class ClusterMonitoringService {
                 prometheusClient.queryRange(CPU_USAGE_PROMQL, start, end, step);
         List<MonitoringPointResponse> memoryPoints =
                 prometheusClient.queryRange(MEMORY_USAGE_PROMQL, start, end, step);
+        List<MonitoringPointResponse> diskPoints =
+                prometheusClient.queryRange(DISK_USAGE_PROMQL, start, end, step);
+        List<MonitoringPointResponse> networkReceivePoints =
+                prometheusClient.queryRange(NETWORK_RECEIVE_PROMQL, start, end, step);
+        List<MonitoringPointResponse> networkTransmitPoints =
+                prometheusClient.queryRange(NETWORK_TRANSMIT_PROMQL, start, end, step);
+        List<MonitoringPointResponse> load1Points =
+                prometheusClient.queryRange(LOAD_1M_PROMQL, start, end, step);
 
         List<MonitoringPointResponse> gpuPoints = Collections.emptyList();
         List<MonitoringPointResponse> gpuMemoryPoints = Collections.emptyList();
@@ -85,6 +101,10 @@ public class ClusterMonitoringService {
         List<MonitoringSeriesResponse> series = new ArrayList<>();
         addSeriesWhenPresent(series, "cpu_usage_percent", "%", cpuPoints);
         addSeriesWhenPresent(series, "memory_usage_percent", "%", memoryPoints);
+        addSeriesWhenPresent(series, "disk_usage_percent", "%", diskPoints);
+        addSeriesWhenPresent(series, "network_receive_mbps", "Mbps", networkReceivePoints);
+        addSeriesWhenPresent(series, "network_transmit_mbps", "Mbps", networkTransmitPoints);
+        addSeriesWhenPresent(series, "load_average_1m", "load", load1Points);
         addSeriesWhenPresent(series, "gpu_usage_percent", "%", gpuPoints);
         addSeriesWhenPresent(series, "gpu_memory_used_mib", "MiB", gpuMemoryPoints);
 
@@ -103,6 +123,10 @@ public class ClusterMonitoringService {
                 .gpuCount(cluster.getGpuCount())
                 .cpuUsagePercent(latestValue(cpuPoints))
                 .memoryUsagePercent(latestValue(memoryPoints))
+                .diskUsagePercent(latestValue(diskPoints))
+                .networkReceiveMbps(latestValue(networkReceivePoints))
+                .networkTransmitMbps(latestValue(networkTransmitPoints))
+                .loadAverage1m(latestValue(load1Points))
                 .gpuUsagePercent(latestValue(gpuPoints))
                 .gpuMemoryUsedMib(latestValue(gpuMemoryPoints))
                 .lastCollectedAt(lastCollectedAt)

@@ -22,6 +22,7 @@ import {
   ClusterMonitoringListPage,
   DeploymentMonitoringDetailPage,
   DeploymentMonitoringListPage,
+  NodeMonitoringPage,
 } from './pages/real/Monitoring';
 import ProjectDetailPage from './pages/real/ProjectDetail';
 import ProjectsPage from './pages/real/Projects';
@@ -64,6 +65,7 @@ export default function App() {
           <Route path="/monitoring/deployments/:projectId/:deploymentId" element={<DeploymentMonitoringDetailPage />} />
           <Route path="/monitoring/clusters" element={<ClusterMonitoringListPage />} />
           <Route path="/monitoring/clusters/:clusterId" element={<ClusterMonitoringDetailPage />} />
+          <Route path="/monitoring/clusters/:clusterId/nodes/:nodeId" element={<NodeMonitoringPage />} />
           <Route path="/monitoring/alerts" element={<AlertMonitoringPage />} />
           <Route path="/innovation-lab" element={<Navigate to="/innovation-lab/workload" replace />} />
           <Route path="/innovation-lab/workload" element={<WorkloadInsightPage />} />

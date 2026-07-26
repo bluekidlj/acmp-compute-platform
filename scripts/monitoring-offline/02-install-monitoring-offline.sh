@@ -5,6 +5,8 @@ set -Eeuo pipefail
 
 MODE_LOAD=0
 MODE_INSTALL=0
+MODE_INSTALL_STACK=0
+MODE_INSTALL_GPU_OPERATOR=0
 CONTAINERD_NAMESPACE="${CONTAINERD_NAMESPACE:-k8s.io}"
 KUBE_PROM_STACK_VERSION="${KUBE_PROM_STACK_VERSION:-65.5.1}"
 GPU_OPERATOR_VERSION="${GPU_OPERATOR_VERSION:-25.3.0}"
@@ -13,18 +15,39 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --load-images) MODE_LOAD=1 ;;
     --install) MODE_INSTALL=1 ;;
+    --install-stack) MODE_INSTALL_STACK=1 ;;
+    --install-gpu-operator) MODE_INSTALL_GPU_OPERATOR=1 ;;
     *) echo "未知参数: $1" >&2; exit 1 ;;
   esac
   shift
 done
 
-if [ "${MODE_LOAD}" -eq 0 ] && [ "${MODE_INSTALL}" -eq 0 ]; then
-  echo "用法: sudo $0 --load-images | --install" >&2
+if [ "${MODE_LOAD}" -eq 0 ] && [ "${MODE_INSTALL}" -eq 0 ] && [ "${MODE_INSTALL_STACK}" -eq 0 ] && [ "${MODE_INSTALL_GPU_OPERATOR}" -eq 0 ]; then
+  echo "用法: sudo $0 --load-images | --install | --install-stack | --install-gpu-operator" >&2
   exit 1
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUNDLE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BUNDLE_DIR=""
+for candidate in \
+  "${PWD}/acmp-monitoring-offline-bundle" \
+  "${PWD}/acmp-monitoring-offline-bundle-cn" \
+  "${SCRIPT_DIR}/acmp-monitoring-offline-bundle" \
+  "${SCRIPT_DIR}/acmp-monitoring-offline-bundle-cn" \
+  "${PWD}" \
+  "${SCRIPT_DIR}" \
+  "${SCRIPT_DIR}/.."
+do
+  if [ -d "${candidate}/images" ] && [ -d "${candidate}/charts" ] && [ -d "${candidate}/values" ]; then
+    BUNDLE_DIR="$(cd "${candidate}" && pwd)"
+    break
+  fi
+done
+
+if [ -z "${BUNDLE_DIR}" ]; then
+  echo "未找到离线包目录，请确认当前目录或脚本目录下存在 images/charts/values" >&2
+  exit 1
+fi
 
 log() {
   printf '\n[%s] %s\n' "$(date '+%F %T')" "$*"
@@ -43,16 +66,34 @@ load_images() {
     echo "缺少 ctr，请先安装 containerd" >&2
     exit 1
   }
-  [ -f "${BUNDLE_DIR}/images/monitoring-images.tar" ] || {
+  if [ -f "${BUNDLE_DIR}/images/monitoring-images.tar" ]; then
+    log "导入单个镜像总包到 containerd namespace=${CONTAINERD_NAMESPACE}"
+    ctr -n "${CONTAINERD_NAMESPACE}" images import "${BUNDLE_DIR}/images/monitoring-images.tar"
+    log "镜像导入完成"
+    return 0
+  fi
+
+  ARCHIVES_FILE="${BUNDLE_DIR}/images/archives.txt"
+  [ -f "${ARCHIVES_FILE}" ] || {
     echo "未找到镜像包: ${BUNDLE_DIR}/images/monitoring-images.tar" >&2
+    echo "也未找到逐镜像归档清单: ${ARCHIVES_FILE}" >&2
     exit 1
   }
-  log "导入镜像到 containerd namespace=${CONTAINERD_NAMESPACE}"
-  ctr -n "${CONTAINERD_NAMESPACE}" images import "${BUNDLE_DIR}/images/monitoring-images.tar"
+
+  log "按镜像逐个导入到 containerd namespace=${CONTAINERD_NAMESPACE}"
+  while IFS= read -r archive; do
+    [ -n "${archive}" ] || continue
+    [ -f "${archive}" ] || {
+      echo "缺少镜像归档: ${archive}" >&2
+      exit 1
+    }
+    log "import ${archive}"
+    ctr -n "${CONTAINERD_NAMESPACE}" images import "${archive}"
+  done < "${ARCHIVES_FILE}"
   log "镜像导入完成"
 }
 
-install_charts() {
+install_stack() {
   [ -f /etc/kubernetes/admin.conf ] || {
     echo "未找到 /etc/kubernetes/admin.conf，请在 Master 节点执行安装" >&2
     exit 1
@@ -81,6 +122,27 @@ install_charts() {
     --values "${BUNDLE_DIR}/values/prometheus-values.yaml" \
     --wait \
     --timeout 10m
+}
+
+install_gpu_operator() {
+  [ -f /etc/kubernetes/admin.conf ] || {
+    echo "未找到 /etc/kubernetes/admin.conf，请在 Master 节点执行安装" >&2
+    exit 1
+  }
+  command -v helm >/dev/null 2>&1 || {
+    echo "缺少 helm，请先在 Master 安装 helm" >&2
+    exit 1
+  }
+  command -v kubectl >/dev/null 2>&1 || {
+    echo "缺少 kubectl" >&2
+    exit 1
+  }
+  export KUBECONFIG=/etc/kubernetes/admin.conf
+  GPU_OPERATOR_CHART="$(find "${BUNDLE_DIR}/charts" -maxdepth 1 -type f -name 'gpu-operator-*.tgz' | head -n 1)"
+  if [ -z "${GPU_OPERATOR_CHART}" ]; then
+    echo "未找到 gpu-operator chart 文件，请确认离线包完整" >&2
+    exit 1
+  fi
 
   log "安装 gpu-operator"
   helm upgrade --install gpu-operator \
@@ -97,5 +159,14 @@ if [ "${MODE_LOAD}" -eq 1 ]; then
 fi
 
 if [ "${MODE_INSTALL}" -eq 1 ]; then
-  install_charts
+  install_stack
+  install_gpu_operator
+fi
+
+if [ "${MODE_INSTALL_STACK}" -eq 1 ]; then
+  install_stack
+fi
+
+if [ "${MODE_INSTALL_GPU_OPERATOR}" -eq 1 ]; then
+  install_gpu_operator
 fi

@@ -1,23 +1,27 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Button, Card, Col, DatePicker, Empty, Row, Select, Space, Table, Tag, message } from 'antd';
+import { Button, Card, Col, DatePicker, Row, Select, Space, Switch, Table, Tag, message } from 'antd';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
+import * as echarts from 'echarts';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api/real';
 import PageHeader from '../../components/PageHeader';
 import StatusBadge from '../../components/StatusBadge';
 import type {
-  ClusterMonitoringDetail,
   ClusterMonitoringSummary,
+  ClusterNode,
   ModelDeployment,
   MonitoringSeries,
+  NodeMonitoringDetail,
   PhysicalCluster,
   Project,
   Tenant,
 } from '../../types';
 
 type TimeRange = '15m' | '1h' | '6h' | '24h' | 'custom';
+type AxisDensity = 'compact' | 'standard' | 'wide';
 
 interface ChartLine {
   name: string;
@@ -25,170 +29,42 @@ interface ChartLine {
   values: number[];
 }
 
-const SAMPLE_TIMES = ['09:00', '09:10', '09:20', '09:30', '09:40', '09:50', '10:00'];
+type NodeMonitoringRange = {
+  start: Dayjs;
+  end: Dayjs;
+  step: number;
+};
 
-function MonitoringChart(props: { title: string; unit: string; lines: ChartLine[]; labels?: string[] }) {
-  if (props.lines.length === 0) {
-    return <Card title={props.title} className="monitor-chart-card"><Empty description="暂无监控数据" /></Card>;
-  }
-  const values = props.lines.flatMap(line => line.values);
-  const maximum = Math.max(...values, 1);
-  const polylines = props.lines.map(function buildLine(line) {
-    const points = line.values.map(function buildPoint(value, index) {
-      const x = 36 + (index * 424) / Math.max(line.values.length - 1, 1);
-      const y = 150 - (value / maximum) * 112;
-      return `${x},${y}`;
-    }).join(' ');
-    return <polyline key={line.name} points={points} fill="none" stroke={line.color} strokeWidth="3" />;
-  });
-
-  return (
-    <Card title={props.title} className="monitor-chart-card" extra={<span className="monitor-chart-unit">{props.unit}</span>}>
-      <div className="monitor-chart-legend">
-        {props.lines.map(line => <span key={line.name}><i style={{ background: line.color }} />{line.name}</span>)}
-      </div>
-      <svg viewBox="0 0 500 180" role="img" aria-label={props.title}>
-        <line x1="36" y1="38" x2="460" y2="38" className="monitor-grid-line" />
-        <line x1="36" y1="94" x2="460" y2="94" className="monitor-grid-line" />
-        <line x1="36" y1="150" x2="460" y2="150" className="monitor-axis-line" />
-        {polylines}
-      </svg>
-      <div className="monitor-chart-labels">{(props.labels || SAMPLE_TIMES).map(time => <span key={time}>{time}</span>)}</div>
-    </Card>
-  );
-}
-
-function TimeRangeSelector(props: {
-  value: TimeRange;
-  onChange: (value: TimeRange) => void;
-  onCustomChange?: (start: Dayjs, end: Dayjs) => void;
-  onRefresh?: () => void;
-}) {
-  return (
-    <Space>
-      <Select
-        value={props.value}
-        style={{ width: 140 }}
-        onChange={props.onChange}
-        options={[
-          { label: '最近15分钟', value: '15m' },
-          { label: '最近1小时', value: '1h' },
-          { label: '最近6小时', value: '6h' },
-          { label: '最近24小时', value: '24h' },
-          { label: '自定义', value: 'custom' },
-        ]}
-      />
-      {props.value === 'custom' && (
-        <DatePicker.RangePicker
-          showTime
-          onChange={values => {
-            if (values?.[0] && values[1]) {
-              props.onCustomChange?.(values[0], values[1]);
-            }
-          }}
-        />
-      )}
-      <Button icon={<ReloadOutlined />} onClick={props.onRefresh}>刷新</Button>
-    </Space>
-  );
-}
-
-function SampleTag() {
-  return <Tag color="gold">前端样例数据 · 待接 Prometheus</Tag>;
-}
-
-export function DeploymentMonitoringListPage() {
-  const navigate = useNavigate();
-  const [items, setItems] = useState<ModelDeployment[]>([]);
-  const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(function loadList() {
-    Promise.all([api.deployments(), api.tenants()])
-      .then(async function loadProjects(values) {
-        const projectGroups = await Promise.all(values[1].map(tenant => api.projects(tenant.id)));
-        setItems(values[0]);
-        setTenants(values[1]);
-        setProjects(projectGroups.flat());
-      })
-      .catch(error => message.error(error instanceof Error ? error.message : '推理服务加载失败'))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const projectMap = Object.fromEntries(projects.map(project => [project.id, project.name]));
-  const tenantMap = Object.fromEntries(tenants.map(tenant => [tenant.id, tenant.name]));
-
-  return (
-    <div>
-      <PageHeader title="推理服务监控" subtitle="查看推理引擎直接暴露的请求与 Token 指标" tags={[{ label: 'Prometheus', color: 'blue' }]} />
-      <div className="surface data-table">
-        <Table
-          rowKey="id"
-          loading={loading}
-          dataSource={items}
-          pagination={false}
-          onRow={record => ({ onClick: () => navigate(`/monitoring/deployments/${record.projectId}/${record.id}`), style: { cursor: 'pointer' } })}
-          columns={[
-            { title: '服务名称', dataIndex: 'name', render: value => <strong>{value}</strong> },
-            { title: '租户 / 项目', render: (_, item) => `${tenantMap[item.tenantId] || item.tenantId} / ${projectMap[item.projectId] || item.projectId}` },
-            { title: '模型', dataIndex: 'modelName', render: value => value || '-' },
-            { title: '状态', dataIndex: 'status', render: value => <StatusBadge value={value} /> },
-            { title: '副本', render: (_, item) => `${item.readyReplicas ?? 0}/${item.replicas}` },
-            { title: '运行请求', render: () => '-' },
-            { title: '等待请求', render: () => '-' },
-            { title: '监控采集', render: () => <Tag>待接入</Tag> },
-            { title: '操作', render: (_, item) => <Button size="small" onClick={event => { event.stopPropagation(); navigate(`/monitoring/deployments/${item.projectId}/${item.id}`); }}>查看详情</Button> },
-          ]}
-        />
-      </div>
-    </div>
-  );
-}
-
-export function DeploymentMonitoringDetailPage() {
-  const navigate = useNavigate();
-  const { projectId, deploymentId } = useParams();
-  const [deployment, setDeployment] = useState<ModelDeployment>();
-  const [range, setRange] = useState<TimeRange>('1h');
-
-  useEffect(function loadDeployment() {
-    if (!projectId || !deploymentId) return;
-    api.deployment(projectId, deploymentId)
-      .then(setDeployment)
-      .catch(error => message.error(error instanceof Error ? error.message : '推理服务加载失败'));
-  }, [deploymentId, projectId]);
-
-  return (
-    <div>
-      <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/monitoring/deployments')}>返回推理服务监控</Button>
-      <PageHeader
-        title={deployment?.name || '推理服务监控详情'}
-        subtitle={`${deployment?.modelName || '-'} · ${deployment?.serviceUrl || '-'}`}
-        extra={<TimeRangeSelector value={range} onChange={setRange} />}
-      />
-      <SampleTag />
-      <Row gutter={[16, 16]} className="monitor-summary-row">
-        <Col span={4}><Card><div className="monitor-summary-label">服务状态</div><div className="monitor-summary-value">{deployment ? <StatusBadge value={deployment.status} /> : '-'}</div></Card></Col>
-        <Col span={4}><Card><div className="monitor-summary-label">就绪副本</div><div className="monitor-summary-value">{deployment ? `${deployment.readyReplicas ?? 0}/${deployment.replicas}` : '-'}</div></Card></Col>
-        <Col span={4}><Card><div className="monitor-summary-label">运行请求</div><div className="monitor-summary-value">6</div></Card></Col>
-        <Col span={4}><Card><div className="monitor-summary-label">等待请求</div><div className="monitor-summary-value">1</div></Card></Col>
-        <Col span={4}><Card><div className="monitor-summary-label">Prompt Token/s</div><div className="monitor-summary-value">320.5</div></Card></Col>
-        <Col span={4}><Card><div className="monitor-summary-label">Generation Token/s</div><div className="monitor-summary-value">86.2</div></Card></Col>
-      </Row>
-      <Row gutter={[16, 16]}>
-        <Col span={12}><MonitoringChart title="请求状态" unit="requests" lines={[{ name: '运行请求', color: '#1677ff', values: [2, 3, 4, 4, 6, 5, 6] }, { name: '等待请求', color: '#fa8c16', values: [0, 0, 1, 2, 1, 0, 1] }]} /></Col>
-        <Col span={12}><MonitoringChart title="Token 吞吐" unit="token/s" lines={[{ name: 'Prompt Token/s', color: '#722ed1', values: [180, 205, 240, 286, 310, 298, 320] }, { name: 'Generation Token/s', color: '#13a8a8', values: [42, 48, 61, 75, 82, 78, 86] }]} /></Col>
-      </Row>
-    </div>
-  );
-}
+const NODE_MONITORING_MOCK_KEY = 'ACMP_NODE_MONITORING_MOCK';
 
 function formatPercent(value: number | null) {
   return value === null ? '-' : `${value.toFixed(1)}%`;
 }
 
-function findMonitoringSeries(detail: ClusterMonitoringDetail | undefined, metric: string) {
+function formatMbps(value: number | null) {
+  return value === null ? '-' : `${value.toFixed(2)} Mbps`;
+}
+
+function formatLoad(value: number | null) {
+  return value === null ? '-' : value.toFixed(2);
+}
+
+function formatMiB(value: number | null) {
+  return value === null ? '-' : `${value.toFixed(0)} MiB`;
+}
+
+function isMasterNode(node: ClusterNode) {
+  if (!node.labelsJson) return false;
+  try {
+    const labels = JSON.parse(node.labelsJson) as Record<string, string>;
+    return Object.prototype.hasOwnProperty.call(labels, 'node-role.kubernetes.io/control-plane')
+      || Object.prototype.hasOwnProperty.call(labels, 'node-role.kubernetes.io/master');
+  } catch {
+    return false;
+  }
+}
+
+function findSeries(detail: { series: MonitoringSeries[] } | null | undefined, metric: string) {
   return detail?.series.find(item => item.metric === metric);
 }
 
@@ -221,6 +97,322 @@ function queryRange(range: TimeRange, customRange?: [Dayjs, Dayjs]) {
   return { start: end.subtract(1, 'hour'), end, step: 60 };
 }
 
+function buildMockPoints(range: NodeMonitoringRange, baseValue: number, spread: number, wave: number, floor = 0, ceiling = 100) {
+  const points = [];
+  const totalSeconds = Math.max(range.end.diff(range.start, 'second'), range.step);
+  const count = Math.max(16, Math.floor(totalSeconds / range.step) + 1);
+  for (let index = 0; index < count; index += 1) {
+    const ratio = count === 1 ? 0 : index / (count - 1);
+    const angle = ratio * Math.PI * 2 * wave;
+    const drift = Math.sin(angle) * spread + Math.cos(angle * 0.5) * spread * 0.35;
+    const value = Math.max(floor, Math.min(ceiling, baseValue + drift));
+    points.push({
+      timestamp: range.start.add(index * range.step, 'second').unix(),
+      value: Number(value.toFixed(2)),
+    });
+  }
+  return points;
+}
+
+function buildMockMonitoringDetail(node: ClusterNode | null, cluster: PhysicalCluster | null, range: NodeMonitoringRange): NodeMonitoringDetail | null {
+  if (!node || !cluster) return null;
+  const gpuCount = Math.max(node.gpuCount || 0, node.name.includes('gpu') ? 4 : 0);
+  const gpuSeriesBase = [
+    { gpuIndex: 0, gpuLabel: 'GPU-0', gpuUsagePercent: 32, gpuMemoryUsedMib: 12600 },
+    { gpuIndex: 1, gpuLabel: 'GPU-1', gpuUsagePercent: 58, gpuMemoryUsedMib: 18400 },
+    { gpuIndex: 2, gpuLabel: 'GPU-2', gpuUsagePercent: 71, gpuMemoryUsedMib: 21000 },
+    { gpuIndex: 3, gpuLabel: 'GPU-3', gpuUsagePercent: 46, gpuMemoryUsedMib: 15600 },
+  ].slice(0, Math.max(gpuCount, 1));
+
+  const cpuSeries = buildMockPoints(range, 18, 6, 1.5);
+  const memorySeries = buildMockPoints(range, 72, 4.5, 1.1);
+  const diskSeries = buildMockPoints(range, 64, 3.2, 0.8);
+  const rxSeries = buildMockPoints(range, 0.52, 0.18, 2.4, 0, 50);
+  const txSeries = buildMockPoints(range, 0.86, 0.22, 1.8, 0, 50);
+  const loadSeries = buildMockPoints(range, 1.12, 0.28, 2.1, 0, 10);
+  const gpuUsageSeries = buildMockPoints(range, 62, 18, 1.7);
+  const gpuMemorySeries = buildMockPoints(range, 11240, 2200, 1.2, 0, 24000);
+
+  return {
+    summary: {
+      nodeId: node.id,
+      clusterId: cluster.id,
+      nodeName: node.name,
+      internalIp: node.internalIp,
+      status: node.status,
+      cpuCores: node.cpuCores,
+      memoryBytes: node.memoryBytes,
+      gpuCount,
+      cpuUsagePercent: cpuSeries[cpuSeries.length - 1]?.value ?? null,
+      memoryUsagePercent: memorySeries[memorySeries.length - 1]?.value ?? null,
+      diskUsagePercent: diskSeries[diskSeries.length - 1]?.value ?? null,
+      networkReceiveMbps: rxSeries[rxSeries.length - 1]?.value ?? null,
+      networkTransmitMbps: txSeries[txSeries.length - 1]?.value ?? null,
+      loadAverage1m: loadSeries[loadSeries.length - 1]?.value ?? null,
+      gpuUsagePercent: gpuUsageSeries[gpuUsageSeries.length - 1]?.value ?? null,
+      gpuMemoryUsedMib: gpuMemorySeries[gpuMemorySeries.length - 1]?.value ?? null,
+      lastCollectedAt: range.end.toISOString(),
+    },
+    series: [
+      { metric: 'cpu_usage_percent', unit: '%', points: cpuSeries },
+      { metric: 'memory_usage_percent', unit: '%', points: memorySeries },
+      { metric: 'disk_usage_percent', unit: '%', points: diskSeries },
+      { metric: 'network_receive_mbps', unit: 'Mbps', points: rxSeries },
+      { metric: 'network_transmit_mbps', unit: 'Mbps', points: txSeries },
+      { metric: 'load_average_1m', unit: 'load', points: loadSeries },
+      { metric: 'gpu_usage_percent', unit: '%', points: gpuUsageSeries },
+      { metric: 'gpu_memory_used_mib', unit: 'MiB', points: gpuMemorySeries },
+    ],
+    gpus: gpuSeriesBase.map((gpu, index) => ({
+      ...gpu,
+      gpuIndex: index,
+      gpuUsagePercent: Math.max(0, Math.min(100, gpu.gpuUsagePercent + index * 4)),
+      gpuMemoryUsedMib: gpu.gpuMemoryUsedMib + index * 900,
+    })),
+  };
+}
+
+function MonitoringChart(props: { title: string; unit: string; lines: ChartLine[]; labels?: string[]; density?: AxisDensity }) {
+  const chartRef = useRef<HTMLDivElement | null>(null);
+  const option = useMemo(() => {
+    const sourceLabels = props.labels && props.labels.length > 0 ? props.labels : ['00', '05', '10', '15', '20', '25', '30', '35'];
+    const slotCount = Math.max(sourceLabels.length, props.lines.reduce((max, line) => Math.max(max, line.values.length), 0), 8);
+    const chartLabels = Array.from({ length: slotCount }, (_, index) => sourceLabels[Math.min(index, sourceLabels.length - 1)] || '');
+    const seriesMax = Math.max(...props.lines.flatMap(line => line.values), 0);
+    const upperBound = Math.max(seriesMax * 1.15, props.unit === '%' ? 100 : seriesMax > 0 ? seriesMax * 1.15 : 1);
+    return {
+      backgroundColor: 'transparent',
+      animation: false,
+      grid: { left: 56, right: 24, top: 36, bottom: 36, containLabel: true },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'line' } },
+      legend: {
+        top: 6,
+        left: 8,
+        icon: 'roundRect',
+        itemWidth: 12,
+        itemHeight: 8,
+        textStyle: { color: '#595959' },
+      },
+      xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: chartLabels,
+        axisLine: { lineStyle: { color: '#d9d9d9' } },
+        axisTick: { show: false },
+        axisLabel: {
+          color: '#8c8c8c',
+          interval: props.density === 'compact' ? 2 : props.density === 'wide' ? 0 : 'auto',
+          hideOverlap: true,
+          margin: 14,
+        },
+        splitLine: { show: true, lineStyle: { color: 'rgba(148, 163, 184, 0.16)' } },
+      },
+      yAxis: {
+        type: 'value',
+        min: 0,
+        max: upperBound,
+        axisLine: { show: true, lineStyle: { color: '#d9d9d9' } },
+        axisTick: { show: false },
+        axisLabel: {
+          color: '#8c8c8c',
+          formatter: (value: number) => (props.unit === '%' ? `${value.toFixed(0)}%` : `${value.toFixed(0)}`),
+        },
+        splitLine: { show: true, lineStyle: { color: 'rgba(148, 163, 184, 0.16)' } },
+      },
+      series: props.lines.map(line => ({
+        name: line.name,
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        showSymbol: false,
+        connectNulls: true,
+        lineStyle: { width: 3, color: line.color },
+        itemStyle: { color: line.color },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: `${line.color}55` },
+            { offset: 1, color: `${line.color}08` },
+          ]),
+        },
+        data: line.values.length > 0 ? line.values : Array.from({ length: chartLabels.length }, () => null),
+      })),
+      graphic: props.lines.length === 0 ? [{
+        type: 'text',
+        left: 'center',
+        top: 'middle',
+        style: {
+          text: '暂无监控数据',
+          fill: '#bfbfbf',
+          fontSize: 14,
+          fontWeight: 500,
+        },
+      }] : undefined,
+    };
+  }, [props.density, props.lines, props.labels, props.unit]);
+
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const chart = echarts.init(chartRef.current);
+    chart.setOption(option);
+    const onResize = () => chart.resize();
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      chart.dispose();
+    };
+  }, [option]);
+
+  return (
+    <Card title={props.title} className="monitor-chart-card" extra={<span className="monitor-chart-unit">{props.unit}</span>}>
+      <div ref={chartRef} className="monitor-echart" role="img" aria-label={props.title} />
+    </Card>
+  );
+}
+
+function TimeRangeSelector(props: {
+  value: TimeRange;
+  onChange: (value: TimeRange) => void;
+  onCustomChange?: (start: Dayjs, end: Dayjs) => void;
+  onRefresh?: () => void;
+  density: AxisDensity;
+  onDensityChange: (value: AxisDensity) => void;
+}) {
+  return (
+    <Space>
+      <Select
+        value={props.value}
+        style={{ width: 140 }}
+        onChange={props.onChange}
+        options={[
+          { label: '最近15分钟', value: '15m' },
+          { label: '最近1小时', value: '1h' },
+          { label: '最近6小时', value: '6h' },
+          { label: '最近24小时', value: '24h' },
+          { label: '自定义', value: 'custom' },
+        ]}
+      />
+      {props.value === 'custom' && (
+        <DatePicker.RangePicker
+          showTime
+          onChange={values => {
+            if (values?.[0] && values[1]) {
+              props.onCustomChange?.(values[0], values[1]);
+            }
+          }}
+        />
+      )}
+      <Select
+        value={props.density}
+        style={{ width: 132 }}
+        onChange={props.onDensityChange}
+        options={[
+          { label: '时间轴紧凑', value: 'compact' },
+          { label: '标准显示', value: 'standard' },
+          { label: '时间轴宽松', value: 'wide' },
+        ]}
+      />
+      <Button icon={<ReloadOutlined />} onClick={props.onRefresh}>刷新</Button>
+    </Space>
+  );
+}
+
+function StatCard(props: { label: string; value: string | ReactNode; accent?: string }) {
+  return (
+    <Card className="monitor-stat-card">
+      <div className="monitor-summary-label">{props.label}</div>
+      <div className={`monitor-summary-value ${props.accent ? 'monitor-summary-accent' : ''}`} style={props.accent ? { color: props.accent } : undefined}>
+        {props.value}
+      </div>
+    </Card>
+  );
+}
+
+export function DeploymentMonitoringListPage() {
+  const navigate = useNavigate();
+  const [items, setItems] = useState<ModelDeployment[]>([]);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(function loadList() {
+    Promise.all([api.deployments(), api.tenants()])
+      .then(async function loadProjects(values) {
+        const projectGroups = await Promise.all(values[1].map(tenant => api.projects(tenant.id)));
+        setItems(values[0]);
+        setTenants(values[1]);
+        setProjects(projectGroups.flat());
+      })
+      .catch(error => message.error(error instanceof Error ? error.message : '推理服务监控加载失败'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const projectMap = Object.fromEntries(projects.map(project => [project.id, project.name]));
+  const tenantMap = Object.fromEntries(tenants.map(tenant => [tenant.id, tenant.name]));
+
+  return (
+    <div>
+      <PageHeader title="推理服务监控" subtitle="查看推理服务实例、模型和副本状态" tags={[{ label: 'Prometheus', color: 'blue' }]} />
+      <div className="surface data-table">
+        <Table
+          rowKey="id"
+          loading={loading}
+          dataSource={items}
+          pagination={false}
+          onRow={record => ({ onClick: () => navigate(`/monitoring/deployments/${record.projectId}/${record.id}`), style: { cursor: 'pointer' } })}
+          columns={[
+            { title: '服务名称', dataIndex: 'name', render: value => <strong>{value}</strong> },
+            { title: '租户 / 项目', render: (_, item) => `${tenantMap[item.tenantId] || item.tenantId} / ${projectMap[item.projectId] || item.projectId}` },
+            { title: '模型', dataIndex: 'modelName', render: value => value || '-' },
+            { title: '状态', dataIndex: 'status', render: value => <StatusBadge value={value} /> },
+            { title: '副本', render: (_, item) => `${item.readyReplicas ?? 0}/${item.replicas}` },
+            { title: '端口', dataIndex: 'port' },
+            { title: 'Service URL', dataIndex: 'serviceUrl', render: value => value || '-' },
+            { title: '操作', render: (_, item) => <Button size="small" onClick={event => { event.stopPropagation(); navigate(`/monitoring/deployments/${item.projectId}/${item.id}`); }}>查看详情</Button> },
+          ]}
+        />
+      </div>
+    </div>
+  );
+}
+
+export function DeploymentMonitoringDetailPage() {
+  const navigate = useNavigate();
+  const { projectId, deploymentId } = useParams();
+  const [deployment, setDeployment] = useState<ModelDeployment>();
+  const [range, setRange] = useState<TimeRange>('1h');
+  const [density, setDensity] = useState<AxisDensity>('standard');
+
+  useEffect(function loadDeployment() {
+    if (!projectId || !deploymentId) return;
+    api.deployment(projectId, deploymentId)
+      .then(setDeployment)
+      .catch(error => message.error(error instanceof Error ? error.message : '推理服务加载失败'));
+  }, [deploymentId, projectId]);
+
+  return (
+    <div>
+      <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/monitoring/deployments')}>返回推理服务监控</Button>
+      <PageHeader
+        title={deployment?.name || '推理服务监控详情'}
+        subtitle={`${deployment?.modelName || '-'} · ${deployment?.serviceUrl || '-'}`}
+        extra={<TimeRangeSelector value={range} onChange={setRange} density={density} onDensityChange={setDensity} />}
+      />
+      <Row gutter={[16, 16]} className="monitor-summary-row">
+        <Col span={4}><Card><div className="monitor-summary-label">服务状态</div><div className="monitor-summary-value">{deployment ? <StatusBadge value={deployment.status} /> : '-'}</div></Card></Col>
+        <Col span={4}><Card><div className="monitor-summary-label">就绪副本</div><div className="monitor-summary-value">{deployment ? `${deployment.readyReplicas ?? 0}/${deployment.replicas}` : '-'}</div></Card></Col>
+        <Col span={4}><Card><div className="monitor-summary-label">运行请求</div><div className="monitor-summary-value">6</div></Card></Col>
+        <Col span={4}><Card><div className="monitor-summary-label">等待请求</div><div className="monitor-summary-value">1</div></Card></Col>
+        <Col span={4}><Card><div className="monitor-summary-label">Prompt Token/s</div><div className="monitor-summary-value">320.5</div></Card></Col>
+        <Col span={4}><Card><div className="monitor-summary-label">Generation Token/s</div><div className="monitor-summary-value">86.2</div></Card></Col>
+      </Row>
+      <Row gutter={[16, 16]}>
+        <Col span={12}><MonitoringChart title="请求状态" unit="requests" density={density} lines={[{ name: '运行请求', color: '#1677ff', values: [2, 3, 4, 4, 6, 5, 6] }, { name: '等待请求', color: '#fa8c16', values: [0, 0, 1, 2, 1, 0, 1] }]} /></Col>
+        <Col span={12}><MonitoringChart title="Token 吞吐" unit="token/s" density={density} lines={[{ name: 'Prompt Token/s', color: '#722ed1', values: [180, 205, 240, 286, 310, 298, 320] }, { name: 'Generation Token/s', color: '#13a8a8', values: [42, 48, 61, 75, 82, 78, 86] }]} /></Col>
+      </Row>
+    </div>
+  );
+}
+
 export function ClusterMonitoringListPage() {
   const navigate = useNavigate();
   const [clusters, setClusters] = useState<PhysicalCluster[]>([]);
@@ -228,58 +420,38 @@ export function ClusterMonitoringListPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(function loadClusters() {
-    // 集群资产是列表主数据，不能因为 Prometheus 未配置或监控接口未启动而消失。
     api.clusters()
       .then(setClusters)
-      .catch(error => message.error(error instanceof Error ? error.message : '集群资产加载失败'))
+      .catch(error => message.error(error instanceof Error ? error.message : '集群监控加载失败'))
       .finally(() => setLoading(false));
 
-    // 监控数据是可选增强项，查询失败时保留现有集群资产列表。
     api.clusterMonitoring()
       .then(setMonitoring)
       .catch(() => setMonitoring([]));
   }, []);
 
   const monitoringMap = Object.fromEntries(monitoring.map(item => [item.clusterId, item]));
-  const items = clusters.map(function mergeCluster(cluster) {
-    return {
-      cluster,
-      monitoring: monitoringMap[cluster.id] as ClusterMonitoringSummary | undefined,
-    };
-  });
 
   return (
     <div>
-      <PageHeader title="集群监控" subtitle="查看 Kubernetes 集群、真实节点和 GPU 的运行指标" tags={[{ label: 'Prometheus', color: 'blue' }]} />
+      <PageHeader title="集群监控" subtitle="查看集群关键监控信息，点击进入节点列表" tags={[{ label: 'Prometheus', color: 'blue' }]} />
       <div className="surface data-table">
         <Table
-          rowKey={item => item.cluster.id}
+          rowKey="id"
           loading={loading}
-          dataSource={items}
+          dataSource={clusters}
           pagination={false}
-          onRow={record => ({ onClick: () => navigate(`/monitoring/clusters/${record.cluster.id}`), style: { cursor: 'pointer' } })}
+          onRow={record => ({ onClick: () => navigate(`/monitoring/clusters/${record.id}`), style: { cursor: 'pointer' } })}
           columns={[
-            { title: '集群名称', render: (_, item) => <strong>{item.cluster.name}</strong> },
-            { title: '状态', render: (_, item) => <StatusBadge value={item.cluster.status} /> },
-            { title: 'Kubernetes', render: (_, item) => item.cluster.kubernetesVersion || '-' },
-            { title: '节点数', render: (_, item) => item.cluster.nodeCount },
-            { title: 'GPU 数', render: (_, item) => item.cluster.gpuCount },
-            { title: 'CPU 使用率', render: (_, item) => formatPercent(item.monitoring?.cpuUsagePercent ?? null) },
-            { title: '内存使用率', render: (_, item) => formatPercent(item.monitoring?.memoryUsagePercent ?? null) },
-            { title: 'GPU 利用率', render: (_, item) => formatPercent(item.monitoring?.gpuUsagePercent ?? null) },
-            {
-              title: '最近同步',
-              render: (_, item) => item.cluster.lastSyncAt
-                ? dayjs(item.cluster.lastSyncAt).format('YYYY-MM-DD HH:mm:ss')
-                : '-',
-            },
-            {
-              title: '监控采集',
-              render: (_, item) => item.monitoring?.lastCollectedAt
-                ? dayjs(item.monitoring.lastCollectedAt).format('YYYY-MM-DD HH:mm:ss')
-                : <Tag>暂无数据</Tag>,
-            },
-            { title: '操作', render: (_, item) => <Button size="small" onClick={event => { event.stopPropagation(); navigate(`/monitoring/clusters/${item.cluster.id}`); }}>查看详情</Button> },
+            { title: '集群名称', render: (_, item) => <strong>{item.name}</strong> },
+            { title: '状态', render: (_, item) => <StatusBadge value={item.status} /> },
+            { title: 'Kubernetes', render: (_, item) => item.kubernetesVersion || '-' },
+            { title: '节点数', render: (_, item) => item.nodeCount },
+            { title: 'GPU 数', render: (_, item) => item.gpuCount },
+            { title: 'CPU 使用率', render: (_, item) => formatPercent(monitoringMap[item.id]?.cpuUsagePercent ?? null) },
+            { title: '内存使用率', render: (_, item) => formatPercent(monitoringMap[item.id]?.memoryUsagePercent ?? null) },
+            { title: 'GPU 利用率', render: (_, item) => formatPercent(monitoringMap[item.id]?.gpuUsagePercent ?? null) },
+            { title: '操作', render: (_, item) => <Button size="small" onClick={event => { event.stopPropagation(); navigate(`/monitoring/clusters/${item.id}`); }}>查看节点</Button> },
           ]}
         />
       </div>
@@ -290,60 +462,372 @@ export function ClusterMonitoringListPage() {
 export function ClusterMonitoringDetailPage() {
   const navigate = useNavigate();
   const { clusterId } = useParams();
-  const [detail, setDetail] = useState<ClusterMonitoringDetail>();
+  const [cluster, setCluster] = useState<PhysicalCluster | null>(null);
+  const [nodes, setNodes] = useState<Array<{ node: ClusterNode; monitoring: NodeMonitoringDetail | null }>>([]);
+  const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<TimeRange>('1h');
+  const [density, setDensity] = useState<AxisDensity>('standard');
   const [customRange, setCustomRange] = useState<[Dayjs, Dayjs]>();
 
-  function loadClusterMonitoring() {
+  function load() {
     if (!clusterId) return;
+    setLoading(true);
     const selectedRange = queryRange(range, customRange);
-    api.clusterMonitoringDetail(clusterId, {
-      start: selectedRange.start.toISOString(),
-      end: selectedRange.end.toISOString(),
-      step: selectedRange.step,
-    })
-      .then(setDetail)
-      .catch(error => message.error(error instanceof Error ? error.message : '集群监控加载失败'));
+    Promise.all([api.cluster(clusterId), api.nodes(clusterId)])
+      .then(async ([clusterInfo, clusterNodes]) => {
+        setCluster(clusterInfo);
+        const monitoringList = await Promise.all(clusterNodes.map(async node => {
+          try {
+            const monitoringDetail = await api.nodeMonitoringDetail(clusterId, node.id, {
+              start: selectedRange.start.toISOString(),
+              end: selectedRange.end.toISOString(),
+              step: selectedRange.step,
+            });
+            return { node, monitoring: monitoringDetail };
+          } catch {
+            return { node, monitoring: null };
+          }
+        }));
+        setNodes(monitoringList);
+      })
+      .catch(error => message.error(error instanceof Error ? error.message : '节点监控加载失败'))
+      .finally(() => setLoading(false));
   }
 
-  useEffect(function loadCluster() {
-    loadClusterMonitoring();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clusterId, range, customRange]);
+  useEffect(load, [clusterId, range, customRange]);
 
-  const summary = detail?.summary;
-  const cpuSeries = findMonitoringSeries(detail, 'cpu_usage_percent');
-  const memorySeries = findMonitoringSeries(detail, 'memory_usage_percent');
-  const gpuSeries = findMonitoringSeries(detail, 'gpu_usage_percent');
-  const gpuMemorySeries = findMonitoringSeries(detail, 'gpu_memory_used_mib');
+  const nodeRows = nodes.map(item => ({
+    ...item,
+    cpu: item.monitoring?.summary.cpuUsagePercent ?? null,
+    memory: item.monitoring?.summary.memoryUsagePercent ?? null,
+    disk: item.monitoring?.summary.diskUsagePercent ?? null,
+    gpu: item.monitoring?.summary.gpuUsagePercent ?? null,
+    load: item.monitoring?.summary.loadAverage1m ?? null,
+  }));
 
   return (
     <div>
       <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/monitoring/clusters')}>返回集群监控</Button>
       <PageHeader
-        title={summary?.name || '集群监控详情'}
-        subtitle={`最近采集 ${summary?.lastCollectedAt ? dayjs(summary.lastCollectedAt).format('YYYY-MM-DD HH:mm:ss') : '暂无 Prometheus 数据'}`}
+        title={cluster?.name || '集群节点监控'}
+        subtitle="列表形式查看节点监控，再点进节点监控页"
         extra={(
           <TimeRangeSelector
             value={range}
             onChange={setRange}
             onCustomChange={(start, end) => setCustomRange([start, end])}
-            onRefresh={loadClusterMonitoring}
+            onRefresh={load}
+            density={density}
+            onDensityChange={setDensity}
           />
         )}
       />
+
+      <div className="surface data-table">
+        <Table
+          rowKey={item => item.node.id}
+          loading={loading}
+          dataSource={nodeRows}
+          pagination={false}
+          columns={[
+            { title: '节点名称', render: (_, item) => <strong>{item.node.name}</strong> },
+            { title: '角色', render: (_, item) => <Tag color={isMasterNode(item.node) ? 'blue' : item.node.gpuCount > 0 ? 'gold' : 'green'}>{isMasterNode(item.node) ? 'Master' : item.node.gpuCount > 0 ? 'GPU Worker' : 'Worker'}</Tag> },
+            { title: 'IP', render: (_, item) => <code>{item.node.internalIp || '-'}</code> },
+            { title: '状态', render: (_, item) => <StatusBadge value={item.node.status} /> },
+            { title: 'CPU', render: (_, item) => formatPercent(item.cpu) },
+            { title: '内存', render: (_, item) => formatPercent(item.memory) },
+            { title: '磁盘', render: (_, item) => formatPercent(item.disk) },
+            { title: 'GPU 平均', render: (_, item) => formatPercent(item.gpu) },
+            { title: '操作', render: (_, item) => <Button size="small" onClick={() => navigate(`/monitoring/clusters/${clusterId}/nodes/${item.node.id}`)}>进入节点</Button> },
+          ]}
+        />
+      </div>
+    </div>
+  );
+}
+
+export function NodeMonitoringPage() {
+  const navigate = useNavigate();
+  const { clusterId = '', nodeId = '' } = useParams();
+  const [node, setNode] = useState<ClusterNode | null>(null);
+  const [cluster, setCluster] = useState<PhysicalCluster | null>(null);
+  const [monitoring, setMonitoring] = useState<NodeMonitoringDetail | null>(null);
+  const [mockMode, setMockMode] = useState(() => localStorage.getItem(NODE_MONITORING_MOCK_KEY) === 'true');
+  const [range, setRange] = useState<TimeRange>('1h');
+  const [density, setDensity] = useState<AxisDensity>('standard');
+  const [customRange, setCustomRange] = useState<[Dayjs, Dayjs]>();
+  const [loading, setLoading] = useState(true);
+
+  function load() {
+    if (!clusterId || !nodeId) return;
+    setLoading(true);
+    const selectedRange = queryRange(range, customRange);
+    Promise.all([api.cluster(clusterId), api.nodes(clusterId)])
+      .then(async ([clusterInfo, nodes]) => {
+        setCluster(clusterInfo);
+        const currentNode = nodes.find(item => item.id === nodeId) || null;
+        setNode(currentNode);
+        if (mockMode) {
+          setMonitoring(null);
+          return;
+        }
+        const nodeMonitoring = await api.nodeMonitoringDetail(clusterId, nodeId, {
+          start: selectedRange.start.toISOString(),
+          end: selectedRange.end.toISOString(),
+          step: selectedRange.step,
+        });
+        setMonitoring(nodeMonitoring);
+      })
+      .catch(error => message.error(error instanceof Error ? error.message : '节点监控加载失败'))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(load, [clusterId, nodeId, range, customRange, mockMode]);
+  useEffect(() => {
+    localStorage.setItem(NODE_MONITORING_MOCK_KEY, mockMode ? 'true' : 'false');
+  }, [mockMode]);
+
+  const selectedRange = queryRange(range, customRange);
+  const mockMonitoring = mockMode ? buildMockMonitoringDetail(node, cluster, selectedRange) : null;
+  const activeMonitoring = mockMonitoring || monitoring;
+  const summary = activeMonitoring?.summary;
+  const gpus = activeMonitoring?.gpus || [];
+
+  if (loading && !monitoring) {
+    return <div className="surface" style={{ padding: 32 }}>节点监控加载中...</div>;
+  }
+
+  return (
+    <div>
+      <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate(`/monitoring/clusters/${clusterId}`)}>返回节点列表</Button>
+      <PageHeader
+        title={node?.name || '节点监控'}
+        subtitle={`${cluster?.name || '-'} · ${node?.internalIp || '-'}`}
+        extra={(
+          <Space>
+            <Space size={6}>
+              <Tag color={mockMode ? 'gold' : 'blue'}>{mockMode ? 'Mock 数据' : '真实数据'}</Tag>
+              <Switch checked={mockMode} onChange={setMockMode} />
+            </Space>
+            <TimeRangeSelector
+              value={range}
+              onChange={setRange}
+              onCustomChange={(start, end) => setCustomRange([start, end])}
+              onRefresh={load}
+              density={density}
+              onDensityChange={setDensity}
+            />
+          </Space>
+        )}
+      />
+
       <Row gutter={[16, 16]} className="monitor-summary-row">
-        <Col span={6}><Card><div className="monitor-summary-label">集群状态</div><div className="monitor-summary-value">{summary ? <StatusBadge value={summary.status} /> : '-'}</div></Card></Col>
-        <Col span={6}><Card><div className="monitor-summary-label">Ready 节点</div><div className="monitor-summary-value">{summary ? `${summary.readyNodeCount}/${summary.nodeCount}` : '-'}</div></Card></Col>
-        <Col span={6}><Card><div className="monitor-summary-label">GPU 设备</div><div className="monitor-summary-value">{summary?.gpuCount ?? 0}</div></Card></Col>
-        <Col span={6}><Card><div className="monitor-summary-label">监控来源</div><div className="monitor-summary-value monitor-summary-small">Prometheus</div></Card></Col>
+        <Col span={6}><StatCard label="CPU 平均使用率" value={formatPercent(summary?.cpuUsagePercent ?? null)} accent="#1677ff" /></Col>
+        <Col span={6}><StatCard label="内存平均使用率" value={formatPercent(summary?.memoryUsagePercent ?? null)} accent="#722ed1" /></Col>
+        <Col span={6}><StatCard label="磁盘平均使用率" value={formatPercent(summary?.diskUsagePercent ?? null)} accent="#fa8c16" /></Col>
+        <Col span={6}><StatCard label="GPU 平均利用率" value={formatPercent(summary?.gpuUsagePercent ?? null)} accent="#13c2c2" /></Col>
+        <Col span={6}><StatCard label="1m Load" value={formatLoad(summary?.loadAverage1m ?? null)} accent="#eb2f96" /></Col>
+        <Col span={6}><StatCard label="网络接收" value={formatMbps(summary?.networkReceiveMbps ?? null)} accent="#13c2c2" /></Col>
+        <Col span={6}><StatCard label="网络发送" value={formatMbps(summary?.networkTransmitMbps ?? null)} accent="#13c2c2" /></Col>
+        <Col span={6}><StatCard label="GPU 显存已用" value={formatMiB(summary?.gpuMemoryUsedMib ?? null)} accent="#fa541c" /></Col>
       </Row>
-      <Row gutter={[16, 16]}>
-        <Col span={12}><MonitoringChart title="CPU 使用率" unit="%" lines={toChartLine(cpuSeries, '集群 CPU', '#1677ff')} labels={timeLabels(cpuSeries)} /></Col>
-        <Col span={12}><MonitoringChart title="内存使用率" unit="%" lines={toChartLine(memorySeries, '集群内存', '#722ed1')} labels={timeLabels(memorySeries)} /></Col>
-        <Col span={12}><MonitoringChart title="GPU 平均利用率" unit="%" lines={toChartLine(gpuSeries, 'GPU 利用率', '#08979c')} labels={timeLabels(gpuSeries)} /></Col>
-        <Col span={12}><MonitoringChart title="GPU 显存已用" unit="MiB" lines={toChartLine(gpuMemorySeries, '显存已用', '#fa8c16')} labels={timeLabels(gpuMemorySeries)} /></Col>
-      </Row>
+
+      <div className="surface" style={{ padding: 20, marginBottom: 16 }}>
+        <div className="toolbar" style={{ marginBottom: 12 }}>
+          <div>
+            <strong>每张 GPU 的利用率</strong>
+            <span style={{ marginLeft: 10, color: '#66756f' }}>仪表盘展示单卡当前值</span>
+          </div>
+          <Tag color="green">{gpus.length} 张</Tag>
+        </div>
+        <div className="gpu-gauge-grid">
+          {gpus.length > 0
+            ? gpus.map(gpu => <GpuGaugeMini key={gpu.gpuIndex} title={gpu.gpuLabel || `GPU${gpu.gpuIndex}`} value={gpu.gpuUsagePercent} />)
+            : <div className="node-monitor-empty">暂无 GPU 数据</div>}
+        </div>
+      </div>
+
+      <div className="surface" style={{ padding: 20 }}>
+        <div className="toolbar" style={{ marginBottom: 12 }}>
+          <div>
+            <strong>监控曲线</strong>
+            <span style={{ marginLeft: 10, color: '#66756f' }}>CPU / 内存 / 磁盘 / 网络 / GPU</span>
+          </div>
+        </div>
+        <div className="node-trend-grid">
+          <MiniTrendChart title="CPU 使用率" color="#1677ff" series={findSeries(activeMonitoring, 'cpu_usage_percent')} unit="%" density={density} />
+          <MiniTrendChart title="内存使用率" color="#722ed1" series={findSeries(activeMonitoring, 'memory_usage_percent')} unit="%" density={density} />
+          <MiniTrendChart title="磁盘使用率" color="#fa8c16" series={findSeries(activeMonitoring, 'disk_usage_percent')} unit="%" density={density} />
+          <MiniTrendChart title="网络接收" color="#13c2c2" series={findSeries(activeMonitoring, 'network_receive_mbps')} unit="Mbps" density={density} />
+          <MiniTrendChart title="网络发送" color="#13c2c2" series={findSeries(activeMonitoring, 'network_transmit_mbps')} unit="Mbps" density={density} />
+          <MiniTrendChart title="1m Load" color="#eb2f96" series={findSeries(activeMonitoring, 'load_average_1m')} unit="load" density={density} />
+          <MiniTrendChart title="GPU 平均利用率" color="#08979c" series={findSeries(activeMonitoring, 'gpu_usage_percent')} unit="%" density={density} />
+          <MiniTrendChart title="GPU 显存已用" color="#fa541c" series={findSeries(activeMonitoring, 'gpu_memory_used_mib')} unit="MiB" density={density} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GpuGaugeMini(props: { title: string; value: number | null }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    const chart = echarts.init(ref.current);
+    chart.setOption({
+      series: [{
+        type: 'gauge',
+        startAngle: 210,
+        endAngle: -30,
+        min: 0,
+        max: 100,
+        radius: '88%',
+        progress: { show: true, roundCap: true, width: 8 },
+        axisLine: { lineStyle: { width: 8, color: [[0.6, '#52c41a'], [0.85, '#faad14'], [1, '#ff4d4f']] } },
+        axisTick: { show: false },
+        splitLine: { length: 6, lineStyle: { width: 1, color: '#d9d9d9' } },
+        axisLabel: { show: false },
+        pointer: { width: 3 },
+        detail: { formatter: '{value}%', fontSize: 14, offsetCenter: [0, '60%'] },
+        title: { offsetCenter: [0, '88%'], fontSize: 11, color: '#66756f' },
+        data: [{ value: props.value ?? 0, name: props.title }],
+      }],
+    });
+    const onResize = () => chart.resize();
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      chart.dispose();
+    };
+  }, [props.title, props.value]);
+
+  return (
+    <div className="gpu-gauge-mini-card">
+      <div className="gpu-gauge-mini-title">{props.title}</div>
+      <div ref={ref} className="gpu-gauge-mini-chart" />
+    </div>
+  );
+}
+
+function MiniTrendChart(props: {
+  title: string;
+  color: string;
+  series: MonitoringSeries | undefined;
+  unit: string;
+  density: AxisDensity;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    const chart = echarts.init(ref.current);
+    const labels = props.series?.points.map(point => dayjs.unix(point.timestamp).format('HH:mm')) || [];
+    const values = props.series?.points
+      .map(point => point.value)
+      .filter((value): value is number => Number.isFinite(value)) || [];
+    const minimumValue = values.length > 0 ? Math.min(...values) : 0;
+    const maximumValue = values.length > 0 ? Math.max(...values) : 1;
+    const valueSpread = maximumValue - minimumValue;
+    // 监控曲线采用局部动态范围，避免 CPU、磁盘等稳定指标被固定 0 起点压成直线。
+    const axisPadding = Math.max(
+      valueSpread * 0.25,
+      props.unit === '%' ? 1.5 : Math.max(Math.abs(maximumValue) * 0.08, 0.05),
+    );
+    let axisMinimum = minimumValue - axisPadding;
+    let axisMaximum = maximumValue + axisPadding;
+    if (props.unit === '%') {
+      axisMinimum = Math.max(0, axisMinimum);
+      axisMaximum = Math.min(100, axisMaximum);
+    } else {
+      axisMinimum = Math.max(0, axisMinimum);
+    }
+    if (axisMaximum <= axisMinimum) {
+      axisMaximum = axisMinimum + (props.unit === '%' ? 3 : 1);
+    }
+    const targetLabelCount = props.density === 'compact' ? 5 : props.density === 'wide' ? 9 : 7;
+    const xAxisInterval = labels.length > targetLabelCount
+      ? Math.max(0, Math.ceil(labels.length / targetLabelCount) - 1)
+      : 0;
+    const formatAxisValue = (value: number) => {
+      if (props.unit === '%') return `${value.toFixed(valueSpread < 5 ? 1 : 0)}%`;
+      if (props.unit === 'Mbps' || props.unit === 'load') {
+        return value < 10 ? value.toFixed(2) : value.toFixed(1);
+      }
+      return value >= 100 ? value.toFixed(0) : value.toFixed(1);
+    };
+    chart.setOption({
+      animation: false,
+      grid: { left: 16, right: 22, top: 18, bottom: 12, containLabel: true },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: 'rgba(20, 31, 27, 0.92)',
+        borderWidth: 0,
+        textStyle: { color: '#fff' },
+        valueFormatter: (value: number) => `${formatAxisValue(value)} ${props.unit === '%' ? '' : props.unit}`.trim(),
+      },
+      xAxis: {
+        type: 'category',
+        data: labels,
+        boundaryGap: false,
+        axisLabel: {
+          color: '#8c8c8c',
+          interval: xAxisInterval,
+          hideOverlap: true,
+          margin: 12,
+        },
+        axisTick: { show: false },
+        axisLine: { lineStyle: { color: '#d9d9d9' } },
+      },
+      yAxis: {
+        type: 'value',
+        min: values.length > 0 ? axisMinimum : 0,
+        max: values.length > 0 ? axisMaximum : props.unit === '%' ? 100 : 1,
+        scale: true,
+        splitNumber: 4,
+        axisLabel: {
+          color: '#8c8c8c',
+          formatter: formatAxisValue,
+          margin: 12,
+        },
+        axisTick: { show: false },
+        axisLine: { show: false },
+        splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.16)' } },
+      },
+      series: [{
+        type: 'line',
+        smooth: true,
+        showSymbol: false,
+        connectNulls: true,
+        lineStyle: { width: 2.5, color: props.color },
+        itemStyle: { color: props.color },
+        emphasis: { focus: 'series' },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: `${props.color}38` },
+            { offset: 1, color: `${props.color}05` },
+          ]),
+        },
+        data: props.series?.points.map(point => point.value) || [],
+      }],
+      graphic: values.length === 0 ? [{
+        type: 'text',
+        left: 'center',
+        top: 'middle',
+        style: { text: '暂无监控数据', fill: '#bfbfbf', fontSize: 13 },
+      }] : undefined,
+    });
+    // 监听图表容器而不只是 window，保证侧栏和两列布局变化时画布始终铺满卡片。
+    const resizeObserver = new ResizeObserver(() => chart.resize());
+    resizeObserver.observe(ref.current);
+    return () => {
+      resizeObserver.disconnect();
+      chart.dispose();
+    };
+  }, [props.color, props.density, props.series, props.unit]);
+
+  return (
+    <div className="mini-trend-card">
+      <div className="mini-trend-title">{props.title}</div>
+      <div ref={ref} className="mini-trend-chart" />
     </div>
   );
 }

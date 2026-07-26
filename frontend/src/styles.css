@@ -1187,12 +1187,21 @@ code,
 .monitor-chart-card svg {
   display: block;
   width: 100%;
-  height: 190px;
+  height: 240px;
+}
+
+.monitor-echart {
+  width: 100%;
+  height: 240px;
 }
 
 .monitor-grid-line {
   stroke: #e5ece9;
   stroke-dasharray: 4 4;
+}
+
+.monitor-grid-line-faint {
+  stroke-opacity: 0.7;
 }
 
 .monitor-axis-line {
@@ -1201,10 +1210,163 @@ code,
 
 .monitor-chart-labels {
   display: flex;
-  justify-content: space-between;
-  padding: 0 5%;
+  justify-content: flex-start;
+  gap: 30px;
+  padding: 0 8px 0 46px;
   color: #8a9792;
   font-size: 11px;
+}
+
+.monitor-y-label {
+  fill: #97a6a1;
+  font-size: 11px;
+}
+
+.monitor-empty-text {
+  fill: #b3bdb8;
+  font-size: 13px;
+}
+
+.gpu-gauge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.gpu-gauge-card {
+  border: 1px solid #edf2ef;
+  border-radius: 12px;
+  padding: 12px 12px 4px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdfc 100%);
+}
+
+.gpu-gauge-title {
+  margin-bottom: 4px;
+  color: #4f5d58;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.gpu-gauge-chart {
+  width: 100%;
+  height: 190px;
+}
+
+.gpu-gauge-value {
+  margin-top: -8px;
+  text-align: center;
+  color: #17231f;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.node-trend-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+@media (max-width: 1180px) {
+  .node-trend-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mini-trend-card {
+  border: 1px solid #edf2ef;
+  border-radius: 14px;
+  padding: 16px 16px 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #fcfefd 100%);
+  box-shadow: 0 4px 14px rgba(25, 55, 44, 0.035);
+  min-width: 0;
+}
+
+.mini-trend-title {
+  margin-bottom: 4px;
+  color: #34433e;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mini-trend-chart {
+  width: 100%;
+  height: 260px;
+}
+
+.node-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 16px;
+}
+
+.node-monitor-card {
+  height: 100%;
+  cursor: pointer;
+}
+
+.node-monitor-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.node-monitor-name {
+  color: #17231f;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.node-monitor-subtitle {
+  margin-top: 4px;
+  color: #7a8883;
+  font-size: 12px;
+}
+
+.node-monitor-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.node-monitor-gauges {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.node-monitor-empty {
+  padding: 24px 0;
+  color: #a1aca8;
+  text-align: center;
+}
+
+.gpu-gauge-mini-card {
+  border: 1px solid #edf2ef;
+  border-radius: 10px;
+  padding: 8px;
+  background: #fff;
+}
+
+.gpu-gauge-mini-title {
+  color: #4f5d58;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.gpu-gauge-mini-chart {
+  width: 100%;
+  height: 150px;
+}
+
+.node-monitor-trends {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
 }
 
 .alert-monitoring-note {

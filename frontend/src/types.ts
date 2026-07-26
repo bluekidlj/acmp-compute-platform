@@ -64,6 +64,10 @@ export interface ClusterMonitoringSummary {
   gpuCount: number;
   cpuUsagePercent: number | null;
   memoryUsagePercent: number | null;
+  diskUsagePercent: number | null;
+  networkReceiveMbps: number | null;
+  networkTransmitMbps: number | null;
+  loadAverage1m: number | null;
   gpuUsagePercent: number | null;
   gpuMemoryUsedMib: number | null;
   lastCollectedAt: string | null;
@@ -72,6 +76,39 @@ export interface ClusterMonitoringSummary {
 export interface ClusterMonitoringDetail {
   summary: ClusterMonitoringSummary;
   series: MonitoringSeries[];
+}
+
+export interface NodeGpuMonitoring {
+  gpuIndex: number;
+  gpuLabel: string | null;
+  gpuUsagePercent: number | null;
+  gpuMemoryUsedMib: number | null;
+}
+
+export interface NodeMonitoringSummary {
+  nodeId: string;
+  clusterId: string;
+  nodeName: string;
+  internalIp: string | null;
+  status: string;
+  cpuCores: number;
+  memoryBytes: number;
+  gpuCount: number;
+  cpuUsagePercent: number | null;
+  memoryUsagePercent: number | null;
+  diskUsagePercent: number | null;
+  networkReceiveMbps: number | null;
+  networkTransmitMbps: number | null;
+  loadAverage1m: number | null;
+  gpuUsagePercent: number | null;
+  gpuMemoryUsedMib: number | null;
+  lastCollectedAt: string | null;
+}
+
+export interface NodeMonitoringDetail {
+  summary: NodeMonitoringSummary;
+  series: MonitoringSeries[];
+  gpus: NodeGpuMonitoring[];
 }
 
 export interface ClusterNode {

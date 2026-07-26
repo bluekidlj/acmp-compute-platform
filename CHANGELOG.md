@@ -6,6 +6,30 @@
 
 ---
 
+## [Unreleased] - 监控体系分层收口
+
+### Changed
+- 监控体系改为集群列表 → 节点列表 → 节点监控页三层结构，集群详情不再承载大盘图表
+- 节点监控页统一使用 ECharts 展示平均值、GPU 仪表盘和监控曲线
+- 算力资源 / 集群管理的 Node 详情页移除误加的监控内容，恢复为纯资源与拓扑视角
+- 节点监控 PromQL 改为按 IP、节点名、node 标签和 kubernetes_node 标签多路匹配，避免 node-exporter 标签形式不同导致 CPU、内存、磁盘、网络数据为空
+- 节点监控曲线纵轴根据实际数据范围动态缩放，使稳定负载的小幅波动清晰可见
+- 节点监控曲线固定为每行两张，并优化卡片尺寸、间距和 ECharts 容器自适应
+
+---
+
+## [Unreleased] - 集群监控 Grafana 风格升级
+
+### Added
+- 集群监控详情页扩展为更高密度的运维面板，新增磁盘、网络接收、网络发送和 1m Load 汇总卡片
+- 监控曲线统一改为固定坐标系图表，空数据时也保留完整坐标框，便于后续接入真实 Prometheus 数据
+- 图表时间轴左对齐并保留更紧凑的刻度样式，视觉上更接近 Grafana 风格
+- 后端同步补充磁盘、网络与负载的 PromQL 查询，前后端字段保持一致
+- 监控详情页新增时间轴密度选择，减少标签拥挤
+- 图表统一收敛到 ECharts，去掉重复图例和底部时间标签，保留更清爽的监控面板布局
+
+---
+
 ## [Unreleased] - 监控组件离线安装脚本
 
 ### Added
@@ -44,6 +68,7 @@
 ### Added
 - 新增 `scripts/linux-release/build-package.sh`，可在 Linux 上一次性构建前后端并组装发布目录
 - 新增发布目录总启动脚本 `start-all.sh`，按目录方式启动后端 Jar 和 Nginx 前端
+- 新增发布目录一键部署脚本 `deploy.sh`，支持从 `/root/acmp/release` 自动解压并启动
 - 新增 `docs/27-LINUX-FRONTEND-BACKEND-DEPLOYMENT.md`，说明打包、启动、日志和排查方式
 
 ### Changed
@@ -52,6 +77,45 @@
 - 启动脚本增加 Java / Nginx / 文件存在性预检，避免进程秒退后只剩空日志
 - 启动与打包日志统一为带时间戳、级别、上下文的输出格式，便于离线排障
 - 业务运行期日志改为仅由 Logback 文件 appender 输出，stdout / stderr 仅保留为启动诊断日志
+- 发布目录默认切到 `/opt/acmp/release`，避免 Nginx 读取 `/root` 下静态文件时报 `Permission denied`
+- `stop-all.sh` 改为同时清理后端 PID 和 Nginx 进程，支持按当前发布目录主动停机
+- `start-all.sh` 增加 `/root` 发布目录预检，避免静态站点启动后直接 500
+- 后端新增 `spring-boot-starter-actuator`，并暴露 `/actuator/health` 作为最小健康检查接口
+- `deploy.sh` 改为先执行旧目录的 `stop-all.sh` 再启动新版本，避免重复部署时端口冲突和残留进程
+
+## [Unreleased] - 集群监控图表优化
+
+### Changed
+- 集群监控详情页改为固定坐标系图表，没数据时也保留空白图框，不再直接显示 Empty
+- 曲线区域左对齐并保留更紧凑的时间轴，避免少量数据在视觉上居中且过于稀疏
+- 增加 y 轴刻度与更清晰的网格线，使监控图更接近常见运维面板样式
+
+## [Unreleased] - 监控离线安装脚本路径修复
+
+### Fixed
+- 修正 `02-install-monitoring-offline.sh` 的离线包定位逻辑，优先使用脚本同级 `acmp-monitoring-offline-bundle/` 目录，避免误找成上一级 `/root/acmp/images/monitoring-images.tar`
+- 兼容脚本同级直接放置 `images/`、`charts/`、`values/` 的平铺目录结构，避免手工移动离线包内容
+
+## [Unreleased] - 监控镜像逐个导出与导入
+
+### Changed
+- `01-download-monitoring-bundle-cn.sh` 改为按镜像逐个导出独立 tar，便于定位坏镜像
+- `02-install-monitoring-offline.sh` 优先逐个导入镜像归档，单个归档失败时可直接定位到具体镜像
+
+## [Unreleased] - 监控安装脚本拆分
+
+### Changed
+- `02-install-monitoring-offline.sh` 新增 `--install-stack` 和 `--install-gpu-operator`，支持只重装单个组件，避免重复覆盖已正常组件
+
+## [Unreleased] - 监控离线安装排障整理
+
+### Added
+- 补充监控离线安装 README，记录国内镜像优先版打包、解包路径、分步安装和常见错误处理
+
+### Changed
+- 监控离线安装流程明确改为：国内镜像优先打包、镜像逐个导出、内网逐个导入、Master 上分步安装 stack / gpu-operator
+- 记录 `gpu-operator` 的 selector immutable 处理方式：先卸载旧 release，再单独重装
+- 记录 `kwok-controller` 的常见失效原因：节点磁盘压力和 ephemeral-storage 驱逐
 
 ---
 
@@ -215,6 +279,7 @@
 - 详见 [docs/01-07](docs/)
 # 2026-07-26
 
+- 修复节点监控 PromQL 中 IP 正则转义错误导致 Prometheus 返回 400、CPU/内存/磁盘/网络数据全部为空的问题。
 - 创新实验室前端按业务流程拆分为“负载感知、数字孪生、策略仿真”三个独立左侧导航入口。
 - 负载感知增加项目与推理服务选择、Prometheus 时间范围、负载模式、四类曲线和负载快照保存流程。
 - 数字孪生增加负载快照、主流模型快照、流量突增或 GPU 下线注入及基线保存流程。

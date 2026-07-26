@@ -1,21 +1,27 @@
 package com.acmp.compute.dto;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 
 /**
- * 集群监控列表和详情顶部使用的摘要。
+ * 节点监控摘要。
  */
 @Data
 @Builder
-public class ClusterMonitoringSummaryResponse {
+@NoArgsConstructor
+@AllArgsConstructor
+public class NodeMonitoringSummaryResponse {
+    private String nodeId;
     private String clusterId;
-    private String name;
+    private String nodeName;
+    private String internalIp;
     private String status;
-    private Integer nodeCount;
-    private Integer readyNodeCount;
+    private Integer cpuCores;
+    private Long memoryBytes;
     private Integer gpuCount;
     private Double cpuUsagePercent;
     private Double memoryUsagePercent;

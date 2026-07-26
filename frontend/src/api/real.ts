@@ -15,6 +15,7 @@ import type {
   PhysicalCluster,
   Project,
   ResourcePool,
+  NodeMonitoringDetail,
   Tenant,
   TenantSpecQuota,
 } from '../types';
@@ -105,6 +106,13 @@ export const api = {
     params: { start: string; end: string; step: number },
   ): Promise<ClusterMonitoringDetail> {
     return (await client.get<ClusterMonitoringDetail>(`/monitoring/clusters/${clusterId}`, { params })).data;
+  },
+  async nodeMonitoringDetail(
+    clusterId: string,
+    nodeId: string,
+    params: { start: string; end: string; step: number },
+  ): Promise<NodeMonitoringDetail> {
+    return (await client.get<NodeMonitoringDetail>(`/monitoring/clusters/${clusterId}/nodes/${nodeId}`, { params })).data;
   },
   async gpus(clusterId: string): Promise<GpuDevice[]> {
     return (await client.get<GpuDevice[]>(`/clusters/${clusterId}/gpus`)).data;

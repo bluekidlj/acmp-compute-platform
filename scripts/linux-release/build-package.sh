@@ -23,7 +23,8 @@ FRONTEND_DIR="${PROJECT_ROOT}/frontend"
 BACKEND_DIR="${PROJECT_ROOT}"
 
 BUILD_ID="$(date +%Y%m%d-%H%M%S)"
-OUTPUT_ROOT="${OUTPUT_ROOT:-${PROJECT_ROOT}/release}"
+# 发布目录尽量放在 /opt 下，避免 Nginx 访问 /root 时出现 permission denied。
+OUTPUT_ROOT="${OUTPUT_ROOT:-/opt/acmp/release}"
 PACKAGE_DIR="${OUTPUT_ROOT}/acmp-${BUILD_ID}"
 
 JAVA_BIN="${JAVA_BIN:-java}"
@@ -157,8 +158,15 @@ is_process_alive() {
   [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null
 }
 
+preflight_checks() {
+  [[ "${APP_HOME}" != /root/* ]] || die "发布目录位于 /root 下，Nginx 无法稳定读取静态文件，请将发布目录放到 /opt/acmp/release 下后重新打包"
+  [[ -r "${FRONTEND_HOME}/index.html" ]] || die "前端静态文件不可读: ${FRONTEND_HOME}/index.html"
+  [[ -r "${FRONTEND_HOME}/nginx.conf" ]] || die "前端配置不可读: ${FRONTEND_HOME}/nginx.conf"
+}
+
 mkdir -p "${BACKEND_LOG_DIR}"
 
+preflight_checks
 require_file "${BACKEND_HOME}/app.jar"
 require_file "${FRONTEND_HOME}/index.html"
 require_file "${FRONTEND_HOME}/nginx.conf"
@@ -211,6 +219,9 @@ log "INFO" "Nginx 已启动"
 EOF
 chmod +x "${PACKAGE_DIR}/start-all.sh"
 
+cp -f "${SCRIPT_DIR}/deploy-release-package.sh" "${PACKAGE_DIR}/deploy.sh"
+chmod +x "${PACKAGE_DIR}/deploy.sh"
+
 cat > "${PACKAGE_DIR}/stop-all.sh" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
@@ -218,6 +229,8 @@ set -Eeuo pipefail
 APP_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_PID_FILE="${APP_HOME}/backend/acmp-backend.pid"
 NGINX_PID_FILE="${APP_HOME}/frontend/log/nginx.pid"
+NGINX_CONF="${APP_HOME}/frontend/nginx.conf"
+NGINX_BIN="${NGINX_BIN:-nginx}"
 
 kill_by_pid_file() {
   local file="$1"
@@ -234,6 +247,10 @@ kill_by_pid_file() {
 
 kill_by_pid_file "${BACKEND_PID_FILE}"
 kill_by_pid_file "${NGINX_PID_FILE}"
+
+if command -v "${NGINX_BIN}" >/dev/null 2>&1 && [[ -f "${NGINX_CONF}" ]]; then
+  "${NGINX_BIN}" -p "${APP_HOME}/frontend" -c "${NGINX_CONF}" -s quit >/dev/null 2>&1 || true
+fi
 EOF
 chmod +x "${PACKAGE_DIR}/stop-all.sh"
 
@@ -243,17 +260,26 @@ ACMP 发布目录
 启动：
   ./start-all.sh
 
+一键部署：
+  ./deploy.sh
+
 停止：
   ./stop-all.sh
 
 默认访问：
   http://服务器IP/
 
+健康检查：
+  http://127.0.0.1:8080/actuator/health
+
 日志：
   backend/log/backend.out.log
   backend/log/backend.err.log
   frontend/log/nginx-access.log
   frontend/log/nginx-error.log
+
+说明：
+  生成后的压缩包请放到 /root/acmp/release，deploy.sh 会自动解压到 /opt/acmp/runs 并启动。
 EOF
 
 log "INFO" "[6/7] 打包完成"
