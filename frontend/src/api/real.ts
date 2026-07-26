@@ -3,6 +3,7 @@ import type {
   ChatCompletionResponse,
   ChatMessage,
   ClusterNode,
+  ClusterResetResponse,
   ClusterMonitoringDetail,
   ClusterMonitoringSummary,
   ComputeSpec,
@@ -73,6 +74,16 @@ export const api = {
   },
   async deleteCluster(id: string): Promise<void> {
     await client.delete(`/clusters/${id}`);
+  },
+  /**
+   * 调试重置：清除规格、配额、Node/GPU 库存和 ACMP Node 标签，再从 kubeconfig 重新同步。
+   */
+  async resetAllClusters(): Promise<ClusterResetResponse> {
+    return (
+      await client.post<ClusterResetResponse>('/clusters/reset-all', {
+        confirmation: 'RESET',
+      })
+    ).data;
   },
   async nodes(clusterId: string): Promise<ClusterNode[]> {
     return (await client.get<ClusterNode[]>(`/clusters/${clusterId}/nodes`)).data;

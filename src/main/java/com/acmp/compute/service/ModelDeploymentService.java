@@ -301,8 +301,23 @@ public class ModelDeploymentService {
         ensureAccess(project);
         ModelDeployment record = record(projectId, deploymentId);
         String namespace = namespace(record.getTenantId());
-        clientManager.deleteDeployment(record.getActualClusterId(), namespace, record.getK8sDeploymentName());
-        clientManager.deleteService(record.getActualClusterId(), namespace, record.getK8sServiceName());
+
+        // Demo 集群可能已经不可达。K8s 清理失败时保留完整日志，但不能让失效记录永久阻塞调试重置。
+        try {
+            clientManager.deleteDeployment(
+                    record.getActualClusterId(), namespace, record.getK8sDeploymentName());
+        } catch (RuntimeException exception) {
+            log.warn("删除推理 Deployment 失败，继续删除平台记录: deploymentId={}, clusterId={}, error={}",
+                    deploymentId, record.getActualClusterId(), exception.getMessage());
+        }
+        try {
+            clientManager.deleteService(
+                    record.getActualClusterId(), namespace, record.getK8sServiceName());
+        } catch (RuntimeException exception) {
+            log.warn("删除推理 Service 失败，继续删除平台记录: deploymentId={}, clusterId={}, error={}",
+                    deploymentId, record.getActualClusterId(), exception.getMessage());
+        }
+
         if (!"FAILED".equals(record.getStatus())) {
             TenantSpecQuota quota = quotaService.requireAvailable(record.getTenantId(), record.getSpecId(), 0);
             quotaService.changeUsed(quota.getId(), -record.getReplicas());

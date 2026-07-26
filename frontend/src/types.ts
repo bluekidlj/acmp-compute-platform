@@ -31,6 +31,19 @@ export interface PhysicalCluster {
   updatedAt: string;
 }
 
+export interface ClusterResetResponse {
+  success: boolean;
+  clearedQuotaCount: number;
+  clearedSpecCount: number;
+  clusters: Array<{
+    clusterId: string;
+    clusterName: string;
+    success: boolean;
+    clearedNodeLabelCount: number;
+    message: string;
+  }>;
+}
+
 export interface MonitoringPoint {
   timestamp: number;
   value: number;

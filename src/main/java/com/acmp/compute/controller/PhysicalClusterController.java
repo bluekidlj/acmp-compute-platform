@@ -2,9 +2,12 @@ package com.acmp.compute.controller;
 
 import com.acmp.compute.dto.PhysicalClusterRegisterRequest;
 import com.acmp.compute.dto.PhysicalClusterResponse;
+import com.acmp.compute.dto.ClusterResetRequest;
+import com.acmp.compute.dto.ClusterResetResponse;
 import com.acmp.compute.entity.ClusterNode;
 import com.acmp.compute.entity.GpuDevice;
 import com.acmp.compute.service.ClusterInventoryService;
+import com.acmp.compute.service.ClusterResetService;
 import com.acmp.compute.service.PhysicalClusterService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -32,6 +35,7 @@ public class PhysicalClusterController {
 
     private final PhysicalClusterService physicalClusterService;
     private final ClusterInventoryService clusterInventoryService;
+    private final ClusterResetService clusterResetService;
 
     /**
      * 注册内网 Kubernetes 集群。
@@ -94,6 +98,16 @@ public class PhysicalClusterController {
     @PreAuthorize("hasRole('PLATFORM_ADMIN')")
     public ResponseEntity<List<PhysicalClusterResponse>> list() {
         return ResponseEntity.ok(physicalClusterService.list());
+    }
+
+    /**
+     * 调试用：清理全部集群库存、规格、配额和 ACMP Node 标签后重新同步。
+     */
+    @PostMapping("/reset-all")
+    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
+    public ResponseEntity<ClusterResetResponse> resetAll(
+            @Valid @RequestBody ClusterResetRequest request) {
+        return ResponseEntity.ok(clusterResetService.resetAll());
     }
 
     /**

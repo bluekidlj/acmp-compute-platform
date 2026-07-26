@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { CloudUploadOutlined, ReloadOutlined, PlusOutlined } from '@ant-design/icons';
-import { Button, Drawer, Form, Input, message, Popconfirm, Space, Spin, Table, Upload } from 'antd';
+import { CloudUploadOutlined, DeleteOutlined, ReloadOutlined, PlusOutlined } from '@ant-design/icons';
+import { Alert, Button, Drawer, Form, Input, message, Modal, Popconfirm, Space, Spin, Table, Upload } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/real';
 import StatusBadge from '../../components/StatusBadge';
@@ -12,6 +12,9 @@ export default function ClustersPage() {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetText, setResetText] = useState('');
+  const [resetting, setResetting] = useState(false);
   const [form] = Form.useForm();
 
   function load() {
@@ -65,6 +68,26 @@ export default function ClustersPage() {
     }
   }
 
+  async function resetAllClusters() {
+    setResetting(true);
+    try {
+      const result = await api.resetAllClusters();
+      if (result.success) {
+        message.success(`全部集群已重新同步，清除 ${result.clearedSpecCount} 个规格`);
+      } else {
+        const failures = result.clusters.filter(function failed(item) { return !item.success; });
+        message.warning(`重置已执行，但有 ${failures.length} 个集群处理失败，请查看后端日志`);
+      }
+      setResetOpen(false);
+      setResetText('');
+      load();
+    } catch (exception) {
+      message.error(exception instanceof Error ? exception.message : '重置失败');
+    } finally {
+      setResetting(false);
+    }
+  }
+
   return (
     <div>
       <div className="page-heading">
@@ -72,9 +95,14 @@ export default function ClustersPage() {
           <h1>集群管理</h1>
           <p>连接 Kubernetes API，同步 Node 与 Gpu 资产</p>
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={function showDrawer() { setOpen(true); }}>
-          注册集群
-        </Button>
+        <Space>
+          <Button danger icon={<DeleteOutlined />} onClick={function showReset() { setResetOpen(true); }}>
+            重置全部集群
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={function showDrawer() { setOpen(true); }}>
+            注册集群
+          </Button>
+        </Space>
       </div>
       <div className="surface data-table">
         {loading ? <div style={{ padding: 64, textAlign: 'center' }}><Spin /></div> : (
@@ -139,6 +167,35 @@ export default function ClustersPage() {
           <Button type="primary" htmlType="submit" loading={submitting} block>注册并连接</Button>
         </Form>
       </Drawer>
+
+      <Modal
+        title="重置全部集群"
+        open={resetOpen}
+        okText="确认重置"
+        okButtonProps={{ danger: true, disabled: resetText !== 'RESET' }}
+        confirmLoading={resetting}
+        cancelText="取消"
+        onOk={resetAllClusters}
+        onCancel={function closeReset() {
+          if (!resetting) {
+            setResetOpen(false);
+            setResetText('');
+          }
+        }}
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Alert
+            type="warning"
+            showIcon
+            message="仅用于 Demo 调试，存在任何推理服务记录时后端会拒绝执行"
+            description="将清除算力规格、租户规格配额、Node/GPU 库存及 Kubernetes 上的 ACMP 调度标签，再使用各集群 kubeconfig 重新同步。租户、项目、模型、资源池、集群及 kubeconfig 会保留。"
+          />
+          <div>
+            <div style={{ marginBottom: 8 }}>输入 RESET 确认：</div>
+            <Input value={resetText} onChange={function change(event) { setResetText(event.target.value); }} />
+          </div>
+        </Space>
+      </Modal>
     </div>
   );
 }

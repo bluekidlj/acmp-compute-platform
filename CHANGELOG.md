@@ -6,6 +6,19 @@
 
 ---
 
+## [Unreleased] - 集群调试重置
+
+### Added
+- 集群管理增加“重置全部集群”入口，输入 `RESET` 后清除 ACMP Node 标签、规格、配额和库存，并从保留的 kubeconfig 重新同步
+- 重置接口在存在任何推理服务记录时拒绝执行，并返回每个集群的标签清理和同步结果
+- 推理服务列表增加删除入口；Kubernetes API 不可达时记录警告并继续删除平台记录，避免失效记录阻塞调试重置
+- 新增 [集群调试重置 MVP 文档](docs/25-CLUSTER-DEBUG-RESET-MVP.md)
+
+### Removed
+- 删除未被业务代码使用的 `tenant_member` 遗留表；项目权限继续使用 `project_member`
+
+---
+
 ## [Unreleased] - 推理服务部署流程
 
 ### Fixed

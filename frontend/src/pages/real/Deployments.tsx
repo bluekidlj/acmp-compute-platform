@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Button, message, Select, Space, Table } from 'antd';
-import { MessageOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Button, message, Popconfirm, Select, Space, Table } from 'antd';
+import { DeleteOutlined, MessageOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/real';
 import StatusBadge from '../../components/StatusBadge';
@@ -32,6 +32,16 @@ export default function DeploymentsPage() {
   }
 
   useEffect(load, [tenantId, status]);
+
+  async function deleteDeployment(record: ModelDeployment) {
+    try {
+      await api.deleteDeployment(record.projectId, record.id);
+      message.success('推理服务已删除');
+      load();
+    } catch (exception) {
+      message.error(exception instanceof Error ? exception.message : '删除失败');
+    }
+  }
 
   const tenantMap = Object.fromEntries(tenants.map(function entry(tenant) { return [tenant.id, tenant.name]; }));
   const projectMap = Object.fromEntries(projects.map(function entry(project) { return [project.id, project.name]; }));
@@ -88,20 +98,28 @@ export default function DeploymentsPage() {
             { title: '状态', dataIndex: 'status', width: 120, render: function render(value) { return <StatusBadge value={value} />; } },
             {
               title: '操作',
-              width: 100,
+              width: 180,
               render: function render(_, record: ModelDeployment) {
                 return (
-                  <Button
-                    size="small"
-                    icon={<MessageOutlined />}
-                    disabled={record.status !== 'RUNNING'}
-                    onClick={function chat(event) {
-                      event.stopPropagation();
-                      navigate(`/deployments/${record.projectId}/${record.id}/chat`);
-                    }}
-                  >
-                    对话
-                  </Button>
+                  <Space onClick={function stop(event) { event.stopPropagation(); }}>
+                    <Button
+                      size="small"
+                      icon={<MessageOutlined />}
+                      disabled={record.status !== 'RUNNING'}
+                      onClick={function chat() {
+                        navigate(`/deployments/${record.projectId}/${record.id}/chat`);
+                      }}
+                    >
+                      对话
+                    </Button>
+                    <Popconfirm
+                      title="确认删除该推理服务？"
+                      description="将同时删除对应的 Kubernetes Deployment 与 Service。"
+                      onConfirm={function remove() { return deleteDeployment(record); }}
+                    >
+                      <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                    </Popconfirm>
+                  </Space>
                 );
               },
             },
