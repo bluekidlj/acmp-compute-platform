@@ -8,6 +8,12 @@
 
 ## [Unreleased] - 监控体系分层收口
 
+### Added
+- 共享池加入流程通过 Kubernetes API 修改 HAMi `hami-device-plugin` ConfigMap 的节点级 `nodeconfig`，按节点全部 GPU 的 `1/2`、`1/4`、`1/8`、`1/10` 比例切分，并刷新目标节点 device-plugin
+- 删除算力规格或切换独享池时清理节点级 HAMi 配置，恢复整卡上报
+- 增加 HAMi 安装检测：未安装 HAMi 的节点仍可加入独享池，共享池操作会明确拒绝
+- HAMi 安装检测改为统一捕获运行时异常，兼容不同 Kubernetes Java Client 编译方式，避免删除规格时出现不可达 catch 编译错误
+
 ### Changed
 - 监控体系改为集群列表 → 节点列表 → 节点监控页三层结构，集群详情不再承载大盘图表
 - 节点监控页统一使用 ECharts 展示平均值、GPU 仪表盘和监控曲线

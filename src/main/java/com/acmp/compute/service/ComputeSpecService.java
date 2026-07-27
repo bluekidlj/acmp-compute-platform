@@ -3,10 +3,12 @@ package com.acmp.compute.service;
 import com.acmp.compute.dto.SpecRequest;
 import com.acmp.compute.dto.SpecResponse;
 import com.acmp.compute.entity.ComputeSpec;
+import com.acmp.compute.entity.ClusterNode;
 import com.acmp.compute.entity.GpuDevice;
 import com.acmp.compute.entity.ResourcePool;
 import com.acmp.compute.exception.BadRequestException;
 import com.acmp.compute.exception.ResourceNotFoundException;
+import com.acmp.compute.k8s.KubernetesClientManager;
 import com.acmp.compute.mapper.ClusterNodeMapper;
 import com.acmp.compute.mapper.ComputeSpecMapper;
 import com.acmp.compute.mapper.GpuDeviceMapper;
@@ -30,6 +32,7 @@ public class ComputeSpecService {
     private final GpuDeviceMapper gpuMapper;
     private final ClusterNodeMapper nodeMapper;
     private final ModelDeploymentMapper deploymentMapper;
+    private final KubernetesClientManager kubernetesClientManager;
 
     @Transactional
     public SpecResponse create(SpecRequest request) {
@@ -98,6 +101,14 @@ public class ComputeSpecService {
         if (deploymentMapper.countBySpecId(id) > 0) {
             throw new BadRequestException("规格已有推理服务引用，不能删除");
         }
+        List<ClusterNode> nodes = nodeMapper.findByComputeSpecId(id);
+        for (ClusterNode node : nodes) {
+            // 删除规格即移出资源池：清理 HAMi 节点级切分配置和 ACMP 标签。
+            if (kubernetesClientManager.isHamiInstalled(node.getClusterId())) {
+                kubernetesClientManager.removeHamiNodeSharing(node.getClusterId(), node.getName());
+            }
+            kubernetesClientManager.removeAcmpNodeLabels(node.getClusterId(), node.getName());
+        }
         gpuMapper.clearPoolBySpecId(id);
         nodeMapper.clearPoolBySpecId(id);
         specMapper.deleteById(id);
@@ -127,10 +138,11 @@ public class ComputeSpecService {
     }
 
     private void validateGpuShare(String gpuShare) {
-        if (!"1/8".equals(gpuShare)
+        if (!"1/10".equals(gpuShare)
+                && !"1/8".equals(gpuShare)
                 && !"1/4".equals(gpuShare)
                 && !"1/2".equals(gpuShare)) {
-            throw new BadRequestException("共享规格 gpuShare 只允许 1/8、1/4、1/2");
+            throw new BadRequestException("共享规格 gpuShare 只允许 1/2、1/4、1/8、1/10");
         }
     }
 
@@ -181,6 +193,9 @@ public class ComputeSpecService {
         }
         if ("1/4".equals(spec.getGpuShare())) {
             return gpuCount * 4;
+        }
+        if ("1/10".equals(spec.getGpuShare())) {
+            return gpuCount * 10;
         }
         if ("1/2".equals(spec.getGpuShare())) {
             return gpuCount * 2;

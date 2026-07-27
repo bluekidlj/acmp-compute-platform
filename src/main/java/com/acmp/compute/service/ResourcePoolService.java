@@ -111,6 +111,17 @@ public class ResourcePoolService {
             spec = createSpec(pool, sourceGpu, request, gpuShare);
         }
 
+        kubernetesClientManager.removeAcmpNodeLabels(node.getClusterId(), node.getName());
+        if ("SHARED".equals(pool.getPoolType())) {
+            if (!kubernetesClientManager.isHamiInstalled(node.getClusterId())) {
+                throw new BadRequestException("当前集群未安装 HAMi，不能加入共享池");
+            }
+            // 共享比例由 HAMi 执行；ACMP 只通过 ConfigMap 配置目标 Node。
+            kubernetesClientManager.applyHamiNodeSharing(node.getClusterId(), node.getName(), gpuShare);
+        } else if (kubernetesClientManager.isHamiInstalled(node.getClusterId())) {
+            // 独享池恢复该节点的整卡上报，避免复用旧的共享配置。
+            kubernetesClientManager.removeHamiNodeSharing(node.getClusterId(), node.getName());
+        }
         Map<String, String> labels = Map.of(
                 KubernetesSchedulingLabels.POOL_TYPE,
                 KubernetesSchedulingLabels.value(pool.getPoolType()),
@@ -244,10 +255,11 @@ public class ResourcePoolService {
             return null;
         }
 
-        if (!"1/8".equals(gpuShare)
+        if (!"1/10".equals(gpuShare)
+                && !"1/8".equals(gpuShare)
                 && !"1/4".equals(gpuShare)
                 && !"1/2".equals(gpuShare)) {
-            throw new BadRequestException("共享比例只允许 1/8、1/4、1/2");
+            throw new BadRequestException("共享比例只允许 1/2、1/4、1/8、1/10");
         }
 
         return gpuShare;

@@ -71,6 +71,12 @@
         ORDER BY name
     </select>
 
+    <select id="findByComputeSpecId" resultMap="BaseResultMap">
+        SELECT * FROM cluster_node
+        WHERE compute_spec_id = #{computeSpecId}
+        ORDER BY name
+    </select>
+
     <update id="assignPoolAndSpec">
         UPDATE cluster_node
         SET resource_pool_id = #{poolId},
