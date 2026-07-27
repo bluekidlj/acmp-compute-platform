@@ -171,24 +171,15 @@ public class ClusterInventoryService {
         int count = accelerator.count;
         Map<String, String> labels = source.getMetadata() == null ? null : source.getMetadata().getLabels();
         Map<String, String> annotations = source.getMetadata() == null ? null : source.getMetadata().getAnnotations();
-        String model = first(labels, "nvidia.com/gpu.product", "nvidia.com/gpu.family",
-                "accelerator", "huawei.com/ascend-model", "hygon.com/dcu.product", "amd.com/gpu.product");
-        if ((model == null || model.isBlank()) && accelerator.model != null) {
-            model = accelerator.model;
-        }
-        String driver = first(labels, "nvidia.com/cuda.driver-version.full",
-                "nvidia.com/cuda.driver.major", "hygon.com/driver-version", "huawei.com/driver-version");
-        String cuda = first(labels, "nvidia.com/cuda.runtime-version.full", "nvidia.com/cuda.runtime.major");
-        Long memoryMb = number(first(annotations, "nvidia.com/gpu-memory", "gpu-memory-mb",
-                "hygon.com/dcu-memory", "huawei.com/ascend-memory"));
+        GpuMetadata metadata = gpuMetadata(labels, annotations, accelerator);
 
         for (int index = 0; index < count; index++) {
             Optional<GpuDevice> old = gpuMapper.findByIdentity(node.getClusterId(), node.getName(), index);
             GpuDevice device = GpuDevice.builder()
                     .id(stableId("gpu", node.getClusterId(), node.getName(), String.valueOf(index)))
                     .clusterId(node.getClusterId()).nodeId(node.getId()).nodeName(node.getName())
-                    .gpuIndex(index).gpuBrand(accelerator.brand).gpuModel(model).memoryMb(memoryMb)
-                    .driverVersion(driver).cudaVersion(cuda)
+                    .gpuIndex(index).gpuBrand(accelerator.brand).gpuModel(metadata.model).memoryMb(metadata.memoryMb)
+                    .driverVersion(metadata.driverVersion).cudaVersion(metadata.cudaVersion)
                     .status("READY".equals(node.getStatus()) ? "READY" : "OFFLINE")
                     .usageStatus("IDLE").lastSyncAt(java.time.Instant.now()).build();
             if (old.isPresent()) {
@@ -201,6 +192,123 @@ public class ClusterInventoryService {
             }
         }
         return count;
+    }
+
+    private GpuMetadata gpuMetadata(Map<String, String> labels, Map<String, String> annotations, AcceleratorInventory accelerator) {
+        String model = first(labels, "nvidia.com/gpu.product", "nvidia.com/gpu.family",
+                "accelerator", "huawei.com/ascend-model", "hygon.com/dcu.product", "amd.com/gpu.product");
+        String driver = first(labels, "nvidia.com/cuda.driver-version.full",
+                "nvidia.com/cuda.driver.major", "hygon.com/driver-version", "huawei.com/driver-version");
+        String cuda = first(labels, "nvidia.com/cuda.runtime-version.full", "nvidia.com/cuda.runtime.major");
+        Long memoryMb = number(first(annotations, "nvidia.com/gpu-memory", "gpu-memory-mb",
+                "hygon.com/dcu-memory", "huawei.com/ascend-memory"));
+
+        String hamiRegister = first(annotations, "hami.io/node-nvidia-register");
+        if (hamiRegister != null) {
+            GpuMetadata hami = parseHamiMetadata(hamiRegister);
+            if (hami.model != null && !hami.model.isBlank()) {
+                model = hami.model;
+            }
+            if (hami.memoryMb != null) {
+                memoryMb = hami.memoryMb;
+            }
+            if (hami.driverVersion != null && !hami.driverVersion.isBlank()) {
+                driver = hami.driverVersion;
+            }
+            if (hami.cudaVersion != null && !hami.cudaVersion.isBlank()) {
+                cuda = hami.cudaVersion;
+            }
+        }
+
+        if ((model == null || model.isBlank()) && accelerator.model != null) {
+            model = accelerator.model;
+        }
+        if (model == null || model.isBlank()) {
+            model = "unknown";
+        }
+        return new GpuMetadata(model, memoryMb, driver, cuda);
+    }
+
+    /**
+     * HAMI 的节点注解通常会把 GPU 注册信息拼成逗号分隔的字符串。
+     * 这里采用宽松解析，尽量只提取我们真正需要展示的型号和显存。
+     */
+    private GpuMetadata parseHamiMetadata(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return new GpuMetadata(null, null, null, null);
+        }
+        String text = raw.trim();
+        if (text.startsWith(":")) {
+            text = text.substring(1).trim();
+        }
+        if (text.endsWith(":")) {
+            text = text.substring(0, text.length() - 1).trim();
+        }
+        String[] parts = text.split("\\s*,\\s*");
+        String model = null;
+        Long memoryMb = null;
+        String driver = null;
+        String cuda = null;
+
+        for (String part : parts) {
+            if (part == null || part.isBlank()) {
+                continue;
+            }
+            if (model == null && looksLikeGpuModel(part)) {
+                model = part;
+            }
+            if (memoryMb == null) {
+                Long value = number(part);
+                if (value != null && value > 0) {
+                    memoryMb = value;
+                }
+            }
+            if (driver == null) {
+                String maybeDriver = extractVersionLikeToken(part, "driver");
+                if (maybeDriver != null) {
+                    driver = maybeDriver;
+                }
+            }
+            if (cuda == null) {
+                String maybeCuda = extractVersionLikeToken(part, "cuda");
+                if (maybeCuda != null) {
+                    cuda = maybeCuda;
+                }
+            }
+        }
+        return new GpuMetadata(model, memoryMb, driver, cuda);
+    }
+
+    private boolean looksLikeGpuModel(String value) {
+        String lower = value.toLowerCase();
+        return lower.contains("nvidia")
+                || lower.contains("huawei")
+                || lower.contains("ascend")
+                || lower.contains("hygon")
+                || lower.contains("amd")
+                || lower.contains("a100")
+                || lower.contains("v100")
+                || lower.contains("h800")
+                || lower.contains("h20")
+                || lower.contains("b200");
+    }
+
+    private String extractVersionLikeToken(String value, String keyword) {
+        if (value == null) {
+            return null;
+        }
+        String lower = value.toLowerCase();
+        if (!lower.contains(keyword)) {
+            return null;
+        }
+        int idx = value.indexOf('=');
+        if (idx >= 0 && idx + 1 < value.length()) {
+            String candidate = value.substring(idx + 1).trim();
+            if (!candidate.isBlank()) {
+                return candidate;
+            }
+        }
+        return value.trim();
     }
 
     private AcceleratorInventory accelerator(Map<String, Quantity> values) {
@@ -281,6 +389,20 @@ public class ClusterInventoryService {
             this.brand = brand;
             this.count = count;
             this.model = model;
+        }
+    }
+
+    private static final class GpuMetadata {
+        private final String model;
+        private final Long memoryMb;
+        private final String driverVersion;
+        private final String cudaVersion;
+
+        private GpuMetadata(String model, Long memoryMb, String driverVersion, String cudaVersion) {
+            this.model = model;
+            this.memoryMb = memoryMb;
+            this.driverVersion = driverVersion;
+            this.cudaVersion = cudaVersion;
         }
     }
 
