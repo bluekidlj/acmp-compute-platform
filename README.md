@@ -52,6 +52,28 @@ mvn spring-boot:run
   - 用户名：`sa`，密码：空
 - 默认管理员：`admin` / `admin123`
 
+Windows 开发测试脚本：
+
+```powershell
+.\scripts\dev-start.ps1
+```
+
+默认会重编译并启动后端和前端。脚本会先给你一个交互菜单，也可以直接指定：
+
+```powershell
+.\scripts\dev-start.ps1 -Target Backend
+.\scripts\dev-start.ps1 -Target Frontend
+.\scripts\dev-start.ps1 -Target All -FrontendMode Preview
+```
+
+日志默认写到 `.runtime\` 下：
+
+- `backend.out.log`
+- `backend.err.log`
+- `frontend.build.log`
+- `frontend.out.log`
+- `frontend.err.log`
+
 Docker：
 
 ```bash
