@@ -13,6 +13,10 @@ HELM_BIN="${HELM_BIN:-helm}"
 IMAGE_TOOL="${IMAGE_TOOL:-docker}"
 IMAGE_PULL_RETRY="${IMAGE_PULL_RETRY:-5}"
 IMAGE_PULL_SLEEP_SECONDS="${IMAGE_PULL_SLEEP_SECONDS:-10}"
+EXTRA_REQUIRED_IMAGES=(
+  'nvcr.io/nvidia/cloud-native/gpu-operator-validator:v25.3.0'
+  'quay.io/prometheus-operator/prometheus-config-reloader:v0.77.2'
+)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="${ROOT_DIR:-${SCRIPT_DIR}}"
@@ -35,6 +39,13 @@ extract_images() {
     | sed '/^$/d' \
     | grep -E '(/|@sha256:)' \
     | sort -u
+}
+
+add_required_images() {
+  local image
+  for image in "${EXTRA_REQUIRED_IMAGES[@]}"; do
+    printf '%s\n' "${image}"
+  done
 }
 
 prepare_values() {
@@ -210,7 +221,10 @@ GPU_OPERATOR_CHART="$(find_chart 'gpu-operator-*.tgz')"
   --values "${WORK_DIR}/values/gpu-operator-values.yaml" \
   > "${WORK_DIR}/rendered/gpu-operator.yaml"
 
-extract_images > "${WORK_DIR}/images/images.txt"
+{
+  extract_images
+  add_required_images
+} | sort -u > "${WORK_DIR}/images/images.txt"
 [ -s "${WORK_DIR}/images/images.txt" ] || {
   echo "未从渲染结果中提取到镜像，请检查 Chart 和 values" >&2
   exit 1

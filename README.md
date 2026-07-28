@@ -66,6 +66,18 @@ Windows 开发测试脚本：
 .\scripts\dev-start.ps1 -Target All -FrontendMode Preview
 ```
 
+清理开发环境：
+
+```powershell
+.\scripts\clean-dev.ps1
+```
+
+只打后端包，不启动：
+
+```powershell
+.\scripts\package-backend.ps1
+```
+
 日志默认写到 `.runtime\` 下：
 
 - `backend.out.log`

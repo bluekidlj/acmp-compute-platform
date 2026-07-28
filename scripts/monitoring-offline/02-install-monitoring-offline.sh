@@ -7,6 +7,7 @@ MODE_LOAD=0
 MODE_INSTALL=0
 MODE_INSTALL_STACK=0
 MODE_INSTALL_GPU_OPERATOR=0
+MODE_VERIFY_IMAGES=0
 CONTAINERD_NAMESPACE="${CONTAINERD_NAMESPACE:-k8s.io}"
 KUBE_PROM_STACK_VERSION="${KUBE_PROM_STACK_VERSION:-65.5.1}"
 GPU_OPERATOR_VERSION="${GPU_OPERATOR_VERSION:-25.3.0}"
@@ -17,13 +18,14 @@ while [ "$#" -gt 0 ]; do
     --install) MODE_INSTALL=1 ;;
     --install-stack) MODE_INSTALL_STACK=1 ;;
     --install-gpu-operator) MODE_INSTALL_GPU_OPERATOR=1 ;;
+    --verify-images) MODE_VERIFY_IMAGES=1 ;;
     *) echo "未知参数: $1" >&2; exit 1 ;;
   esac
   shift
 done
 
-if [ "${MODE_LOAD}" -eq 0 ] && [ "${MODE_INSTALL}" -eq 0 ] && [ "${MODE_INSTALL_STACK}" -eq 0 ] && [ "${MODE_INSTALL_GPU_OPERATOR}" -eq 0 ]; then
-  echo "用法: sudo $0 --load-images | --install | --install-stack | --install-gpu-operator" >&2
+if [ "${MODE_LOAD}" -eq 0 ] && [ "${MODE_INSTALL}" -eq 0 ] && [ "${MODE_INSTALL_STACK}" -eq 0 ] && [ "${MODE_INSTALL_GPU_OPERATOR}" -eq 0 ] && [ "${MODE_VERIFY_IMAGES}" -eq 0 ]; then
+  echo "用法: sudo $0 --load-images | --install | --install-stack | --install-gpu-operator | --verify-images" >&2
   exit 1
 fi
 
@@ -93,6 +95,37 @@ load_images() {
   log "镜像导入完成"
 }
 
+verify_images() {
+  require_root
+  command -v ctr >/dev/null 2>&1 || {
+    echo "缺少 ctr，请先安装 containerd" >&2
+    exit 1
+  }
+
+  local images_file="${BUNDLE_DIR}/images/images.txt"
+  [ -f "${images_file}" ] || {
+    echo "未找到镜像清单: ${images_file}" >&2
+    exit 1
+  }
+
+  local missing=0
+  log "检查 containerd namespace=${CONTAINERD_NAMESPACE} 中的关键镜像"
+  while IFS= read -r image; do
+    [ -n "${image}" ] || continue
+    if ! ctr -n "${CONTAINERD_NAMESPACE}" images ls | awk 'NR>1 {print $1}' | grep -Fxq "${image}"; then
+      echo "缺少镜像: ${image}" >&2
+      missing=1
+    fi
+  done < "${images_file}"
+
+  if [ "${missing}" -ne 0 ]; then
+    echo "镜像完整性检查失败，请先执行 --load-images" >&2
+    exit 1
+  fi
+
+  log "镜像完整性检查通过"
+}
+
 install_stack() {
   [ -f /etc/kubernetes/admin.conf ] || {
     echo "未找到 /etc/kubernetes/admin.conf，请在 Master 节点执行安装" >&2
@@ -156,6 +189,10 @@ install_gpu_operator() {
 
 if [ "${MODE_LOAD}" -eq 1 ]; then
   load_images
+fi
+
+if [ "${MODE_VERIFY_IMAGES}" -eq 1 ]; then
+  verify_images
 fi
 
 if [ "${MODE_INSTALL}" -eq 1 ]; then
