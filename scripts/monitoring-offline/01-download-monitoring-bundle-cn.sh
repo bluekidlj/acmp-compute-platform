@@ -15,6 +15,10 @@ IMAGE_PULL_RETRY="${IMAGE_PULL_RETRY:-5}"
 IMAGE_PULL_SLEEP_SECONDS="${IMAGE_PULL_SLEEP_SECONDS:-10}"
 EXTRA_REQUIRED_IMAGES=(
   'nvcr.io/nvidia/cloud-native/gpu-operator-validator:v25.3.0'
+  'nvcr.io/nvidia/cloud-native/gpu-feature-discovery:v0.17.1'
+  'nvcr.io/nvidia/k8s-device-plugin:v0.17.1'
+  'nvcr.io/nvidia/cloud-native/k8s-device-plugin:v0.17.1'
+  'nvcr.io/nvidia/k8s/dcgm-exporter:4.1.1-4.0.4-ubuntu22.04'
   'quay.io/prometheus-operator/prometheus-config-reloader:v0.77.2'
 )
 
@@ -101,6 +105,8 @@ EOF
 copy_install_scripts() {
   cp "${SCRIPT_DIR}/02-install-monitoring-offline.sh" "${WORK_DIR}/scripts/02-install-monitoring-offline.sh"
   cp "${SCRIPT_DIR}/03-verify-monitoring.sh" "${WORK_DIR}/scripts/03-verify-monitoring.sh"
+  cp "${SCRIPT_DIR}/04-download-gpu-missing-components.sh" "${WORK_DIR}/scripts/04-download-gpu-missing-components.sh"
+  cp "${SCRIPT_DIR}/05-diagnose-missing-images.sh" "${WORK_DIR}/scripts/05-diagnose-missing-images.sh"
 }
 
 find_chart() {
@@ -158,6 +164,22 @@ mirror_candidates() {
     nvcr.io/nvidia/gpu-operator:v25.3.0)
       printf '%s\n' \
         'swr.cn-north-4.myhuaweicloud.com/ddn-k8s/nvcr.io/nvidia/gpu-operator:v25.3.0'
+      ;;
+    nvcr.io/nvidia/k8s-device-plugin:v0.17.1)
+      printf '%s\n' \
+        'swr.cn-north-4.myhuaweicloud.com/ddn-k8s/nvcr.io/nvidia/k8s-device-plugin:v0.17.1'
+      ;;
+    nvcr.io/nvidia/cloud-native/k8s-device-plugin:v0.17.1)
+      printf '%s\n' \
+        'swr.cn-north-4.myhuaweicloud.com/ddn-k8s/nvcr.io/nvidia/cloud-native/k8s-device-plugin:v0.17.1'
+      ;;
+    nvcr.io/nvidia/cloud-native/gpu-feature-discovery:v0.17.1)
+      printf '%s\n' \
+        'swr.cn-north-4.myhuaweicloud.com/ddn-k8s/nvcr.io/nvidia/cloud-native/gpu-feature-discovery:v0.17.1'
+      ;;
+    nvcr.io/nvidia/k8s/dcgm-exporter:4.1.1-4.0.4-ubuntu22.04)
+      printf '%s\n' \
+        'swr.cn-north-4.myhuaweicloud.com/ddn-k8s/nvcr.io/nvidia/k8s/dcgm-exporter:4.1.1-4.0.4-ubuntu22.04'
       ;;
     *)
       printf '%s\n' "$1"

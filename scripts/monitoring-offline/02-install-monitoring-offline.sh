@@ -68,9 +68,42 @@ load_images() {
     echo "缺少 ctr，请先安装 containerd" >&2
     exit 1
   }
+  local imported_any=0
+
+  # 允许把补充包（*.tar.gz）直接放在当前目录或脚本目录，避免手工解压。
+  local supplement_tmp=""
+  while IFS= read -r supplement; do
+    [ -n "${supplement}" ] || continue
+    [ -f "${supplement}" ] || continue
+    [ -n "${supplement_tmp}" ] || supplement_tmp="$(mktemp -d)"
+    log "解压补充镜像包: ${supplement}"
+    tar -xzf "${supplement}" -C "${supplement_tmp}"
+  done < <(find "${PWD}" "${SCRIPT_DIR}" -maxdepth 1 -type f \( -name 'gpu-missing-components*.tar.gz' -o -name 'missing-images*.tar.gz' \) 2>/dev/null | sort -u)
+
+  if [ -n "${supplement_tmp}" ]; then
+    while IFS= read -r archive; do
+      [ -n "${archive}" ] || continue
+      log "导入解压后的补充镜像包到 containerd namespace=${CONTAINERD_NAMESPACE}: ${archive}"
+      ctr -n "${CONTAINERD_NAMESPACE}" images import "${archive}"
+      imported_any=1
+    done < <(find "${supplement_tmp}" -type f -name '*.tar' | sort)
+    rm -rf "${supplement_tmp}"
+  fi
+
   if [ -f "${BUNDLE_DIR}/images/monitoring-images.tar" ]; then
     log "导入单个镜像总包到 containerd namespace=${CONTAINERD_NAMESPACE}"
     ctr -n "${CONTAINERD_NAMESPACE}" images import "${BUNDLE_DIR}/images/monitoring-images.tar"
+    imported_any=1
+  fi
+
+  while IFS= read -r archive; do
+    [ -n "${archive}" ] || continue
+    log "导入补充镜像包到 containerd namespace=${CONTAINERD_NAMESPACE}: ${archive}"
+    ctr -n "${CONTAINERD_NAMESPACE}" images import "${archive}"
+    imported_any=1
+  done < <(find "${BUNDLE_DIR}/images" -maxdepth 1 -type f \( -name 'gpu-missing-components*.tar' -o -name 'missing-images*.tar' -o -name 'extra-*.tar' \) | sort)
+
+  if [ "${imported_any}" -eq 1 ]; then
     log "镜像导入完成"
     return 0
   fi

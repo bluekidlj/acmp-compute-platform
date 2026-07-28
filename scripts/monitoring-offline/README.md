@@ -36,6 +36,61 @@ sudo ./scripts/02-install-monitoring-offline.sh --load-images
 
 如果离线包是平铺目录结构，也可以直接在解压目录执行 `02-install-monitoring-offline.sh`，脚本会自动寻找 `images/`、`charts/` 和 `values/`。
 
+如果你已经有主离线包，但只想补 GPU Operator / DCGM 的缺失镜像，可以单独执行：
+
+```bash
+chmod +x ./04-download-gpu-missing-components.sh
+./04-download-gpu-missing-components.sh
+```
+
+生成的 `gpu-missing-components.tar.gz` 可以和主离线包放在一起，`02-install-monitoring-offline.sh --load-images` 会自动一起导入。
+
+如果这次导入后仍有 Pod 处于 `ImagePullBackOff`，在内网 Master 执行诊断：
+
+```bash
+chmod +x ./05-diagnose-missing-images.sh
+sudo ./05-diagnose-missing-images.sh
+```
+
+诊断脚本会扫描所有 namespace 的 Pod、InitContainer 和 Kubernetes Events，生成一个报告目录，其中：
+
+- `missing-images.txt`：当前失败且本机 containerd 未发现的镜像；
+- `download-missing-images.sh`：复制到外网后可直接 pull/save/打包的脚本；
+- `pod-failures.txt`：失败 Pod、所在节点和容器；
+- `report.txt`：汇总报告。
+
+外网下载有两种方式：
+
+```bash
+# 方式一：直接使用诊断脚本生成的清单
+./04-download-gpu-missing-components.sh --images-file missing-images.txt
+
+# 方式二：把诊断目录中的脚本和清单放在一起
+./download-missing-images.sh
+```
+
+新生成的 `missing-images-*.tar.gz` 放回内网离线包的 `images/` 目录，或放在 `02-install-monitoring-offline.sh` 能找到的 bundle `images/` 目录中，再执行：
+
+```bash
+sudo ./02-install-monitoring-offline.sh --load-images
+sudo ./02-install-monitoring-offline.sh --verify-images
+```
+
+也可以不解压，把 `gpu-missing-components*.tar.gz` 或 `missing-images*.tar.gz` 直接放在 `02-install-monitoring-offline.sh` 当前目录；脚本会自动临时解压并导入。
+
+注意：`ctr` 只代表执行命令的那台机器。Pod 如果调度到多个节点，每台节点都要导入同一个补充 tar；诊断报告会记录缺失 Pod 所在节点。
+
+当前这版 GPU Operator v25.3.0 的补充镜像清单建议如下：
+
+- `nvcr.io/nvidia/cloud-native/gpu-operator-validator:v25.3.0`
+- `nvcr.io/nvidia/cloud-native/gpu-feature-discovery:v0.17.1`
+- `nvcr.io/nvidia/k8s-device-plugin:v0.17.1`（部分 chart/节点实际引用这个路径）
+- `nvcr.io/nvidia/cloud-native/k8s-device-plugin:v0.17.1`
+- `nvcr.io/nvidia/k8s/dcgm-exporter:4.1.1-4.0.4-ubuntu22.04`
+- `quay.io/prometheus-operator/prometheus-config-reloader:v0.77.2`
+
+如果你看到 Pod 里的 `gpu-feature-discovery` 容器实际引用的是 `k8s-device-plugin` 镜像，说明这个 chart 版本就是这么渲染的，不要按组件名去猜镜像名，按实际 `kubectl describe pod` / `helm template` 结果补齐即可。
+
 ## Master 安装
 
 只在 Master 上执行：
