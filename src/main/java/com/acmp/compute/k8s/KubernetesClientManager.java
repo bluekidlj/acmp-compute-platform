@@ -51,7 +51,7 @@ import java.util.concurrent.TimeUnit;
 @Service
 @RequiredArgsConstructor
 public class KubernetesClientManager {
-    private static final String HAMI_NAMESPACE = "kube-system";
+    private static final String HAMI_NAMESPACE = "hami-system";
     private static final String HAMI_CONFIG_MAP = "hami-device-plugin";
     private static final MediaType JSON_MEDIA_TYPE =
             MediaType.get("application/json; charset=utf-8");

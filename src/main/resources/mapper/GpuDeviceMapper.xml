@@ -18,6 +18,8 @@
         <result column="status" property="status"/>
         <result column="resource_pool_id" property="resourcePoolId"/>
         <result column="compute_spec_id" property="computeSpecId"/>
+        <result column="compute_spec_name" property="computeSpecName"/>
+        <result column="compute_spec_display_name" property="computeSpecDisplayName"/>
         <result column="usage_status" property="usageStatus"/>
         <result column="last_sync_at" property="lastSyncAt"/>
         <result column="created_at" property="createdAt"/>
@@ -69,22 +71,28 @@
     </select>
 
     <select id="findByClusterId" resultMap="BaseResultMap">
-        SELECT * FROM gpu_device
-        WHERE cluster_id = #{clusterId}
-        ORDER BY node_name, gpu_index
+        SELECT gd.*, cs.name AS compute_spec_name, cs.display_name AS compute_spec_display_name
+        FROM gpu_device gd
+        LEFT JOIN compute_spec cs ON cs.id = gd.compute_spec_id
+        WHERE gd.cluster_id = #{clusterId}
+        ORDER BY gd.node_name, gd.gpu_index
     </select>
 
     <select id="findByNodeId" resultMap="BaseResultMap">
-        SELECT * FROM gpu_device
+        SELECT gd.*, cs.name AS compute_spec_name, cs.display_name AS compute_spec_display_name
+        FROM gpu_device gd
+        LEFT JOIN compute_spec cs ON cs.id = gd.compute_spec_id
         <!-- Node 详情只展示本次同步仍存在的设备。 -->
-        WHERE node_id = #{nodeId} AND status != 'OFFLINE'
-        ORDER BY gpu_index
+        WHERE gd.node_id = #{nodeId} AND gd.status != 'OFFLINE'
+        ORDER BY gd.gpu_index
     </select>
 
     <select id="findByPoolId" resultMap="BaseResultMap">
-        SELECT * FROM gpu_device
-        WHERE resource_pool_id = #{poolId}
-        ORDER BY cluster_id, node_name, gpu_index
+        SELECT gd.*, cs.name AS compute_spec_name, cs.display_name AS compute_spec_display_name
+        FROM gpu_device gd
+        LEFT JOIN compute_spec cs ON cs.id = gd.compute_spec_id
+        WHERE gd.resource_pool_id = #{poolId}
+        ORDER BY gd.cluster_id, gd.node_name, gd.gpu_index
     </select>
 
     <select id="findByComputeSpecId" resultMap="BaseResultMap">

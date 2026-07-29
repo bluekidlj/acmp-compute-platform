@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeftOutlined } from '@ant-design/icons';
-import { Button, Collapse, Descriptions, message, Space, Spin, Table, Tag } from 'antd';
+import { Button, Collapse, Descriptions, message, Modal, Space, Spin, Table, Tag } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api/real';
 import StatusBadge from '../../components/StatusBadge';
@@ -18,6 +18,7 @@ export default function NodeDetailPage() {
   const [cluster, setCluster] = useState<PhysicalCluster | null>(null);
   const [node, setNode] = useState<ClusterNode | null>(null);
   const [gpus, setGpus] = useState<GpuDevice[]>([]);
+  const [selectedGpu, setSelectedGpu] = useState<GpuDevice | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(function load() {
@@ -102,17 +103,58 @@ export default function NodeDetailPage() {
               },
             },
             { title: '型号', dataIndex: 'gpuModel', render: function render(value) { return value || '-'; } },
-            { title: '显存', dataIndex: 'memoryMb', render: function render(value) { return value ? `${value} MiB` : '-'; } },
-            { title: 'Driver', dataIndex: 'driverVersion', render: function render(value) { return value || '-'; } },
-            { title: 'CUDA', dataIndex: 'cudaVersion', render: function render(value) { return value || '-'; } },
+            { title: '显存', dataIndex: 'memoryMb', render: function render(value) { return value ? `${value} MiB` : '未上报'; } },
             { title: '状态', dataIndex: 'status', render: function render(value) { return <StatusBadge value={value} />; } },
             { title: '资源池', dataIndex: 'resourcePoolId', render: function render(value) { return value ? <Tag>{value}</Tag> : '未归池'; } },
-            { title: '算力规格', dataIndex: 'computeSpecId', render: function render(value) { return value || '-'; } },
+            {
+              title: '算力规格',
+              render: function render(_, item) {
+                return item.computeSpecDisplayName || item.computeSpecName || item.computeSpecId || '-';
+              },
+            },
             { title: '使用', dataIndex: 'usageStatus', render: function render(value) { return <StatusBadge value={value} />; } },
+            {
+              title: '操作',
+              width: 90,
+              render: function render(_, item) {
+                return <Button size="small" onClick={function openDetail() { setSelectedGpu(item); }}>详情</Button>;
+              },
+            },
           ]}
         />
       </div>
+
+      <Modal
+        title="GPU 设备详情"
+        open={!!selectedGpu}
+        onCancel={function close() { setSelectedGpu(null); }}
+        footer={null}
+        width={680}
+      >
+        {selectedGpu ? <GpuDetail gpu={selectedGpu} /> : null}
+      </Modal>
     </div>
+  );
+}
+
+function GpuDetail({ gpu }: { gpu: GpuDevice }) {
+  return (
+    <Descriptions column={2} size="small" bordered>
+      <Descriptions.Item label="编号">{gpu.gpuIndex}</Descriptions.Item>
+      <Descriptions.Item label="品牌">{gpu.gpuBrand ? BRAND_LABELS[gpu.gpuBrand] : '待识别'}</Descriptions.Item>
+      <Descriptions.Item label="型号">{gpu.gpuModel || '未上报'}</Descriptions.Item>
+      <Descriptions.Item label="显存">{gpu.memoryMb ? `${gpu.memoryMb} MiB` : '未上报'}</Descriptions.Item>
+      <Descriptions.Item label="Driver">{gpu.driverVersion || '未上报'}</Descriptions.Item>
+      <Descriptions.Item label="CUDA">{gpu.cudaVersion || '未上报'}</Descriptions.Item>
+      <Descriptions.Item label="资源池">{gpu.resourcePoolId || '未归池'}</Descriptions.Item>
+      <Descriptions.Item label="算力规格">
+        {gpu.computeSpecDisplayName || gpu.computeSpecName || gpu.computeSpecId || '未绑定'}
+      </Descriptions.Item>
+      <Descriptions.Item label="设备 UUID" span={2}>{gpu.uuid || '未上报'}</Descriptions.Item>
+      <Descriptions.Item label="最近同步" span={2}>
+        {gpu.lastSyncAt ? new Date(gpu.lastSyncAt).toLocaleString('zh-CN') : '-'}
+      </Descriptions.Item>
+    </Descriptions>
   );
 }
 

@@ -15,9 +15,7 @@ IMAGE_PULL_RETRY="${IMAGE_PULL_RETRY:-5}"
 IMAGE_PULL_SLEEP_SECONDS="${IMAGE_PULL_SLEEP_SECONDS:-10}"
 EXTRA_REQUIRED_IMAGES=(
   'nvcr.io/nvidia/cloud-native/gpu-operator-validator:v25.3.0'
-  'nvcr.io/nvidia/cloud-native/gpu-feature-discovery:v0.17.1'
   'nvcr.io/nvidia/k8s-device-plugin:v0.17.1'
-  'nvcr.io/nvidia/cloud-native/k8s-device-plugin:v0.17.1'
   'nvcr.io/nvidia/k8s/dcgm-exporter:4.1.1-4.0.4-ubuntu22.04'
   'quay.io/prometheus-operator/prometheus-config-reloader:v0.77.2'
 )
@@ -168,14 +166,6 @@ mirror_candidates() {
     nvcr.io/nvidia/k8s-device-plugin:v0.17.1)
       printf '%s\n' \
         'swr.cn-north-4.myhuaweicloud.com/ddn-k8s/nvcr.io/nvidia/k8s-device-plugin:v0.17.1'
-      ;;
-    nvcr.io/nvidia/cloud-native/k8s-device-plugin:v0.17.1)
-      printf '%s\n' \
-        'swr.cn-north-4.myhuaweicloud.com/ddn-k8s/nvcr.io/nvidia/cloud-native/k8s-device-plugin:v0.17.1'
-      ;;
-    nvcr.io/nvidia/cloud-native/gpu-feature-discovery:v0.17.1)
-      printf '%s\n' \
-        'swr.cn-north-4.myhuaweicloud.com/ddn-k8s/nvcr.io/nvidia/cloud-native/gpu-feature-discovery:v0.17.1'
       ;;
     nvcr.io/nvidia/k8s/dcgm-exporter:4.1.1-4.0.4-ubuntu22.04)
       printf '%s\n' \

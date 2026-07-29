@@ -83,13 +83,11 @@ sudo ./02-install-monitoring-offline.sh --verify-images
 当前这版 GPU Operator v25.3.0 的补充镜像清单建议如下：
 
 - `nvcr.io/nvidia/cloud-native/gpu-operator-validator:v25.3.0`
-- `nvcr.io/nvidia/cloud-native/gpu-feature-discovery:v0.17.1`
-- `nvcr.io/nvidia/k8s-device-plugin:v0.17.1`（部分 chart/节点实际引用这个路径）
-- `nvcr.io/nvidia/cloud-native/k8s-device-plugin:v0.17.1`
+- `nvcr.io/nvidia/k8s-device-plugin:v0.17.1`（你的 chart 中 `gpu-feature-discovery` 容器实际使用这个镜像）
 - `nvcr.io/nvidia/k8s/dcgm-exporter:4.1.1-4.0.4-ubuntu22.04`
 - `quay.io/prometheus-operator/prometheus-config-reloader:v0.77.2`
 
-如果你看到 Pod 里的 `gpu-feature-discovery` 容器实际引用的是 `k8s-device-plugin` 镜像，说明这个 chart 版本就是这么渲染的，不要按组件名去猜镜像名，按实际 `kubectl describe pod` / `helm template` 结果补齐即可。
+注意：`gpu-feature-discovery` 是 Pod 里的容器名，不一定是镜像仓库名。你当前看到的实际镜像是 `nvcr.io/nvidia/k8s-device-plugin:v0.17.1`，不要再拉 `nvcr.io/nvidia/cloud-native/gpu-feature-discovery:v0.17.1`，这个地址会返回 `Access Denied`。后续如果还有新缺失镜像，按 `kubectl describe pod` / `05-diagnose-missing-images.sh` 的实际结果补齐。
 
 ## Master 安装
 

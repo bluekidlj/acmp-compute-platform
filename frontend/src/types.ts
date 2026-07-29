@@ -142,6 +142,8 @@ export interface GpuDevice {
   status: string;
   resourcePoolId: string | null;
   computeSpecId: string | null;
+  computeSpecName: string | null;
+  computeSpecDisplayName: string | null;
   usageStatus: string;
   lastSyncAt: string;
 }

@@ -26,6 +26,8 @@ public class GpuDevice {
     private String status;
     private String resourcePoolId;
     private String computeSpecId;
+    private String computeSpecName;
+    private String computeSpecDisplayName;
     private String usageStatus;
     private Instant lastSyncAt;
     private Instant createdAt;

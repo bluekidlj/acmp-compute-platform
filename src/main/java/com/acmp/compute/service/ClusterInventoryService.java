@@ -198,8 +198,16 @@ public class ClusterInventoryService {
         String model = first(labels, "nvidia.com/gpu.product", "nvidia.com/gpu.family",
                 "accelerator", "huawei.com/ascend-model", "hygon.com/dcu.product", "amd.com/gpu.product");
         String driver = first(labels, "nvidia.com/cuda.driver-version.full",
-                "nvidia.com/cuda.driver.major", "hygon.com/driver-version", "huawei.com/driver-version");
-        String cuda = first(labels, "nvidia.com/cuda.runtime-version.full", "nvidia.com/cuda.runtime.major");
+                "nvidia.com/cuda.driver-version", "nvidia.com/gpu.driver-version",
+                "nvidia.com/driver.version", "hygon.com/driver-version", "huawei.com/driver-version");
+        if (driver == null || driver.isBlank()) {
+            driver = versionFromParts(labels, "nvidia.com/cuda.driver");
+        }
+        String cuda = first(labels, "nvidia.com/cuda.runtime-version.full",
+                "nvidia.com/cuda.runtime-version", "nvidia.com/cuda.version");
+        if (cuda == null || cuda.isBlank()) {
+            cuda = versionFromParts(labels, "nvidia.com/cuda.runtime");
+        }
         Long memoryMb = number(first(annotations, "nvidia.com/gpu-memory", "gpu-memory-mb",
                 "hygon.com/dcu-memory", "huawei.com/ascend-memory"));
 
@@ -257,11 +265,9 @@ public class ClusterInventoryService {
             if (model == null && looksLikeGpuModel(part)) {
                 model = part;
             }
-            if (memoryMb == null) {
-                Long value = number(part);
-                if (value != null && value > 0) {
-                    memoryMb = value;
-                }
+            Long value = number(part);
+            if (value != null && value >= 1024 && (memoryMb == null || value > memoryMb)) {
+                memoryMb = value;
             }
             if (driver == null) {
                 String maybeDriver = extractVersionLikeToken(part, "driver");
@@ -429,6 +435,26 @@ public class ClusterInventoryService {
             }
         }
         return null;
+    }
+
+    private String versionFromParts(Map<String, String> values, String prefix) {
+        if (values == null) {
+            return null;
+        }
+        String major = values.get(prefix + ".major");
+        if (major == null || major.isBlank()) {
+            return null;
+        }
+        String minor = values.get(prefix + ".minor");
+        String rev = values.get(prefix + ".rev");
+        StringBuilder version = new StringBuilder(major);
+        if (minor != null && !minor.isBlank()) {
+            version.append('.').append(minor);
+        }
+        if (rev != null && !rev.isBlank()) {
+            version.append('.').append(rev);
+        }
+        return version.toString();
     }
 
     private Long number(String value) {

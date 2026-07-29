@@ -11,16 +11,13 @@ OUTPUT_TAR="${OUTPUT_TAR:-${SCRIPT_DIR}/gpu-missing-components.tar.gz}"
 IMAGES_FILE="${IMAGES_FILE:-}"
 
 GPU_OPERATOR_VERSION="${GPU_OPERATOR_VERSION:-v25.3.0}"
-GPU_FEATURE_DISCOVERY_VERSION="${GPU_FEATURE_DISCOVERY_VERSION:-v0.17.1}"
 DEVICE_PLUGIN_VERSION="${DEVICE_PLUGIN_VERSION:-v0.17.1}"
 DCGM_EXPORTER_VERSION="${DCGM_EXPORTER_VERSION:-4.1.1-4.0.4-ubuntu22.04}"
 VALIDATOR_VERSION="${VALIDATOR_VERSION:-v25.3.0}"
 
 DEFAULT_IMAGES=(
   "nvcr.io/nvidia/cloud-native/gpu-operator-validator:${VALIDATOR_VERSION}"
-  "nvcr.io/nvidia/cloud-native/gpu-feature-discovery:${GPU_FEATURE_DISCOVERY_VERSION}"
   "nvcr.io/nvidia/k8s-device-plugin:${DEVICE_PLUGIN_VERSION}"
-  "nvcr.io/nvidia/cloud-native/k8s-device-plugin:${DEVICE_PLUGIN_VERSION}"
   "nvcr.io/nvidia/k8s/dcgm-exporter:${DCGM_EXPORTER_VERSION}"
 )
 

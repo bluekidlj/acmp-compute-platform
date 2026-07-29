@@ -17,6 +17,7 @@ import com.acmp.compute.mapper.GpuDeviceMapper;
 import com.acmp.compute.mapper.ResourcePoolMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -69,6 +70,7 @@ public class ResourcePoolService {
     /**
      * 将一台 Node 当前发现的全部在线 GPU 一次性加入同一个资源池和规格。
      */
+    @Transactional
     public SpecResponse joinNode(
             String poolId,
             String nodeId,
@@ -107,8 +109,9 @@ public class ResourcePoolService {
 
         String gpuShare = validateShare(pool, request.getGpuShare());
         ComputeSpec spec = findReusableSpec(pool, sourceGpu, request, gpuShare);
+        boolean newSpec = spec == null;
         if (spec == null) {
-            spec = createSpec(pool, sourceGpu, request, gpuShare);
+            spec = buildNewSpec(pool, sourceGpu, request, gpuShare);
         }
 
         kubernetesClientManager.removeAcmpNodeLabels(node.getClusterId(), node.getName());
@@ -133,6 +136,9 @@ public class ResourcePoolService {
                 KubernetesSchedulingLabels.value(sourceGpu.getGpuModel()));
         kubernetesClientManager.labelNode(node.getClusterId(), node.getName(), labels);
 
+        if (newSpec) {
+            specMapper.insert(spec);
+        }
         if (nodeMapper.assignPoolAndSpec(nodeId, poolId, spec.getId()) != 1) {
             throw new BadRequestException("Node 入池失败或已经被加入其他资源池");
         }
@@ -144,7 +150,7 @@ public class ResourcePoolService {
         return specService.getById(spec.getId());
     }
 
-    private ComputeSpec createSpec(
+    private ComputeSpec buildNewSpec(
             ResourcePool pool,
             GpuDevice gpu,
             NodeJoinSpecRequest request,
@@ -169,8 +175,6 @@ public class ResourcePoolService {
                 .description(request.getDescription())
                 .status("active")
                 .build();
-        specMapper.insert(spec);
-        return spec;
     }
 
     private void validateNodeGpus(List<GpuDevice> nodeGpus, GpuDevice sourceGpu) {
