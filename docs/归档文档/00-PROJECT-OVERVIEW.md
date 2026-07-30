@@ -5,7 +5,7 @@
 
 ## 1. 项目定位
 
-ACMP-Compute 是一个面向异构 GPU/AI 算力的管理平台。当前后端核心不是自研调度器，而是一个位于业务用户与 Kubernetes 之间的语义化管理层：
+ACMP-Compute 是一个面向异构 GPU/AI 算力的管理平台。定位是一个位于业务用户与 Kubernetes 之间的语义化管理层：
 
 ```text
 用户与权限

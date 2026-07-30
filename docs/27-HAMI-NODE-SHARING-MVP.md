@@ -23,7 +23,7 @@ MVP 只使用 HAMi 的节点级 ConfigMap：
 
 ```text
 ConfigMap: hami-device-plugin
-Namespace: kube-system
+Namespace: hami-system
 Data: config.json
 ```
 
@@ -68,7 +68,7 @@ Data: config.json
 
 ## 运行前提
 
-正式环境约定 GPU 节点安装并运行 HAMi，ConfigMap 名称为 `hami-device-plugin`。为了支持开发测试，平台通过读取该 ConfigMap 判断 HAMi 是否安装：
+正式环境约定 GPU 节点安装并运行 HAMi，Namespace 固定为 `hami-system`，ConfigMap 名称为 `hami-device-plugin`。为了支持开发测试，平台通过读取该 ConfigMap 判断 HAMi 是否安装：
 
 - 加入独享池：已安装 HAMi 时清理节点配置；未安装时跳过 HAMi 操作，仍可正常入池。
 - 加入共享池：已安装 HAMi 时修改节点配置；未安装时拒绝操作，并提示节点不能进行共享切分。

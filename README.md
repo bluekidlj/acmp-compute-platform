@@ -1,162 +1,107 @@
-# ACMP-Compute — 异构算力管理平台（1.0）
+# ACMP 异构算力统一管理平台
 
-[![Java](https://img.shields.io/badge/Java-11-orange)](https://adoptium.net/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-2.7.18-brightgreen)](https://spring.io/projects/spring-boot)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+ACMP 是一个面向内网 Kubernetes GPU 集群的轻量算力管理平台。它位于管理员和 Kubernetes 之间，把集群、GPU、资源池、算力规格、租户配额、项目和推理服务组织成一条可理解、可操作的管理链路。
 
-> **1.0 核心模型：集群 → 工作空间（租户）→ 三类资源池（独占/共享/超分）→ 项目 → 推理服务**
+平台不替代 Kubernetes、HAMi、Prometheus 或 GPU 驱动。它负责表达管理意图、维护业务关系，并通过 Kubernetes API 将资源选择、调度约束和推理服务部署落实到集群。
 
-## ✨ 1.0 特性
+## 平台要解决的问题
 
-- 🖥️ **多物理集群管理** — 注册多个 K8s 物理集群，kubeconfig AES-256 加密存储
-- 🏢 **工作空间（租户）** — 每个 WS = 1 个 K8s Namespace + 1 个 Volcano Queue + **3 个自动建池**（EXCLUSIVE 独占整卡 / SHARED HAMi 切分 / OVERSELL 超分占位）
-- 📦 **项目** — 子租户，**配额真正拥有者**，从 WS 三类池中按规格分配节点
-- 📋 **算力规格** — 全局规格库 7 条预置（PHYSICAL / VIRTUAL / OVERSELL），按 `specType→poolType` 路由
-- 🚀 **vLLM 推理部署** — 一键部署 vLLM，按 spec 自动路由到 Project 拥有的同类型池
-- 🔐 **JWT 认证 + RBAC** — PLATFORM_ADMIN / ORG_ADMIN / INFERENCE_USER
-- 🖼️ **显卡管理** — 扫集群节点、按型号聚合、解析 HAMi 切分规格
+- 多个 Kubernetes 集群和 GPU 节点缺少统一视图。
+- 物理 GPU、共享 GPU 和不同品牌设备难以用一致方式管理。
+- 算力资源与租户、项目、推理服务之间缺少清晰关系。
+- 推理服务的镜像、模型目录、算力规格和 Kubernetes 部署链路相互割裂。
+- 内网环境中的监控组件、镜像和应用发布缺少可重复的离线方案。
 
-## 🏗️ 架构
+## 当前实现效果
 
+当前版本已经形成一条完整的 MVP 主流程：
+
+```text
+注册 Kubernetes 集群
+  → 同步真实 Node 与 GPU 信息
+  → 按 Node 将全部 GPU 加入独享池或共享池
+  → 生成或复用算力规格
+  → 给租户分配规格配额
+  → 在项目中登记模型并部署推理服务
+  → 通过 Node 标签和设备资源符提交 Kubernetes
+  → 使用 Prometheus、Node Exporter、DCGM 和 vLLM Metrics 观察运行状态
 ```
-PhysicalCluster (K8s 集群)
-   └── Workspace (租户)
-          ├── ResourcePool (EXCLUSIVE)   ← 整卡独占
-          ├── ResourcePool (SHARED)      ← HAMi vGPU 切分
-          ├── ResourcePool (OVERSELL)    ← 超分占位
-          └── Project (配额真正拥有者)
-                 └── ModelDeployment (按 spec 路由到对应池)
-```
 
-## 📋 技术栈
+主要能力包括：
 
-| 层次 | 技术 |
+- 注册和同步 Kubernetes 集群、Node 与 GPU 设备。
+- 支持 NVIDIA 等多品牌 GPU 的统一识别与展示。
+- 以 Node 为管理单位加入独享池或共享池，避免逐卡维护。
+- 共享池通过 `hami-system` 中的 HAMi 配置完成节点级切分。
+- 依据 GPU 品牌、型号、资源池类型和切分比例形成算力规格。
+- 支持租户、项目、规格配额、模型登记和推理服务部署。
+- 自动生成 Deployment、Service、资源请求和 Node 调度标签。
+- 提供集群、节点、GPU 和推理服务监控页面。
+- 提供 Windows 开发脚本、Linux 发布脚本和监控组件离线安装脚本。
+
+## 设计边界
+
+当前平台定位是单管理员操作的完整 MVP，重点是主流程正确、概念清晰、便于内网部署和调试。当前阶段不追求复杂审批、高并发调度、跨系统分布式事务或自动执行生产级策略。
+
+Kubernetes 是运行状态和调度结果的事实来源；ACMP 数据库保存平台管理关系、配额和部署记录。GPU 切分由 HAMi 执行，指标采集由 Prometheus 体系执行。
+
+## 推荐阅读
+
+| 文档 | 内容 |
 |---|---|
-| 语言 | Java 11 |
-| 框架 | Spring Boot 2.7.18 |
-| K8s 客户端 | fabric8 Kubernetes Client 6.13.0 |
-| 数据库 | H2（文件模式，可替换为 MySQL/PostgreSQL） |
-| ORM | MyBatis 2.3.2 |
-| 安全 | Spring Security + JWT (jjwt 0.11.5) |
-| 构建 | Maven 3.8+ |
+| [文档导航](docs/README.md) | 当前主文档、专项资料和历史资料的阅读入口 |
+| [运行环境与集群前置条件](docs/01-RUNTIME-PREREQUISITES.md) | Kubernetes、containerd、HAMi 和监控组件要求 |
+| [工程结构与运行部署](docs/02-ENGINEERING-GUIDE.md) | 代码目录、开发启动、打包和离线部署 |
+| [算力资源管理](docs/03-COMPUTE-RESOURCE-MANAGEMENT.md) | 集群、Node、GPU、资源池和算力规格 |
+| [业务管理](docs/04-BUSINESS-MANAGEMENT.md) | 租户、项目、模型和推理服务 |
+| [监控运维](docs/05-MONITORING-OPERATIONS.md) | 集群、节点、GPU、推理服务和告警 |
+| [架构迭代经历](docs/06-ARCHITECTURE-EVOLUTION.md) | 从复杂设想到可落地 MVP 的取舍过程 |
+| [后续扩展方向](docs/07-EXTENSIBILITY-ROADMAP.md) | 创新实验室、数字孪生和策略仿真 |
 
-## 🚀 快速开始
+## 开发环境快速启动
 
-```bash
-mvn spring-boot:run
-```
+运行前需要 Java 11、Maven、Node.js 和 npm。
 
-- 端口：**8080**
-- H2 控制台：http://localhost:8080/h2-console
-  - JDBC URL: `jdbc:h2:file:./data/acmp`
-  - 用户名：`sa`，密码：空
-- 默认管理员：`admin` / `admin123`
-
-Windows 开发测试脚本：
+Windows 下在工程根目录执行：
 
 ```powershell
 .\scripts\dev-start.ps1
 ```
 
-默认会重编译并启动后端和前端。脚本会先给你一个交互菜单，也可以直接指定：
+脚本默认重新构建并启动前后端，也可以单独启动：
 
 ```powershell
 .\scripts\dev-start.ps1 -Target Backend
 .\scripts\dev-start.ps1 -Target Frontend
-.\scripts\dev-start.ps1 -Target All -FrontendMode Preview
 ```
 
-清理开发环境：
+默认访问地址：
 
-```powershell
-.\scripts\clean-dev.ps1
-```
+- 前端：`http://127.0.0.1:3000/`
+- 后端：`http://127.0.0.1:8080/`
+- 健康检查：`http://127.0.0.1:8080/actuator/health`
 
-只打后端包，不启动：
+默认开发管理员为 `admin / admin123`。
 
-```powershell
-.\scripts\package-backend.ps1
-```
+## 技术栈
 
-日志默认写到 `.runtime\` 下：
-
-- `backend.out.log`
-- `backend.err.log`
-- `frontend.build.log`
-- `frontend.out.log`
-- `frontend.err.log`
-
-Docker：
-
-```bash
-docker build -t acmp-compute:latest .
-docker run -d -p 8080:8080 \
-  -e JWT_SECRET=your-secret \
-  -e AES_KEY=acmp32byteskey!!!!!!!!!!!!!!!!!! \
-  --name acmp-compute \
-  acmp-compute:latest
-```
-
-## 📚 文档
-
-| 文档 | 说明 |
+| 层次 | 当前实现 |
 |---|---|
-| [docs/01-ARCHITECTURE.md](docs/01-ARCHITECTURE.md) | 1.0 整体架构 |
-| [docs/02-RESOURCE-MODEL.md](docs/02-RESOURCE-MODEL.md) | 对象模型与字段 |
-| [docs/03-API-REFERENCE.md](docs/03-API-REFERENCE.md) | 完整 API 参考 |
-| [docs/04-DEPLOYMENT-FLOW.md](docs/04-DEPLOYMENT-FLOW.md) | 部署推理服务全流程 |
-| [docs/05-EXAMPLE.md](docs/05-EXAMPLE.md) | curl 调用示例 |
-| [docs/06-VERIFICATION.md](docs/06-VERIFICATION.md) | 验证报告（修复清单 + 测试用例 + 手工 step） |
-| [docs/07-HOWTO-VERIFY.md](docs/07-HOWTO-VERIFY.md) | 换个环境验证手册（从 0 到 verify.sh 通过） |
-| [docs/DEPLOY.md](docs/DEPLOY.md) | Docker 部署说明 |
-| [docs/27-LINUX-FRONTEND-BACKEND-DEPLOYMENT.md](docs/27-LINUX-FRONTEND-BACKEND-DEPLOYMENT.md) | Linux 前后端发布、启动与日志说明 |
+| 后端 | Java 11、Spring Boot 2.7.18、MyBatis 2.3.2 |
+| Kubernetes 接入 | Kubernetes Java Client 22.0.1 |
+| 数据库 | H2 文件数据库 |
+| 前端 | React 18、TypeScript、Vite、Ant Design、ECharts |
+| 认证 | Spring Security、JWT |
+| 监控 | Prometheus、Node Exporter、kube-state-metrics、DCGM Exporter、vLLM Metrics |
 
-## 🧪 验证
+## 代码入口
 
-```bash
-# kind 环境一键验证
-kind create cluster --config scripts/kind-cluster.yaml
-bash scripts/seed-labels.sh
-bash scripts/seed-hami-annotations.sh
-bash scripts/install-nvidia-plugin.sh
-mvn spring-boot:run
-bash scripts/verify.sh
-bash scripts/verify-failures.sh
-```
+- 后端业务：`src/main/java/com/acmp/compute/service`
+- Kubernetes 适配：`src/main/java/com/acmp/compute/k8s`
+- REST 接口：`src/main/java/com/acmp/compute/controller`
+- 数据访问：`src/main/java/com/acmp/compute/mapper`、`src/main/resources/mapper`
+- 前端页面：`frontend/src/pages/real`
+- 前端接口封装：`frontend/src/api/real.ts`
+- 工程脚本：`scripts`
 
-详细测试用例与手工 step 见 [docs/06-VERIFICATION.md](docs/06-VERIFICATION.md)。
-
-## 📁 项目结构
-
-```
-acmp-compute/
-├── src/main/java/com/acmp/compute/
-│   ├── AcmpComputeApplication.java
-│   ├── config/            # SecurityConfig
-│   ├── controller/        # REST 控制器
-│   ├── dto/               # 请求/响应 DTO
-│   ├── entity/            # 数据实体
-│   ├── exception/         # 全局异常
-│   ├── k8s/               # Kubernetes 客户端 + 资源构建
-│   ├── mapper/            # MyBatis Mapper 接口
-│   ├── security/          # JWT
-│   ├── service/           # 业务服务层
-│   └── util/              # 工具
-├── src/main/resources/
-│   ├── mapper/            # MyBatis XML
-│   ├── schema-h2.sql      # 1.0 表结构 + 7 条预置规格
-│   ├── data-h2.sql        # 默认管理员
-│   └── application.yml
-└── docs/                  # 1.0 设计文档
-```
-
-## 🔧 环境变量
-
-| 变量 | 说明 | 默认值 |
-|---|---|---|
-| `JWT_SECRET` | JWT 签名密钥 | 内置默认值（生产必改） |
-| `AES_KEY` | kubeconfig 加密密钥（须 32 字节） | 内置默认值（生产必改） |
-
-## 📄 License
-
-[Apache 2.0](LICENSE)
+更完整的结构、运行方式和发布建议见 [工程结构与运行部署](docs/02-ENGINEERING-GUIDE.md)。
