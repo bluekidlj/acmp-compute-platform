@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, message, Popconfirm, Select, Space, Table } from 'antd';
+import { Button, message, Popconfirm, Select, Space, Table, Tag } from 'antd';
 import { DeleteOutlined, MessageOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/real';
@@ -31,7 +31,13 @@ export default function DeploymentsPage() {
       .finally(function finish() { setLoading(false); });
   }
 
-  useEffect(load, [tenantId, status]);
+  useEffect(function pollDeployments() {
+    load();
+    const timer = window.setInterval(load, 5000);
+    return function cleanup() {
+      window.clearInterval(timer);
+    };
+  }, [tenantId, status]);
 
   async function deleteDeployment(record: ModelDeployment) {
     try {
@@ -97,6 +103,18 @@ export default function DeploymentsPage() {
             { title: '副本', width: 85, render: function render(_, record: ModelDeployment) { return `${record.readyReplicas ?? 0}/${record.replicas}`; } },
             { title: '状态', dataIndex: 'status', width: 120, render: function render(value) { return <StatusBadge value={value} />; } },
             {
+              title: '推理状态',
+              width: 150,
+              render: function render(_, record: ModelDeployment) {
+                const ready = record.status === 'RUNNING'
+                  && (record.readyReplicas ?? 0) >= record.replicas;
+                if (record.status === 'FAILED') {
+                  return <Tag color="red">启动失败</Tag>;
+                }
+                return <Tag color={ready ? 'green' : 'processing'}>{ready ? '可对话' : '推理服务启动中'}</Tag>;
+              },
+            },
+            {
               title: '操作',
               width: 180,
               render: function render(_, record: ModelDeployment) {
@@ -105,7 +123,8 @@ export default function DeploymentsPage() {
                     <Button
                       size="small"
                       icon={<MessageOutlined />}
-                      disabled={record.status !== 'RUNNING'}
+                      disabled={record.status !== 'RUNNING'
+                        || (record.readyReplicas ?? 0) < record.replicas}
                       onClick={function chat() {
                         navigate(`/deployments/${record.projectId}/${record.id}/chat`);
                       }}

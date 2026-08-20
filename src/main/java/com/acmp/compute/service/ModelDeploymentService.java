@@ -215,16 +215,7 @@ public class ModelDeploymentService {
         for (ModelDeployment record : mapper.findAll()) {
             Project project = projectMapper.findById(record.getProjectId()).orElse(null);
             if (project != null && canAccess(project)) {
-                Integer ready = null;
-                try {
-                    ready = clientManager.getDeploymentReadyReplicas(
-                            record.getActualClusterId(),
-                            namespace(record.getTenantId()),
-                            record.getK8sDeploymentName()).orElse(0);
-                } catch (Exception exception) {
-                    log.warn("全局列表查询就绪副本失败: deployment={}, error={}",
-                            record.getId(), exception.getMessage());
-                }
+                Integer ready = refreshRuntimeStatus(record);
                 result.add(response(record, ready));
             }
         }
@@ -236,7 +227,7 @@ public class ModelDeploymentService {
         ensureAccess(project);
         List<ModelDeploymentResponse> result = new ArrayList<>();
         for (ModelDeployment record : mapper.findByProjectId(projectId)) {
-            result.add(response(record, null));
+            result.add(response(record, refreshRuntimeStatus(record)));
         }
         return result;
     }
@@ -245,19 +236,49 @@ public class ModelDeploymentService {
         Project project = project(projectId);
         ensureAccess(project);
         ModelDeployment record = record(projectId, deploymentId);
-        Integer ready = null;
+        return response(record, refreshRuntimeStatus(record));
+    }
+
+    private Integer refreshRuntimeStatus(ModelDeployment record) {
+        Integer ready;
         try {
-            String namespace = namespace(record.getTenantId());
-            ready = clientManager.getDeploymentReadyReplicas(record.getActualClusterId(), namespace,
+            ready = clientManager.getDeploymentReadyReplicas(
+                    record.getActualClusterId(), namespace(record.getTenantId()),
                     record.getK8sDeploymentName()).orElse(0);
-            if (ready >= record.getReplicas() && !"RUNNING".equals(record.getStatus())) {
-                mapper.updateStatus(record.getId(), "RUNNING", record.getServiceUrl());
-                record.setStatus("RUNNING");
-            }
-        } catch (Exception e) {
-            log.warn("查询 Kubernetes Deployment 状态失败，保留数据库状态: {}", e.getMessage());
+        } catch (Exception exception) {
+            log.warn("查询 Kubernetes Deployment 状态失败: deployment={}, error={}",
+                    record.getId(), exception.getMessage());
+            return null;
         }
-        return response(record, ready);
+
+        if ("FAILED".equals(record.getStatus())) {
+            return ready;
+        }
+
+        boolean inferenceReady = false;
+        if (ready >= record.getReplicas()) {
+            try {
+                String serviceNamespace = namespace(record.getTenantId());
+                int servicePort = clientManager.getServiceHttpPort(
+                        record.getActualClusterId(), serviceNamespace, record.getK8sServiceName());
+                clientManager.getServiceProxy(
+                        record.getActualClusterId(), serviceNamespace, record.getK8sServiceName(),
+                        servicePort, "/health");
+                inferenceReady = true;
+            } catch (Exception exception) {
+                log.debug("推理服务仍在启动: deployment={}, error={}",
+                        record.getId(), shortMessage(exception.getMessage()));
+            }
+        }
+
+        String nextStatus = inferenceReady
+                ? "RUNNING"
+                : ("RUNNING".equals(record.getStatus()) ? "SUBMITTED" : record.getStatus());
+        if (!nextStatus.equals(record.getStatus())) {
+            mapper.updateStatus(record.getId(), nextStatus, record.getServiceUrl());
+            record.setStatus(nextStatus);
+        }
+        return ready;
     }
 
     public DeploymentMetricsResponse metrics(String projectId, String deploymentId) {
@@ -266,11 +287,14 @@ public class ModelDeploymentService {
         ModelDeployment record = record(projectId, deploymentId);
         Instant collectedAt = Instant.now();
         try {
+            String serviceNamespace = namespace(record.getTenantId());
+            int servicePort = clientManager.getServiceHttpPort(
+                    record.getActualClusterId(), serviceNamespace, record.getK8sServiceName());
             String metricsText = clientManager.getServiceProxy(
                     record.getActualClusterId(),
-                    namespace(record.getTenantId()),
+                    serviceNamespace,
                     record.getK8sServiceName(),
-                    record.getPort(),
+                    servicePort,
                     "/metrics");
             Map<String, List<Double>> samples = parsePrometheusSamples(metricsText);
             Double running = metricSum(samples, "vllm:num_requests_running");
@@ -398,11 +422,24 @@ public class ModelDeploymentService {
         body.put("stream", false);
 
         try {
+            String serviceNamespace = namespace(record.getTenantId());
+            int readyReplicas = clientManager.getDeploymentReadyReplicas(
+                    record.getActualClusterId(), serviceNamespace, record.getK8sDeploymentName())
+                    .orElse(0);
+            if (readyReplicas < record.getReplicas()) {
+                throw new BadRequestException("推理服务尚未完全就绪，当前就绪副本: "
+                        + readyReplicas + "/" + record.getReplicas());
+            }
+            int servicePort = clientManager.getServiceHttpPort(
+                    record.getActualClusterId(), serviceNamespace, record.getK8sServiceName());
+            clientManager.getServiceProxy(
+                    record.getActualClusterId(), serviceNamespace, record.getK8sServiceName(),
+                    servicePort, "/health");
             String result = clientManager.postServiceProxy(
                     record.getActualClusterId(),
-                    namespace(record.getTenantId()),
+                    serviceNamespace,
                     record.getK8sServiceName(),
-                    record.getPort(),
+                    servicePort,
                     "/v1/chat/completions",
                     objectMapper.writeValueAsString(body));
             return parseChatResponse(record, result);
@@ -585,7 +622,7 @@ public class ModelDeploymentService {
             double gpuMemoryUtilization,
             int maxModelLength) {
         List<String> args = new ArrayList<>();
-        args.add("--model");
+        args.add("serve");
         args.add(modelPath);
         args.add("--served-model-name");
         args.add(modelName);

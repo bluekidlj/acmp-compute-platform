@@ -68,6 +68,8 @@ export default function DeploymentDetailPage() {
 
   const currentStep = deployment.status === 'PENDING' ? 0 : deployment.status === 'SUBMITTED' ? 1 : 2;
   const stepStatus = deployment.status === 'FAILED' ? 'error' : deployment.status === 'RUNNING' ? 'finish' : 'process';
+  const chatReady = deployment.status === 'RUNNING'
+    && (deployment.readyReplicas ?? 0) >= deployment.replicas;
 
   return (
     <div>
@@ -79,7 +81,7 @@ export default function DeploymentDetailPage() {
         </div>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
-          <Button type="primary" icon={<MessageOutlined />} disabled={deployment.status !== 'RUNNING'} onClick={function chat() { navigate(`/deployments/${projectId}/${deploymentId}/chat`); }}>测试对话</Button>
+          <Button type="primary" icon={<MessageOutlined />} disabled={!chatReady} onClick={function chat() { navigate(`/deployments/${projectId}/${deploymentId}/chat`); }}>测试对话</Button>
           <Popconfirm title="确认删除推理服务及其 Kubernetes 对象？" onConfirm={remove}>
             <Button danger icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>
@@ -106,6 +108,11 @@ export default function DeploymentDetailPage() {
         <div className="surface" style={{ padding: 22 }}>
           <Descriptions title="部署信息" column={2} size="small">
             <Descriptions.Item label="状态"><StatusBadge value={deployment.status} /></Descriptions.Item>
+            <Descriptions.Item label="推理状态">
+              <Tag color={deployment.status === 'FAILED' ? 'red' : chatReady ? 'green' : 'processing'}>
+                {deployment.status === 'FAILED' ? '启动失败' : chatReady ? '可对话' : '推理服务启动中'}
+              </Tag>
+            </Descriptions.Item>
             <Descriptions.Item label="就绪副本">{deployment.readyReplicas ?? 0} / {deployment.replicas}</Descriptions.Item>
             <Descriptions.Item label="模型">{deployment.modelName || '-'}</Descriptions.Item>
             <Descriptions.Item label="端口">{deployment.port}</Descriptions.Item>

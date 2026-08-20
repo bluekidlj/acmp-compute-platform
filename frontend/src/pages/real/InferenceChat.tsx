@@ -21,10 +21,17 @@ export default function InferenceChatPage() {
   const [usage, setUsage] = useState<string>();
   const listRef = useRef<HTMLDivElement>(null);
 
-  useEffect(function loadDeployment() {
-    api.deployment(projectId, deploymentId)
-      .then(setDeployment)
-      .catch(function fail(exception) { message.error(exception.message); });
+  useEffect(function pollDeployment() {
+    function refresh() {
+      api.deployment(projectId, deploymentId)
+        .then(setDeployment)
+        .catch(function fail(exception) { message.error(exception.message); });
+    }
+    refresh();
+    const timer = window.setInterval(refresh, 5000);
+    return function cleanup() {
+      window.clearInterval(timer);
+    };
   }, [projectId, deploymentId]);
 
   useEffect(function scrollMessages() {
@@ -33,9 +40,12 @@ export default function InferenceChatPage() {
     }
   }, [messages, sending]);
 
+  const chatReady = deployment?.status === 'RUNNING'
+    && (deployment.readyReplicas ?? 0) >= deployment.replicas;
+
   async function send() {
     const content = input.trim();
-    if (!content || sending || deployment?.status !== 'RUNNING') {
+    if (!content || sending || !chatReady) {
       return;
     }
     const userMessage: ChatMessage = { role: 'user', content };
@@ -88,8 +98,8 @@ export default function InferenceChatPage() {
           </Space>
         </div>
       </div>
-      {deployment && deployment.status !== 'RUNNING' && (
-        <Alert type="warning" showIcon message={`服务当前状态为 ${deployment.status}，运行就绪后才能对话。`} />
+      {deployment && !chatReady && (
+        <Alert type="warning" showIcon message={`服务尚未完全就绪（${deployment.readyReplicas ?? 0}/${deployment.replicas}），就绪后才能对话。`} />
       )}
       <div className="chat-messages" ref={listRef}>
         {visibleMessages.length === 0 && (
@@ -114,7 +124,7 @@ export default function InferenceChatPage() {
           <div style={{ display: 'flex', gap: 10 }}>
             <Input.TextArea
               value={input}
-              disabled={deployment?.status !== 'RUNNING'}
+              disabled={!chatReady}
               placeholder="输入消息，Enter 发送，Shift+Enter 换行"
               autoSize={{ minRows: 1, maxRows: 5 }}
               onChange={function change(event) { setInput(event.target.value); }}
@@ -125,7 +135,7 @@ export default function InferenceChatPage() {
                 }
               }}
             />
-            <Button type="primary" icon={<SendOutlined />} loading={sending} disabled={!input.trim() || deployment?.status !== 'RUNNING'} onClick={send}>发送</Button>
+            <Button type="primary" icon={<SendOutlined />} loading={sending} disabled={!input.trim() || !chatReady} onClick={send}>发送</Button>
           </div>
           <div style={{ minHeight: 20, marginTop: 5, color: '#84928d', fontSize: 11 }}>{usage || '非流式请求 · temperature 0.7 · top_p 0.8'}</div>
         </div>

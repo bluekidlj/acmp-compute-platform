@@ -20,6 +20,7 @@ import io.kubernetes.client.openapi.models.V1NodeList;
 import io.kubernetes.client.openapi.models.V1ObjectMeta;
 import io.kubernetes.client.openapi.models.V1PodList;
 import io.kubernetes.client.openapi.models.V1Service;
+import io.kubernetes.client.openapi.models.V1ServicePort;
 import io.kubernetes.client.util.ClientBuilder;
 import io.kubernetes.client.util.KubeConfig;
 import io.kubernetes.client.util.Yaml;
@@ -522,6 +523,38 @@ public class KubernetesClientManager {
             if (e.getCode() != 404) {
                 throw operationError("删除 Service", e);
             }
+        }
+    }
+
+    /**
+     * 读取当前 Kubernetes Service 暴露的真实 HTTP 端口。
+     *
+     * <p>不能使用数据库中的部署端口作为代理目标，因为 Service 可能已经调整过端口，
+     * 历史部署记录也可能仍保留默认值 8000。
+     */
+    public int getServiceHttpPort(String clusterId, String namespace, String serviceName) {
+        requireDnsLabel(namespace, "Namespace");
+        requireDnsLabel(serviceName, "Service");
+        try {
+            V1Service service = new CoreV1Api(getClient(clusterId))
+                    .readNamespacedService(serviceName, namespace)
+                    .execute();
+            if (service.getSpec() == null || service.getSpec().getPorts() == null
+                    || service.getSpec().getPorts().isEmpty()) {
+                throw new IllegalStateException("Service 未配置访问端口: " + serviceName);
+            }
+            for (V1ServicePort servicePort : service.getSpec().getPorts()) {
+                if ("http".equals(servicePort.getName()) && servicePort.getPort() != null) {
+                    return servicePort.getPort();
+                }
+            }
+            V1ServicePort firstPort = service.getSpec().getPorts().get(0);
+            if (firstPort.getPort() == null) {
+                throw new IllegalStateException("Service 端口值为空: " + serviceName);
+            }
+            return firstPort.getPort();
+        } catch (ApiException exception) {
+            throw operationError("查询推理 Service 端口", exception);
         }
     }
 

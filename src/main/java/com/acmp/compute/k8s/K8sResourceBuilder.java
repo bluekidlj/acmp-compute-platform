@@ -10,10 +10,12 @@ import io.kubernetes.client.openapi.models.V1Deployment;
 import io.kubernetes.client.openapi.models.V1DeploymentSpec;
 import io.kubernetes.client.openapi.models.V1EnvVar;
 import io.kubernetes.client.openapi.models.V1HostPathVolumeSource;
+import io.kubernetes.client.openapi.models.V1HTTPGetAction;
 import io.kubernetes.client.openapi.models.V1LabelSelector;
 import io.kubernetes.client.openapi.models.V1ObjectMeta;
 import io.kubernetes.client.openapi.models.V1PodSpec;
 import io.kubernetes.client.openapi.models.V1PodTemplateSpec;
+import io.kubernetes.client.openapi.models.V1Probe;
 import io.kubernetes.client.openapi.models.V1ResourceRequirements;
 import io.kubernetes.client.openapi.models.V1Service;
 import io.kubernetes.client.openapi.models.V1ServicePort;
@@ -57,6 +59,15 @@ public final class K8sResourceBuilder {
                 .name("vllm")
                 .image(image)
                 .addPortsItem(new V1ContainerPort().containerPort(port).name("http"))
+                .readinessProbe(new V1Probe()
+                        .httpGet(new V1HTTPGetAction()
+                                .path("/health")
+                                .port(new IntOrString(port))
+                                .scheme("HTTP"))
+                        .initialDelaySeconds(5)
+                        .periodSeconds(5)
+                        .timeoutSeconds(3)
+                        .failureThreshold(3))
                 .resources(resources(spec, gpuCountPerReplica));
 
         List<String> commandValues = split(command);
@@ -69,7 +80,7 @@ public final class K8sResourceBuilder {
             container.setArgs(argumentValues);
         } else {
             container.setArgs(List.of(
-                    "--model",
+                    "serve",
                     modelPath,
                     "--host",
                     "0.0.0.0",

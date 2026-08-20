@@ -32,6 +32,14 @@
 
 ### vLLM 参数生成
 
+vLLM 容器必须按 CLI 子命令形式启动：
+
+- `command: ["vllm"]`
+- `args: ["serve", "<modelPath>", ...]`
+
+最终执行命令为 `vllm serve <modelPath> ...`。`serve` 是必需的子命令，不能使用
+`vllm --model <modelPath>` 代替，否则容器无法启动。
+
 后端负责生成以下关键参数：
 
 - `--host 0.0.0.0`
@@ -50,10 +58,19 @@
 3. 独享多卡部署时，`nvidia.com/gpu` 应等于 `ComputeSpec.gpuCount`，默认 `--tensor-parallel-size` 与其相等。
 4. 共享部署不应出现 `CUDA_DISABLE_CONTROL`。
 5. Service `targetPort` 必须与 vLLM `--port` 一致。
+6. Deployment 容器的 `args` 前两项必须分别为 `serve` 和模型路径。
+
+## 对话入口就绪条件
+
+- vLLM 容器使用 `/health` 作为 Kubernetes `readinessProbe`，模型服务健康检查通过后 Pod 才计入 Ready 副本。
+- 前端仅在部署状态为 `RUNNING` 且 `readyReplicas >= replicas` 时开放对话入口和发送按钮。
+- 前端每 5 秒轮询推理服务状态；健康检查通过前显示“推理服务启动中”并置灰入口，通过后显示“可对话”并自动开放。
+- 后端对话接口不信任前端状态，调用前重新检查 Deployment 就绪副本和 vLLM `/health`；未完全就绪时拒绝请求。
 
 ## 推理服务真实监控
 
 - 后端通过 Kubernetes API Server 的 Service Proxy 请求部署对应 vLLM `/metrics`，不要求平台主机解析集群内 Service DNS。
+- 采集前读取当前 Kubernetes Service 中名为 `http` 的真实端口，不使用数据库默认值 `8000`；例如服务端口为 `7999` 时，监控必须通过 `7999` 采集。
 - 当前值直接读取 vLLM Prometheus 指标：运行请求、等待请求、GPU KV Cache 使用率。
 - 累计值直接读取 vLLM 指标：Prompt Token、Generation Token、成功请求。
 - 前端每 5 秒采样一次，用相邻两次累计 Token 的差值计算真实 Token/s。
