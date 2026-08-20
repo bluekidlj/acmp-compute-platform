@@ -82,12 +82,18 @@ driver:
 toolkit:
   enabled: false
 
+migManager:
+  enabled: false
+
 dcgmExporter:
   enabled: true
   serviceMonitor:
     enabled: true
     interval: 30s
   enablePodLabels: true
+  env:
+    - name: DCGM_EXPORTER_COLLECTORS
+      value: /etc/dcgm-exporter/default-counters.csv
 EOF
   fi
 }

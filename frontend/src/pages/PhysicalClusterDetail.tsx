@@ -105,7 +105,7 @@ export default function PhysicalClusterDetailPage() {
               <Card style={{ borderRadius: 8 }}>
                 <Table dataSource={gpus} rowKey="model" pagination={false} size="small" columns={[
                   { title: '型号', dataIndex: 'model' },
-                  { title: '显存', dataIndex: 'memoryMb', render: (v) => `${v / 1024} GB` },
+                  { title: '显存', dataIndex: 'memoryMb', render: (v) => formatGpuMemory(v) },
                   { title: '节点数', dataIndex: 'nodeCount', width: 100 },
                   { title: '总卡数', dataIndex: 'totalCards', width: 100, render: (v) => <Tag color="green">{v}</Tag> },
                   { title: '所在节点', dataIndex: 'nodeNames', render: (v) => v.map((n: string) => <Tag key={n}>{n}</Tag>) },
@@ -119,7 +119,7 @@ export default function PhysicalClusterDetailPage() {
               <Card style={{ borderRadius: 8 }}>
                 <Table dataSource={splits} rowKey="poolLabel" pagination={false} size="small" columns={[
                   { title: '标签', dataIndex: 'poolLabel', render: (v) => <code className="mono">{v}</code> },
-                  { title: '显存 (MiB)', dataIndex: 'memMb' },
+                  { title: '显存', dataIndex: 'memMb', render: (v) => formatGpuMemory(v) },
                   { title: '算力 %', dataIndex: 'coresPct', render: (v) => `${v}%` },
                   { title: '节点数', dataIndex: 'nodeCount', width: 100 },
                   { title: '所在节点', dataIndex: 'nodeNames', render: (v) => v.map((n: string) => <Tag key={n}>{n}</Tag>) },
@@ -131,4 +131,9 @@ export default function PhysicalClusterDetailPage() {
       />
     </div>
   );
+}
+
+function formatGpuMemory(memoryMb: number | null | undefined) {
+  if (memoryMb == null || memoryMb <= 0) return '-';
+  return `${(memoryMb / 1024).toFixed(2)} GB`;
 }

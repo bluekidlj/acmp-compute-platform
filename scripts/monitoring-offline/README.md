@@ -45,6 +45,71 @@ chmod +x ./04-download-gpu-missing-components.sh
 
 生成的 `gpu-missing-components.tar.gz` 可以和主离线包放在一起，`02-install-monitoring-offline.sh --load-images` 会自动一起导入。
 
+## 关闭 MIG Manager 和 Profiling
+
+这套离线包默认按“只做基础 GPU 监控，不做 MIG 切分和 profiling”的方式安装。
+
+对应配置在：
+
+- [`scripts/monitoring-offline/values/gpu-operator-values.yaml`](./values/gpu-operator-values.yaml)
+
+默认值是：
+
+```yaml
+migManager:
+  enabled: false
+
+dcgmExporter:
+  env:
+    - name: DCGM_EXPORTER_COLLECTORS
+      value: /etc/dcgm-exporter/default-counters.csv
+```
+
+含义很简单：
+
+- `migManager.enabled=false`：不让 GPU Operator 去管理 MIG 切分
+- `DCGM_EXPORTER_COLLECTORS=/etc/dcgm-exporter/default-counters.csv`：不用 `dcp-metrics-included.csv`，避免 profiling module 报错
+
+如果你现在已经有旧的离线包，想快速修复，可以直接把这个 values 文件拷进去，然后重新执行：
+
+```bash
+sudo ./scripts/02-install-monitoring-offline.sh --install-gpu-operator
+```
+
+如果是重新打包，直接先改这个 values 文件，再跑 `01` 脚本，新的离线包会自动带上这个默认配置。
+
+`04` 脚本默认使用国内镜像优先模式。GPU Operator v25.3.0 的 Validator
+会依次尝试国内 Docker Hub 代理和 Docker Hub 上的等价镜像，校验 linux/amd64
+Image ID 后重新标记为：
+
+```text
+nvcr.io/nvidia/cloud-native/gpu-operator-validator:v25.3.0
+```
+
+该等价镜像的 manifest digest 与 NVIDIA 官方镜像一致。不要将 Validator
+单独降级为国内站已有的 `v23.6.0`，它与当前 GPU Operator Chart 版本不匹配。
+
+如果所在网络有自己的 Docker Hub 加速配置，也可以直接执行：
+
+```bash
+docker pull giantswarm/gpu-operator-validator:v25.3.0
+docker image inspect --format '{{.Id}}' giantswarm/gpu-operator-validator:v25.3.0
+docker tag giantswarm/gpu-operator-validator:v25.3.0 \
+  nvcr.io/nvidia/cloud-native/gpu-operator-validator:v25.3.0
+```
+
+linux/amd64 的期望 Image ID 为：
+
+```text
+sha256:7e44a407c823370301701efdffd676701a05c91af2a4f954ddb0aa4bb9ab6682
+```
+
+需要强制只使用 NVIDIA 原始仓库时：
+
+```bash
+MIRROR_MODE=original PULL_RETRIES=5 ./04-download-gpu-missing-components.sh
+```
+
 如果这次导入后仍有 Pod 处于 `ImagePullBackOff`，在内网 Master 执行诊断：
 
 ```bash
@@ -89,6 +154,8 @@ sudo ./02-install-monitoring-offline.sh --verify-images
 
 注意：`gpu-feature-discovery` 是 Pod 里的容器名，不一定是镜像仓库名。你当前看到的实际镜像是 `nvcr.io/nvidia/k8s-device-plugin:v0.17.1`，不要再拉 `nvcr.io/nvidia/cloud-native/gpu-feature-discovery:v0.17.1`，这个地址会返回 `Access Denied`。后续如果还有新缺失镜像，按 `kubectl describe pod` / `05-diagnose-missing-images.sh` 的实际结果补齐。
 
+如果 `nvidia-dcgm-exporter` 日志里出现 `The third-party Profiling module returned an unrecoverable error`，通常就是 collectors 还在走 profiling 路线。先确认 `values/gpu-operator-values.yaml` 里已经是 `default-counters.csv`，不要再用 `dcp-metrics-included.csv`。
+
 ## Master 安装
 
 只在 Master 上执行：
@@ -120,4 +187,5 @@ fake-gpu 只能验证 GPU 资产和调度，不能产生真实 DCGM 利用率、
 - 如果 `ctr import` 报 `content digest ... not found`，通常说明镜像包损坏或导出链路不完整，建议重新生成离线包。
 - 如果 `gpu-operator` 相关 Pod 继续拉 `gpu-operator-validator` 或 `prometheus-config-reloader`，说明离线包版本和 chart 依赖不一致，先重新生成离线包，再执行 `--verify-images`。
 - 如果 `helm upgrade --install gpu-operator` 报 `spec.selector ... field is immutable`，先卸载旧的 `gpu-operator` 再单独执行 `--install-gpu-operator`。
+- 如果以后要重新启用 MIG，把 `migManager.enabled` 改回 `true`，但只适合明确需要 MIG 切分的节点。
 - 如果 `kwok-controller` 被 `Evicted`，优先检查节点磁盘压力和 `/var/lib/containerd`、`/var/lib/kubelet` 占用。

@@ -103,7 +103,7 @@ export default function NodeDetailPage() {
               },
             },
             { title: '型号', dataIndex: 'gpuModel', render: function render(value) { return value || '-'; } },
-            { title: '显存', dataIndex: 'memoryMb', render: function render(value) { return value ? `${value} MiB` : '未上报'; } },
+            { title: '显存', dataIndex: 'memoryMb', render: function render(value) { return formatGpuMemory(value); } },
             { title: '状态', dataIndex: 'status', render: function render(value) { return <StatusBadge value={value} />; } },
             { title: '资源池', dataIndex: 'resourcePoolId', render: function render(value) { return value ? <Tag>{value}</Tag> : '未归池'; } },
             {
@@ -143,7 +143,7 @@ function GpuDetail({ gpu }: { gpu: GpuDevice }) {
       <Descriptions.Item label="编号">{gpu.gpuIndex}</Descriptions.Item>
       <Descriptions.Item label="品牌">{gpu.gpuBrand ? BRAND_LABELS[gpu.gpuBrand] : '待识别'}</Descriptions.Item>
       <Descriptions.Item label="型号">{gpu.gpuModel || '未上报'}</Descriptions.Item>
-      <Descriptions.Item label="显存">{gpu.memoryMb ? `${gpu.memoryMb} MiB` : '未上报'}</Descriptions.Item>
+      <Descriptions.Item label="显存">{formatGpuMemory(gpu.memoryMb)}</Descriptions.Item>
       <Descriptions.Item label="Driver">{gpu.driverVersion || '未上报'}</Descriptions.Item>
       <Descriptions.Item label="CUDA">{gpu.cudaVersion || '未上报'}</Descriptions.Item>
       <Descriptions.Item label="资源池">{gpu.resourcePoolId || '未归池'}</Descriptions.Item>
@@ -162,7 +162,7 @@ function NodeMetadata({ labelsJson, taintsJson }: {
   labelsJson: string | null;
   taintsJson: string | null;
 }) {
-  const labels = parseObject(labelsJson);
+  const labels = schedulingLabels(parseObject(labelsJson));
   const taints = parseArray(taintsJson);
   return (
     <Collapse
@@ -198,8 +198,19 @@ function NodeMetadata({ labelsJson, taintsJson }: {
   );
 }
 
+/** 仅展示平台写入、实际参与资源池/规格调度的标签。其余 K8s/插件标签保留在后端，避免生产页面被几十个系统标签淹没。 */
+function schedulingLabels(labels: Record<string, string>) {
+  return Object.fromEntries(Object.entries(labels).filter(([key]) => key.startsWith('acmp.ai/')));
+}
+
 function formatMemory(bytes: number) {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GiB`;
+}
+
+// API 的 memoryMb 统一表示 MiB；界面按 1024 MiB = 1 GB 展示，避免把 MiB 数值误当成 GB。
+function formatGpuMemory(memoryMb: number | null | undefined) {
+  if (memoryMb == null || memoryMb <= 0) return '未上报';
+  return `${(memoryMb / 1024).toFixed(2)} GB`;
 }
 
 function isMaster(node: ClusterNode) {

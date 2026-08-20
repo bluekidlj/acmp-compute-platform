@@ -13,6 +13,7 @@ HELM_BIN="${HELM_BIN:-helm}"
 IMAGE_TOOL="${IMAGE_TOOL:-docker}"
 IMAGE_PULL_RETRY="${IMAGE_PULL_RETRY:-5}"
 IMAGE_PULL_SLEEP_SECONDS="${IMAGE_PULL_SLEEP_SECONDS:-10}"
+VALIDATOR_AMD64_IMAGE_ID="${VALIDATOR_AMD64_IMAGE_ID:-sha256:7e44a407c823370301701efdffd676701a05c91af2a4f954ddb0aa4bb9ab6682}"
 EXTRA_REQUIRED_IMAGES=(
   'nvcr.io/nvidia/cloud-native/gpu-operator-validator:v25.3.0'
   'nvcr.io/nvidia/k8s-device-plugin:v0.17.1'
@@ -90,12 +91,17 @@ driver:
   enabled: false
 toolkit:
   enabled: false
+migManager:
+  enabled: false
 dcgmExporter:
   enabled: true
   serviceMonitor:
     enabled: true
     interval: 30s
   enablePodLabels: true
+  env:
+    - name: DCGM_EXPORTER_COLLECTORS
+      value: /etc/dcgm-exporter/default-counters.csv
 EOF
   fi
 }
@@ -163,6 +169,14 @@ mirror_candidates() {
       printf '%s\n' \
         'swr.cn-north-4.myhuaweicloud.com/ddn-k8s/nvcr.io/nvidia/gpu-operator:v25.3.0'
       ;;
+    nvcr.io/nvidia/cloud-native/gpu-operator-validator:v25.3.0)
+      # giantswarm 的 v25.3.0 amd64 镜像与 NVIDIA 官方 Validator 内容一致。
+      # 优先走国内 Docker Hub 代理，代理不可用时再尝试 Docker Hub 原地址。
+      printf '%s\n' \
+        'docker.m.daocloud.io/giantswarm/gpu-operator-validator:v25.3.0' \
+        'docker.1ms.run/giantswarm/gpu-operator-validator:v25.3.0' \
+        'docker.io/giantswarm/gpu-operator-validator:v25.3.0'
+      ;;
     nvcr.io/nvidia/k8s-device-plugin:v0.17.1)
       printf '%s\n' \
         'swr.cn-north-4.myhuaweicloud.com/ddn-k8s/nvcr.io/nvidia/k8s-device-plugin:v0.17.1'
@@ -177,6 +191,29 @@ mirror_candidates() {
   esac
 }
 
+image_id() {
+  "${IMAGE_TOOL}" image inspect --format '{{.Id}}' "$1" 2>/dev/null \
+    || "${IMAGE_TOOL}" inspect --format '{{.Id}}' "$1" 2>/dev/null
+}
+
+verify_mirror_image() {
+  local original="$1"
+  local mirror="$2"
+
+  case "${original}" in
+    nvcr.io/nvidia/cloud-native/gpu-operator-validator:v25.3.0)
+      local actual_id
+      actual_id="$(image_id "${mirror}" || true)"
+      if [ "${actual_id}" != "${VALIDATOR_AMD64_IMAGE_ID}" ]; then
+        echo "Validator 镜像校验失败: ${mirror}" >&2
+        echo "期望 Image ID: ${VALIDATOR_AMD64_IMAGE_ID}" >&2
+        echo "实际 Image ID: ${actual_id:-<unknown>}" >&2
+        return 1
+      fi
+      ;;
+  esac
+}
+
 pull_with_fallback() {
   local original="$1"
   local mirror
@@ -184,6 +221,9 @@ pull_with_fallback() {
     [ -n "${mirror}" ] || continue
     log "尝试国内镜像: ${mirror}"
     if DOCKER_CLIENT_TIMEOUT=300 COMPOSE_HTTP_TIMEOUT=300 "${IMAGE_TOOL}" pull "${mirror}"; then
+      if ! verify_mirror_image "${original}" "${mirror}"; then
+        continue
+      fi
       if [ "${mirror}" != "${original}" ]; then
         "${IMAGE_TOOL}" tag "${mirror}" "${original}"
       fi

@@ -234,7 +234,37 @@ public class ClusterInventoryService {
         if (model == null || model.isBlank()) {
             model = "unknown";
         }
+        // 某些设备插件只上报 gpu-memory=1（占位值），不能把它当成 1 MiB 展示。
+        // 在没有真实 DCGM/显存字段的测试集群中，按型号中的容量做确定性兜底。
+        if (memoryMb == null || memoryMb < 1024) {
+            Long inferred = memoryMbFromModel(model);
+            if (inferred != null) {
+                memoryMb = inferred;
+            }
+        }
         return new GpuMetadata(model, memoryMb, driver, cuda);
+    }
+
+    private Long memoryMbFromModel(String model) {
+        if (model == null || model.isBlank()) {
+            return null;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("(?i)(?:^|[^0-9])(\\d{2,3})\\s*(?:GB|G)(?:[^0-9]|$)")
+                .matcher(model);
+        if (matcher.find()) {
+            try {
+                return Long.parseLong(matcher.group(1)) * 1024L;
+            } catch (NumberFormatException ignored) {
+                // fall through
+            }
+        }
+        String upper = model.toUpperCase(java.util.Locale.ROOT);
+        if (upper.contains("V100")) return 16L * 1024L;
+        if (upper.contains("A100") || upper.contains("H100") || upper.contains("H800")) return 80L * 1024L;
+        if (upper.contains("A800")) return 80L * 1024L;
+        if (upper.contains("910B") || upper.contains("910C")) return 64L * 1024L;
+        return null;
     }
 
     /**

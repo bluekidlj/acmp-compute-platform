@@ -116,12 +116,10 @@ public class ResourcePoolService {
 
         kubernetesClientManager.removeAcmpNodeLabels(node.getClusterId(), node.getName());
         if ("SHARED".equals(pool.getPoolType())) {
-            if (!kubernetesClientManager.isHamiInstalled(node.getClusterId())) {
-                throw new BadRequestException("当前集群未安装 HAMi，不能加入共享池");
-            }
-            // 共享比例由 HAMi 执行；ACMP 只通过 ConfigMap 配置目标 Node。
+            // 约定所有接入集群均已安装 HAMi。共享比例由 HAMi 执行，
+            // ACMP 只通过 ConfigMap 配置目标 Node，不在入口处做安装探测阻断。
             kubernetesClientManager.applyHamiNodeSharing(node.getClusterId(), node.getName(), gpuShare);
-        } else if (kubernetesClientManager.isHamiInstalled(node.getClusterId())) {
+        } else {
             // 独享池恢复该节点的整卡上报，避免复用旧的共享配置。
             kubernetesClientManager.removeHamiNodeSharing(node.getClusterId(), node.getName());
         }
@@ -175,6 +173,7 @@ public class ResourcePoolService {
                 .description(request.getDescription())
                 .status("active")
                 .build();
+        return  spec;
     }
 
     private void validateNodeGpus(List<GpuDevice> nodeGpus, GpuDevice sourceGpu) {

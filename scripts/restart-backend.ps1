@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [switch]$RunTests,
-    [int]$StartupTimeoutSeconds = 30
+    [int]$StartupTimeoutSeconds = 30,
+    [int]$BackendPort = 8080
 )
 
 $ErrorActionPreference = 'Stop'
@@ -82,10 +83,10 @@ if (-not (Test-Path -LiteralPath $jarPath)) {
     throw "Build completed but JAR was not found: $jarPath"
 }
 
-Write-Host 'Starting backend on port 8080...'
+Write-Host "Starting backend on port $BackendPort..."
 $backendProcess = Start-Process `
     -FilePath $java `
-    -ArgumentList @('-jar', $jarPath) `
+    -ArgumentList @('-jar', $jarPath, "--server.port=$BackendPort") `
     -WorkingDirectory $projectRoot `
     -WindowStyle Hidden `
     -RedirectStandardOutput $stdoutLog `
@@ -108,7 +109,7 @@ do {
 
     $tcpClient = [System.Net.Sockets.TcpClient]::new()
     try {
-        $tcpClient.Connect('127.0.0.1', 8080)
+        $tcpClient.Connect('127.0.0.1', $BackendPort)
         $portReady = $tcpClient.Connected
     }
     catch {
@@ -120,7 +121,7 @@ do {
 
     if ($portReady) {
         Write-Host "Backend started successfully (PID $($backendProcess.Id))."
-        Write-Host "API: http://127.0.0.1:8080/api/v1"
+        Write-Host "API: http://127.0.0.1:$BackendPort/api/v1"
         Write-Host "stdout: $stdoutLog"
         Write-Host "stderr: $stderrLog"
         exit 0
