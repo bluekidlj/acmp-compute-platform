@@ -8,6 +8,7 @@ import type {
   ClusterMonitoringSummary,
   ComputeSpec,
   DeploymentRequest,
+  DeploymentMetrics,
   GpuDevice,
   LoginResponse,
   Model,
@@ -146,6 +147,7 @@ export const api = {
       name: string;
       displayName?: string;
       gpuShare?: '1/8' | '1/4' | '1/2';
+      gpuCount: number;
       cpuCores: number;
       memoryGib: number;
       description?: string;
@@ -225,6 +227,9 @@ export const api = {
   },
   async deployment(projectId: string, id: string): Promise<ModelDeployment> {
     return (await client.get<ModelDeployment>(`/projects/${projectId}/deployments/${id}`)).data;
+  },
+  async deploymentMetrics(projectId: string, id: string): Promise<DeploymentMetrics> {
+    return (await client.get<DeploymentMetrics>(`/projects/${projectId}/deployments/${id}/metrics`)).data;
   },
   async createDeployment(projectId: string, body: DeploymentRequest): Promise<ModelDeployment> {
     return (await client.post<ModelDeployment>(`/projects/${projectId}/deployments`, body)).data;

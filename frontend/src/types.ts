@@ -282,6 +282,10 @@ export interface ModelDeployment {
   vllmImage: string | null;
   port: number;
   replicas: number;
+  gpuCountPerReplica?: number | null;
+  tensorParallelSize?: number | null;
+  gpuMemoryUtilization?: number | null;
+  maxModelLength?: number | null;
   k8sDeploymentName: string;
   k8sServiceName: string;
   status: DeploymentStatus;
@@ -294,10 +298,28 @@ export interface ModelDeployment {
   updatedAt: string | null;
 }
 
+export interface DeploymentMetrics {
+  deploymentId: string;
+  available: boolean;
+  message: string | null;
+  collectedAt: string;
+  runningRequests: number | null;
+  waitingRequests: number | null;
+  promptTokensTotal: number | null;
+  generationTokensTotal: number | null;
+  successfulRequestsTotal: number | null;
+  gpuCacheUsagePercent: number | null;
+  averageE2eLatencyMs: number | null;
+  averageTimeToFirstTokenMs: number | null;
+}
+
 export interface DeploymentRequest {
   name: string;
   specName: string;
   replicas: number;
+  tensorParallelSize?: number;
+  gpuMemoryUtilization?: number;
+  maxModelLength?: number;
   image: string;
   port: number;
   command?: string;

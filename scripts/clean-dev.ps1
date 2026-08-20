@@ -2,7 +2,10 @@
 param(
     [switch]$CleanFrontend = $true,
     [switch]$CleanBackend = $true,
-    [switch]$MavenClean = $true
+    [switch]$MavenClean = $true,
+    [switch]$CleanProject = $true,
+    [switch]$CleanRelease = $true,
+    [switch]$CleanDependencies
 )
 
 $ErrorActionPreference = 'Stop'
@@ -71,6 +74,21 @@ function Stop-FrontendByCommand {
     }
 }
 
+function Remove-ProjectPath {
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $rootPrefix = $projectRoot.TrimEnd('\') + '\'
+    if (-not $fullPath.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to clean path outside project: $fullPath"
+    }
+    Write-Log 'INFO' "Removing $fullPath"
+    Remove-Item -LiteralPath $fullPath -Recurse -Force
+}
+
 New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
 
 if ($CleanBackend) {
@@ -100,6 +118,22 @@ if ($MavenClean) {
     finally {
         Pop-Location
     }
+}
+
+if ($CleanProject) {
+    Remove-ProjectPath -Path (Join-Path $projectRoot 'target')
+    Remove-ProjectPath -Path (Join-Path $projectRoot 'frontend\dist')
+    Remove-ProjectPath -Path (Join-Path $projectRoot 'frontend\tsconfig.tsbuildinfo')
+    Remove-ProjectPath -Path (Join-Path $projectRoot '.runtime')
+    Remove-ProjectPath -Path (Join-Path $projectRoot 'log')
+}
+
+if ($CleanRelease) {
+    Remove-ProjectPath -Path (Join-Path $projectRoot 'release')
+}
+
+if ($CleanDependencies) {
+    Remove-ProjectPath -Path (Join-Path $projectRoot 'frontend\node_modules')
 }
 
 Write-Log 'INFO' '清理完成'

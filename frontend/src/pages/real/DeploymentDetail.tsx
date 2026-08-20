@@ -111,6 +111,10 @@ export default function DeploymentDetailPage() {
             <Descriptions.Item label="端口">{deployment.port}</Descriptions.Item>
             <Descriptions.Item label="镜像" span={2}><code>{deployment.vllmImage || '-'}</code></Descriptions.Item>
             <Descriptions.Item label="模型路径" span={2}><code>{deployment.modelIdOrPath || '-'}</code></Descriptions.Item>
+            <Descriptions.Item label="每副本 GPU 数">{deployment.gpuCountPerReplica ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="Tensor 并行度">{deployment.tensorParallelSize ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="GPU 内存利用率">{deployment.gpuMemoryUtilization ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="最大上下文">{deployment.maxModelLength ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="Service URL" span={2}><code>{deployment.serviceUrl || '-'}</code></Descriptions.Item>
             <Descriptions.Item label="Deployment" span={2}><code>{deployment.k8sDeploymentName}</code></Descriptions.Item>
             <Descriptions.Item label="Service" span={2}><code>{deployment.k8sServiceName}</code></Descriptions.Item>
@@ -125,7 +129,7 @@ export default function DeploymentDetailPage() {
             <Descriptions.Item label="类型"><Tag>{spec?.specType === 'SHARED' ? '共享' : '独享'}</Tag></Descriptions.Item>
             <Descriptions.Item label="CPU">{spec ? `${spec.cpuCores} Core` : '-'}</Descriptions.Item>
             <Descriptions.Item label="内存">{spec ? `${spec.memoryGib} GiB` : '-'}</Descriptions.Item>
-            <Descriptions.Item label="Gpu">{spec ? `${spec.gpuCount} · ${spec.gpuShare || '整卡'}` : '-'}</Descriptions.Item>
+            <Descriptions.Item label="Gpu">{spec ? `${deployment.gpuCountPerReplica ?? spec.gpuCount} · ${spec.gpuShare || '整卡'}` : '-'}</Descriptions.Item>
           </Descriptions>
         </div>
       </div>

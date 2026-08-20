@@ -16,6 +16,11 @@
         <result column="vllm_image" property="vllmImage"/>
         <result column="port" property="port"/>
         <result column="replicas" property="replicas"/>
+        <result column="gpu_count_per_replica" property="gpuCountPerReplica"/>
+        <result column="tensor_parallel_size" property="tensorParallelSize"/>
+        <result column="gpu_memory_utilization" property="gpuMemoryUtilization"/>
+        <result column="max_model_length" property="maxModelLength"/>
+        <result column="assigned_gpu_ids" property="assignedGpuIdsJson"/>
         <result column="k8s_deployment_name" property="k8sDeploymentName"/>
         <result column="k8s_service_name" property="k8sServiceName"/>
         <result column="status" property="status"/>
@@ -31,12 +36,14 @@
         INSERT INTO model_deployment
             (id, project_id, tenant_id, model_id, resource_pool_id, spec_id,
              name, model_name, model_source, model_id_or_path, vllm_image, port, replicas,
-             k8s_deployment_name, k8s_service_name, status, service_url,
+             gpu_count_per_replica, tensor_parallel_size, gpu_memory_utilization, max_model_length,
+             assigned_gpu_ids, k8s_deployment_name, k8s_service_name, status, service_url,
              actual_cluster_id, created_by, failure_message, created_at, updated_at)
         VALUES
-            (#{id}, #{projectId}, #{tenantId}, #{modelId}, #{resourcePoolId}, #{specId},
+             (#{id}, #{projectId}, #{tenantId}, #{modelId}, #{resourcePoolId}, #{specId},
              #{name}, #{modelName}, #{modelSource}, #{modelIdOrPath}, #{vllmImage}, #{port}, #{replicas},
-             #{k8sDeploymentName}, #{k8sServiceName}, #{status}, #{serviceUrl},
+             #{gpuCountPerReplica}, #{tensorParallelSize}, #{gpuMemoryUtilization}, #{maxModelLength},
+             #{assignedGpuIdsJson}, #{k8sDeploymentName}, #{k8sServiceName}, #{status}, #{serviceUrl},
              #{actualClusterId}, #{createdBy}, #{failureMessage},
              CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     </insert>

@@ -134,6 +134,30 @@
           AND compute_spec_id IS NULL
     </update>
 
+    <select id="findIdleByCluster" resultMap="BaseResultMap">
+        SELECT gd.*, cs.name AS compute_spec_name, cs.display_name AS compute_spec_display_name
+        FROM gpu_device gd
+        LEFT JOIN compute_spec cs ON cs.id = gd.compute_spec_id
+        WHERE gd.cluster_id = #{clusterId}
+          AND gd.status = 'READY'
+          AND gd.usage_status = 'IDLE'
+        <if test="gpuModel != null and gpuModel != ''">
+          AND gd.gpu_model = #{gpuModel}
+        </if>
+        ORDER BY gd.node_name, gd.gpu_index
+        LIMIT #{limit}
+    </select>
+
+    <update id="updateUsageStatusByIds">
+        UPDATE gpu_device
+        SET usage_status = #{usageStatus},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
     <update id="clearPoolBySpecId">
         UPDATE gpu_device
         SET resource_pool_id = NULL,

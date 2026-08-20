@@ -2,6 +2,7 @@ package com.acmp.compute.controller;
 
 import com.acmp.compute.dto.ModelDeploymentRequest;
 import com.acmp.compute.dto.ModelDeploymentResponse;
+import com.acmp.compute.dto.DeploymentMetricsResponse;
 import com.acmp.compute.dto.ChatCompletionRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.acmp.compute.service.ModelDeploymentService;
@@ -57,6 +58,14 @@ public class ModelDeploymentController {
             @PathVariable String projectId,
             @PathVariable String deploymentId) {
         return ResponseEntity.ok(service.getStatus(projectId, deploymentId));
+    }
+
+    /** 读取部署对应 vLLM /metrics 的真实当前指标。 */
+    @GetMapping("/{deploymentId}/metrics")
+    public ResponseEntity<DeploymentMetricsResponse> metrics(
+            @PathVariable String projectId,
+            @PathVariable String deploymentId) {
+        return ResponseEntity.ok(service.metrics(projectId, deploymentId));
     }
 
     /**

@@ -42,6 +42,7 @@ interface JoinNodeForm {
   name: string;
   displayName?: string;
   gpuShare?: '1/8' | '1/4' | '1/2';
+  gpuCount: number;
   cpuCores: number;
   memoryGib: number;
   description?: string;
@@ -66,6 +67,7 @@ export default function ResourcePoolsPage() {
   const [joinBrand, setJoinBrand] = useState<GpuBrand | 'ALL'>('ALL');
   const [poolBrand, setPoolBrand] = useState<GpuBrand | 'ALL'>('ALL');
   const [form] = Form.useForm<JoinNodeForm>();
+  const joinGpuCount = Form.useWatch('gpuCount', form) || 1;
 
   function load() {
     setLoading(true);
@@ -138,11 +140,12 @@ export default function ResourcePoolsPage() {
 
     setSelectedNode(item);
     form.setFieldsValue({
-      name: `${modelName || 'gpu'}-${suffix}`,
+      name: `${modelName || 'gpu'}-1gpu-${suffix}`,
       displayName: drawerPool.poolType === 'EXCLUSIVE'
         ? `${firstGpu.gpuModel || 'GPU'} 独享`
         : `${firstGpu.gpuModel || 'GPU'} 共享 1/4`,
       gpuShare: drawerPool.poolType === 'SHARED' ? '1/4' : undefined,
+      gpuCount: 1,
       cpuCores: drawerPool.poolType === 'EXCLUSIVE' ? 8 : 4,
       memoryGib: drawerPool.poolType === 'EXCLUSIVE' ? 32 : 16,
     });
@@ -317,6 +320,45 @@ export default function ResourcePoolsPage() {
                 />
               </Form.Item>
             )}
+            <Form.Item
+              name="gpuCount"
+              label="每个规格节点 GPU 数"
+              extra={selectedNode
+                ? `该 Node 共 ${selectedNode.gpus.length} 张卡；当前规格可形成 ${selectedNode.gpus.length / joinGpuCount} 个规格节点，最多承载同等数量的 Pod 副本`
+                : '先选择 Node'}
+              rules={[{ required: true }]}
+            >
+              <Select
+                disabled={!selectedNode || drawerPool?.poolType === 'SHARED'}
+                onChange={function changeGpuCount(gpuCount: number) {
+                  if (!selectedNode || !drawerPool) {
+                    return;
+                  }
+                  const firstGpu = selectedNode.gpus[0];
+                  const modelName = (firstGpu.gpuModel || 'gpu')
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, '-')
+                    .replace(/^-|-$/g, '');
+                  form.setFieldsValue({
+                    name: `${modelName || 'gpu'}-${gpuCount}gpu-exclusive`,
+                    displayName: `${firstGpu.gpuModel || 'GPU'} ${gpuCount} 卡独享`,
+                  });
+                }}
+                options={selectedNode
+                  ? Array.from({ length: selectedNode.gpus.length }, function option(_, index) {
+                    const gpuCount = index + 1;
+                    return gpuCount > 0 && selectedNode.gpus.length % gpuCount === 0
+                      ? {
+                        value: gpuCount,
+                        label: `${gpuCount} 张 GPU / 规格节点 · 可形成 ${selectedNode.gpus.length / gpuCount} 个规格节点`,
+                      }
+                      : null;
+                  }).filter(function valid(option): option is { value: number; label: string } {
+                    return option !== null;
+                  })
+                  : []}
+              />
+            </Form.Item>
             <div className="form-grid-two">
               <Form.Item name="cpuCores" label="每副本 CPU Core" rules={[{ required: true }]}>
                 <InputNumber disabled={!selectedNode} min={1} style={{ width: '100%' }} />

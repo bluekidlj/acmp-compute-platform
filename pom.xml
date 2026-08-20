@@ -96,4 +96,14 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>windows-release</id>
+            <build>
+                <!-- Keep release packaging independent from a JAR currently running from target/. -->
+                <directory>${project.basedir}/.runtime/windows-release-target</directory>
+            </build>
+        </profile>
+    </profiles>
 </project>

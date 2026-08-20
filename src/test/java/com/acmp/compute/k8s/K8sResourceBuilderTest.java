@@ -34,6 +34,7 @@ class K8sResourceBuilderTest {
                 5678,
                 spec,
                 1,
+                2,
                 null,
                 Map.of(),
                 "/http-echo",
@@ -43,9 +44,20 @@ class K8sResourceBuilderTest {
                 .getTemplate()
                 .getSpec()
                 .getNodeSelector();
+        String gpuLimit = deployment.getSpec()
+                .getTemplate()
+                .getSpec()
+                .getContainers()
+                .get(0)
+                .getResources()
+                .getLimits()
+                .get("nvidia.com/gpu")
+                .getNumber()
+                .toString();
 
         assertEquals("exclusive", selector.get(KubernetesSchedulingLabels.POOL_TYPE));
         assertEquals("nvidia-v100-exclusive",
                 selector.get(KubernetesSchedulingLabels.COMPUTE_SPEC));
+        assertEquals("2", gpuLimit);
     }
 }

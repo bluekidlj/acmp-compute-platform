@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Button, Card, Col, DatePicker, Row, Select, Space, Table, Tag, message } from 'antd';
+import { Alert, Button, Card, Col, DatePicker, Row, Select, Space, Table, Tag, message } from 'antd';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import * as echarts from 'echarts';
@@ -12,6 +12,7 @@ import StatusBadge from '../../components/StatusBadge';
 import type {
   ClusterMonitoringSummary,
   ClusterNode,
+  DeploymentMetrics,
   ModelDeployment,
   MonitoringSeries,
   NodeMonitoringDetail,
@@ -26,7 +27,15 @@ type AxisDensity = 'compact' | 'standard' | 'wide';
 interface ChartLine {
   name: string;
   color: string;
-  values: number[];
+  values: Array<number | null>;
+}
+
+interface DeploymentMetricPoint {
+  timestamp: string;
+  runningRequests: number | null;
+  waitingRequests: number | null;
+  promptTokensPerSecond: number | null;
+  generationTokensPerSecond: number | null;
 }
 
 type NodeMonitoringRange = {
@@ -101,7 +110,9 @@ function MonitoringChart(props: { title: string; unit: string; lines: ChartLine[
     const sourceLabels = props.labels && props.labels.length > 0 ? props.labels : ['00', '05', '10', '15', '20', '25', '30', '35'];
     const slotCount = Math.max(sourceLabels.length, props.lines.reduce((max, line) => Math.max(max, line.values.length), 0), 8);
     const chartLabels = Array.from({ length: slotCount }, (_, index) => sourceLabels[Math.min(index, sourceLabels.length - 1)] || '');
-    const seriesMax = Math.max(...props.lines.flatMap(line => line.values), 0);
+    const numericValues = props.lines.flatMap(line => line.values)
+      .filter((value): value is number => value !== null);
+    const seriesMax = Math.max(...numericValues, 0);
     const upperBound = Math.max(seriesMax * 1.15, props.unit === '%' ? 100 : seriesMax > 0 ? seriesMax * 1.15 : 1);
     return {
       backgroundColor: 'transparent',
@@ -274,7 +285,7 @@ export function DeploymentMonitoringListPage() {
 
   return (
     <div>
-      <PageHeader title="推理服务监控" subtitle="查看推理服务实例、模型和副本状态" tags={[{ label: 'Prometheus', color: 'blue' }]} />
+      <PageHeader title="推理服务监控" subtitle="查看推理服务实例、模型和副本状态" tags={[{ label: 'vLLM', color: 'blue' }]} />
       <div className="surface data-table">
         <Table
           rowKey="id"
@@ -302,8 +313,11 @@ export function DeploymentMonitoringDetailPage() {
   const navigate = useNavigate();
   const { projectId, deploymentId } = useParams();
   const [deployment, setDeployment] = useState<ModelDeployment>();
-  const [range, setRange] = useState<TimeRange>('1h');
-  const [density, setDensity] = useState<AxisDensity>('standard');
+  const [metrics, setMetrics] = useState<DeploymentMetrics>();
+  const [metricPoints, setMetricPoints] = useState<DeploymentMetricPoint[]>([]);
+  const [metricError, setMetricError] = useState<string>();
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  const previousMetrics = useRef<DeploymentMetrics>();
 
   useEffect(function loadDeployment() {
     if (!projectId || !deploymentId) return;
@@ -312,25 +326,97 @@ export function DeploymentMonitoringDetailPage() {
       .catch(error => message.error(error instanceof Error ? error.message : '推理服务加载失败'));
   }, [deploymentId, projectId]);
 
+  async function loadMetrics(showLoading = false) {
+    if (!projectId || !deploymentId) return;
+    if (showLoading) setMetricsLoading(true);
+    try {
+      const next = await api.deploymentMetrics(projectId, deploymentId);
+      setMetrics(next);
+      if (!next.available) {
+        setMetricError(next.message || 'vLLM 暂无可用监控指标');
+        previousMetrics.current = undefined;
+        return;
+      }
+      setMetricError(undefined);
+      const previous = previousMetrics.current;
+      const elapsedSeconds = previous
+        ? (dayjs(next.collectedAt).valueOf() - dayjs(previous.collectedAt).valueOf()) / 1000
+        : 0;
+      const promptRate = previous && elapsedSeconds > 0
+        && next.promptTokensTotal !== null && previous.promptTokensTotal !== null
+        ? Math.max(0, next.promptTokensTotal - previous.promptTokensTotal) / elapsedSeconds
+        : null;
+      const generationRate = previous && elapsedSeconds > 0
+        && next.generationTokensTotal !== null && previous.generationTokensTotal !== null
+        ? Math.max(0, next.generationTokensTotal - previous.generationTokensTotal) / elapsedSeconds
+        : null;
+      setMetricPoints(current => [...current, {
+        timestamp: next.collectedAt,
+        runningRequests: next.runningRequests,
+        waitingRequests: next.waitingRequests,
+        promptTokensPerSecond: promptRate,
+        generationTokensPerSecond: generationRate,
+      }].slice(-120));
+      previousMetrics.current = next;
+    } catch (error) {
+      setMetricError(error instanceof Error ? error.message : 'vLLM 指标读取失败');
+      previousMetrics.current = undefined;
+    } finally {
+      setMetricsLoading(false);
+    }
+  }
+
+  useEffect(function pollVllmMetrics() {
+    previousMetrics.current = undefined;
+    setMetricPoints([]);
+    void loadMetrics(true);
+    const timer = window.setInterval(function refreshMetrics() {
+      void loadMetrics();
+    }, 5000);
+    return function stopPolling() {
+      window.clearInterval(timer);
+    };
+  }, [deploymentId, projectId]);
+
+  const latestPoint = metricPoints[metricPoints.length - 1];
+  const labels = metricPoints.map(point => dayjs(point.timestamp).format('HH:mm:ss'));
+  const requestLines: ChartLine[] = metricPoints.length === 0 ? [] : [
+    { name: '运行请求', color: '#1677ff', values: metricPoints.map(point => point.runningRequests) },
+    { name: '等待请求', color: '#fa8c16', values: metricPoints.map(point => point.waitingRequests) },
+  ];
+  const tokenLines: ChartLine[] = metricPoints.some(point => point.promptTokensPerSecond !== null
+      || point.generationTokensPerSecond !== null)
+    ? [
+      { name: 'Prompt Token/s', color: '#722ed1', values: metricPoints.map(point => point.promptTokensPerSecond) },
+      { name: 'Generation Token/s', color: '#13a8a8', values: metricPoints.map(point => point.generationTokensPerSecond) },
+    ]
+    : [];
+
+  function metricValue(value: number | null | undefined, digits = 1) {
+    return value === null || value === undefined ? '-' : value.toFixed(digits);
+  }
+
   return (
     <div>
       <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/monitoring/deployments')}>返回推理服务监控</Button>
       <PageHeader
         title={deployment?.name || '推理服务监控详情'}
         subtitle={`${deployment?.modelName || '-'} · ${deployment?.serviceUrl || '-'}`}
-        extra={<TimeRangeSelector value={range} onChange={setRange} density={density} onDensityChange={setDensity} />}
+        tags={[{ label: 'vLLM /metrics', color: metrics?.available ? 'green' : 'default' }]}
+        extra={<Space><span style={{ color: '#66756f' }}>每 5 秒刷新</span><Button loading={metricsLoading} icon={<ReloadOutlined />} onClick={() => void loadMetrics(true)}>立即刷新</Button></Space>}
       />
+      {metricError && <Alert type="warning" showIcon message="vLLM 监控暂不可用" description={metricError} style={{ marginBottom: 16 }} />}
       <Row gutter={[16, 16]} className="monitor-summary-row">
         <Col span={4}><Card><div className="monitor-summary-label">服务状态</div><div className="monitor-summary-value">{deployment ? <StatusBadge value={deployment.status} /> : '-'}</div></Card></Col>
         <Col span={4}><Card><div className="monitor-summary-label">就绪副本</div><div className="monitor-summary-value">{deployment ? `${deployment.readyReplicas ?? 0}/${deployment.replicas}` : '-'}</div></Card></Col>
-        <Col span={4}><Card><div className="monitor-summary-label">运行请求</div><div className="monitor-summary-value">6</div></Card></Col>
-        <Col span={4}><Card><div className="monitor-summary-label">等待请求</div><div className="monitor-summary-value">1</div></Card></Col>
-        <Col span={4}><Card><div className="monitor-summary-label">Prompt Token/s</div><div className="monitor-summary-value">320.5</div></Card></Col>
-        <Col span={4}><Card><div className="monitor-summary-label">Generation Token/s</div><div className="monitor-summary-value">86.2</div></Card></Col>
+        <Col span={4}><Card><div className="monitor-summary-label">运行请求</div><div className="monitor-summary-value">{metricValue(metrics?.runningRequests, 0)}</div></Card></Col>
+        <Col span={4}><Card><div className="monitor-summary-label">等待请求</div><div className="monitor-summary-value">{metricValue(metrics?.waitingRequests, 0)}</div></Card></Col>
+        <Col span={4}><Card><div className="monitor-summary-label">Prompt Token/s</div><div className="monitor-summary-value">{metricValue(latestPoint?.promptTokensPerSecond)}</div></Card></Col>
+        <Col span={4}><Card><div className="monitor-summary-label">Generation Token/s</div><div className="monitor-summary-value">{metricValue(latestPoint?.generationTokensPerSecond)}</div></Card></Col>
       </Row>
       <Row gutter={[16, 16]}>
-        <Col span={12}><MonitoringChart title="请求状态" unit="requests" density={density} lines={[{ name: '运行请求', color: '#1677ff', values: [2, 3, 4, 4, 6, 5, 6] }, { name: '等待请求', color: '#fa8c16', values: [0, 0, 1, 2, 1, 0, 1] }]} /></Col>
-        <Col span={12}><MonitoringChart title="Token 吞吐" unit="token/s" density={density} lines={[{ name: 'Prompt Token/s', color: '#722ed1', values: [180, 205, 240, 286, 310, 298, 320] }, { name: 'Generation Token/s', color: '#13a8a8', values: [42, 48, 61, 75, 82, 78, 86] }]} /></Col>
+        <Col span={12}><MonitoringChart title="请求状态" unit="requests" density="standard" labels={labels} lines={requestLines} /></Col>
+        <Col span={12}><MonitoringChart title="Token 吞吐" unit="token/s" density="standard" labels={labels} lines={tokenLines} /></Col>
       </Row>
     </div>
   );

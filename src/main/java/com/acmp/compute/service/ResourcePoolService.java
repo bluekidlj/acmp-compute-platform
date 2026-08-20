@@ -100,6 +100,7 @@ public class ResourcePoolService {
             throw new BadRequestException("Gpu 品牌未识别，请先重新同步集群库存");
         }
         validateNodeGpus(nodeGpus, sourceGpu);
+        validateGpuCount(pool, request.getGpuCount(), nodeGpus.size());
 
         if ("SHARED".equals(pool.getPoolType())
                 && sourceGpu.getGpuBrand() != com.acmp.compute.entity.GpuBrand.NVIDIA
@@ -116,12 +117,9 @@ public class ResourcePoolService {
 
         kubernetesClientManager.removeAcmpNodeLabels(node.getClusterId(), node.getName());
         if ("SHARED".equals(pool.getPoolType())) {
-            // 约定所有接入集群均已安装 HAMi。共享比例由 HAMi 执行，
-            // ACMP 只通过 ConfigMap 配置目标 Node，不在入口处做安装探测阻断。
             kubernetesClientManager.applyHamiNodeSharing(node.getClusterId(), node.getName(), gpuShare);
         } else {
-            // 独享池恢复该节点的整卡上报，避免复用旧的共享配置。
-            kubernetesClientManager.removeHamiNodeSharing(node.getClusterId(), node.getName());
+            kubernetesClientManager.applyHamiNodeExclusive(node.getClusterId(), node.getName());
         }
         Map<String, String> labels = Map.of(
                 KubernetesSchedulingLabels.POOL_TYPE,
@@ -166,7 +164,7 @@ public class ResourcePoolService {
                 .resourcePoolId(pool.getId())
                 .gpuModel(gpu.getGpuModel())
                 .gpuMemoryMb(gpu.getMemoryMb())
-                .gpuCount(1)
+                .gpuCount(request.getGpuCount())
                 .cpuCores(request.getCpuCores())
                 .memoryGib(request.getMemoryGib())
                 .gpuShare(gpuShare)
@@ -204,7 +202,7 @@ public class ResourcePoolService {
                     && Objects.equals(spec.getGpuModel(), gpu.getGpuModel())
                     && Objects.equals(spec.getGpuMemoryMb(), gpu.getMemoryMb())
                     && Objects.equals(spec.getSpecType(), pool.getPoolType())
-                    && Objects.equals(spec.getGpuCount(), 1)
+                    && Objects.equals(spec.getGpuCount(), request.getGpuCount())
                     && Objects.equals(spec.getCpuCores(), request.getCpuCores())
                     && Objects.equals(spec.getMemoryGib(), request.getMemoryGib())
                     && Objects.equals(spec.getGpuShare(), gpuShare);
@@ -266,6 +264,18 @@ public class ResourcePoolService {
         }
 
         return gpuShare;
+    }
+
+    private void validateGpuCount(ResourcePool pool, Integer gpuCount, int nodeGpuCount) {
+        if (gpuCount == null || gpuCount <= 0) {
+            throw new BadRequestException("每个规格节点的 GPU 数量必须大于 0");
+        }
+        if ("SHARED".equals(pool.getPoolType()) && gpuCount != 1) {
+            throw new BadRequestException("共享规格固定使用单卡切分");
+        }
+        if (gpuCount > nodeGpuCount || nodeGpuCount % gpuCount != 0) {
+            throw new BadRequestException("GPU 数量必须能够整除 Node 的 " + nodeGpuCount + " 张 GPU");
+        }
     }
 
     private ResourcePoolResponse toResponse(ResourcePool pool) {

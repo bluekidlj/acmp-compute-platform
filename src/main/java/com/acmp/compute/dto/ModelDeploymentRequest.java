@@ -5,6 +5,8 @@ import lombok.Data;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.Max;
 import javax.validation.constraints.Min;
+import javax.validation.constraints.DecimalMax;
+import javax.validation.constraints.DecimalMin;
 import java.util.Map;
 
 /**
@@ -28,6 +30,19 @@ public class ModelDeploymentRequest {
     /** 副本数，默认 1；实际可用上限由租户剩余规格配额校验。 */
     @Min(1)
     private Integer replicas = 1;
+
+    /** 单实例张量并行度，默认等于算力规格的 GPU 数量。 */
+    @Min(1)
+    private Integer tensorParallelSize;
+
+    /** vLLM 安全默认值。 */
+    @DecimalMin(value = "0.0", inclusive = false)
+    @DecimalMax("1.0")
+    private Double gpuMemoryUtilization = 0.8D;
+
+    /** vLLM 安全默认值。 */
+    @Min(1)
+    private Integer maxModelLength = 8192;
 
     @NotBlank
     private String image;

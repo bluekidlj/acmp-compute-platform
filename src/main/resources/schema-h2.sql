@@ -190,6 +190,12 @@ CREATE TABLE IF NOT EXISTS model_deployment (
     vllm_image              VARCHAR(512),
     port                    INT NOT NULL DEFAULT 8000,
     replicas                INT DEFAULT 1,
+    gpu_count_per_replica   INT DEFAULT 1,
+    tensor_parallel_size    INT DEFAULT 1,
+    gpu_memory_utilization  DOUBLE PRECISION DEFAULT 0.8,
+    max_model_length        INT DEFAULT 8192,
+    gpu_provider            VARCHAR(64),
+    assigned_gpu_ids        CLOB,
     k8s_deployment_name     VARCHAR(255),
     k8s_service_name        VARCHAR(255),
     status                  VARCHAR(32) NOT NULL DEFAULT 'pending',
@@ -202,6 +208,12 @@ CREATE TABLE IF NOT EXISTS model_deployment (
 ALTER TABLE model_deployment ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64);
 ALTER TABLE model_deployment ADD COLUMN IF NOT EXISTS model_id VARCHAR(64);
 ALTER TABLE model_deployment ADD COLUMN IF NOT EXISTS failure_message VARCHAR(1024);
+ALTER TABLE model_deployment ADD COLUMN IF NOT EXISTS gpu_count_per_replica INT DEFAULT 1;
+ALTER TABLE model_deployment ADD COLUMN IF NOT EXISTS tensor_parallel_size INT DEFAULT 1;
+ALTER TABLE model_deployment ADD COLUMN IF NOT EXISTS gpu_memory_utilization DOUBLE PRECISION DEFAULT 0.8;
+ALTER TABLE model_deployment ADD COLUMN IF NOT EXISTS max_model_length INT DEFAULT 8192;
+ALTER TABLE model_deployment ADD COLUMN IF NOT EXISTS gpu_provider VARCHAR(64);
+ALTER TABLE model_deployment ADD COLUMN IF NOT EXISTS assigned_gpu_ids CLOB;
 CREATE INDEX IF NOT EXISTS idx_md_project ON model_deployment(project_id);
 -- ─────────── 模型广场 ───────────
 CREATE TABLE IF NOT EXISTS model_source (

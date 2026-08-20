@@ -16,6 +16,8 @@ interface DeployForm {
   replicas: number;
   modelPath: string;
   maxModelLength?: number;
+  tensorParallelSize: number;
+  gpuMemoryUtilization: number;
 }
 
 export default function ProjectDetailPage() {
@@ -34,6 +36,7 @@ export default function ProjectDetailPage() {
   const runtimeMode = Form.useWatch('runtimeMode', form) || 'DEMO';
   const selectedSpecId = Form.useWatch('specId', form);
   const selectedModelId = Form.useWatch('modelId', form);
+  const selectedSpec = selectedSpecId ? specs.find(function find(item) { return item.id === selectedSpecId; }) : undefined;
 
   function load() {
     api.project(projectId)
@@ -65,6 +68,9 @@ export default function ProjectDetailPage() {
       port: 5678,
       replicas: 1,
       modelPath: '/models',
+      tensorParallelSize: 1,
+      gpuMemoryUtilization: 0.8,
+      maxModelLength: 8192,
     });
     setDrawer(true);
   }
@@ -83,25 +89,17 @@ export default function ProjectDetailPage() {
 
     const demoMode = values.runtimeMode === 'DEMO';
     const modelName = demoMode ? 'acmp-demo-model' : (model?.displayName || model?.name || '');
-    const argsParts = demoMode
-      ? ['-listen=:5678', '-text=ACMP-demo-inference-service-ready']
-      : [
-          `serve ${values.modelPath}`,
-          `--served-model-name ${modelName}`,
-          '--host 0.0.0.0',
-          `--port ${values.port}`,
-        ];
-    if (!demoMode && values.maxModelLength) {
-      argsParts.push(`--max-model-len ${values.maxModelLength}`);
-    }
     const body: DeploymentRequest = {
       name: values.name,
       specName: spec.name,
       replicas: values.replicas,
+      tensorParallelSize: demoMode ? 1 : values.tensorParallelSize,
+      gpuMemoryUtilization: demoMode ? 0.8 : values.gpuMemoryUtilization,
+      maxModelLength: demoMode ? 8192 : values.maxModelLength,
       image: values.image,
       port: values.port,
       command: demoMode ? '/http-echo' : 'vllm',
-      args: argsParts.join(' '),
+      args: demoMode ? '-listen=:5678 -text=ACMP-demo-inference-service-ready' : undefined,
       modelId: demoMode ? undefined : model?.id,
       modelSource: demoMode ? 'without_weights' : model?.modelSource,
       modelIdOrPath: values.modelPath,
@@ -207,12 +205,17 @@ export default function ProjectDetailPage() {
                       modelId: undefined,
                       modelPath: '/models',
                       maxModelLength: undefined,
+                      tensorParallelSize: 1,
+                      gpuMemoryUtilization: 0.8,
                     });
                   } else {
                     form.setFieldsValue({
                       image: 'vllm/vllm-openai:0.10.0',
                       port: 8000,
                       modelPath: '/models/Qwen2.5-3B-Instruct',
+                      maxModelLength: 8192,
+                      tensorParallelSize: 1,
+                      gpuMemoryUtilization: 0.8,
                     });
                   }
                 }}
@@ -249,11 +252,18 @@ export default function ProjectDetailPage() {
                     value: quota.specId,
                     label: spec?.displayName || quota.specName,
                     disabled: quota.remaining <= 0,
-                    title: `${spec?.cpuCores} Core · ${spec?.memoryGib} GiB · ${spec?.gpuShare || '独享'} · 剩余 ${quota.remaining}`,
+                    title: `${spec?.gpuCount || 1} GPU · ${spec?.cpuCores} Core · ${spec?.memoryGib} GiB · ${spec?.gpuShare || '独享'} · 剩余 ${quota.remaining}`,
                   };
                 })}
                 optionRender={function renderOption(option) {
                   return <div><strong>{option.data.label}</strong><div style={{ color: '#66756f', fontSize: 12 }}>{option.data.title}</div></div>;
+                }}
+                onChange={function changeSpec(specId: string) {
+                  const spec = specs.find(function find(item) { return item.id === specId; });
+                  form.setFieldsValue({
+                    tensorParallelSize: spec?.gpuCount || 1,
+                    gpuMemoryUtilization: 0.8,
+                  });
                 }}
               />
             </Form.Item>
@@ -300,14 +310,38 @@ export default function ProjectDetailPage() {
                 >
                   <Input className="mono" placeholder="/models/Qwen2.5-3B-Instruct" />
                 </Form.Item>
+                <div className="form-grid-two">
+                  <Form.Item label="每副本 GPU 数" extra="由算力规格固定，部署时不可覆盖。">
+                    <InputNumber value={selectedSpec?.gpuCount || 1} disabled style={{ width: '100%' }} />
+                  </Form.Item>
+                  <Form.Item
+                    name="tensorParallelSize"
+                    label="Tensor 并行度"
+                    extra={`默认等于规格 GPU 数，最大 ${selectedSpec?.gpuCount || 1}。`}
+                    rules={[{ required: true, message: '请输入 Tensor 并行度' }]}
+                  >
+                    <InputNumber min={1} max={selectedSpec?.gpuCount || 1} precision={0} style={{ width: '100%' }} />
+                  </Form.Item>
+                </div>
               </>
             )}
             <Space style={{ width: '100%' }} align="start">
               <Form.Item name="port" label="服务端口" rules={[{ required: true }]}><InputNumber min={1} max={65535} /></Form.Item>
               {runtimeMode === 'VLLM' && (
-                <Form.Item name="maxModelLength" label="最大上下文（可选）"><InputNumber min={512} step={512} /></Form.Item>
+                <Form.Item name="maxModelLength" label="最大上下文"><InputNumber min={512} step={512} style={{ width: '100%' }} /></Form.Item>
               )}
             </Space>
+            {runtimeMode === 'VLLM' && (
+              <div className="form-grid-two">
+                <Form.Item
+                  name="gpuMemoryUtilization"
+                  label="GPU 内存利用率"
+                  rules={[{ required: true, message: '请输入 GPU 内存利用率' }]}
+                >
+                  <InputNumber min={0.1} max={1} step={0.05} precision={2} style={{ width: '100%' }} />
+                </Form.Item>
+              </div>
+            )}
             {runtimeMode === 'DEMO' ? (
               <Alert
                 type="success"
@@ -340,7 +374,9 @@ export default function ProjectDetailPage() {
                   try {
                     const stepFields = step === 0
                       ? (runtimeMode === 'VLLM' ? ['name', 'runtimeMode', 'modelId'] : ['name', 'runtimeMode'])
-                      : ['specId', 'replicas'];
+                      : runtimeMode === 'VLLM'
+                        ? ['specId', 'replicas', 'tensorParallelSize', 'gpuMemoryUtilization', 'maxModelLength']
+                        : ['specId', 'replicas'];
                     await form.validateFields(stepFields);
                     setStep(step + 1);
                   } catch {

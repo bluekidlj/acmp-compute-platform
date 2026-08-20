@@ -118,9 +118,6 @@ public class ComputeSpecService {
                 || request.getGpuCount() == null || request.getGpuCount() <= 0) {
             throw new BadRequestException("CPU、内存和 GPU 数量必须大于 0");
         }
-        if (request.getGpuCount() != 1) {
-            throw new BadRequestException("0.1 版本算力规格只支持单 Gpu");
-        }
         ResourcePool pool = poolMapper.findById(request.getResourcePoolId()).orElse(null);
         if (pool == null) {
             throw new ResourceNotFoundException("资源池不存在");
@@ -129,6 +126,9 @@ public class ComputeSpecService {
             throw new BadRequestException("规格类型与资源池类型不匹配");
         }
         if ("SHARED".equals(request.getSpecType())) {
+            if (request.getGpuCount() != 1) {
+                throw new BadRequestException("共享规格固定使用单卡切分");
+            }
             validateGpuShare(request.getGpuShare());
         } else if (request.getGpuShare() != null && !request.getGpuShare().isBlank()) {
             throw new BadRequestException("独占规格不能设置 gpuShare");
@@ -150,7 +150,7 @@ public class ComputeSpecService {
                 .gpuBrand(request.getGpuBrand()).specType(request.getSpecType())
                 .resourcePoolId(request.getResourcePoolId())
                 .gpuModel(request.getGpuModel()).gpuMemoryMb(null).gpuShare(request.getGpuShare())
-                .gpuCount(1)
+                .gpuCount(request.getGpuCount())
                 .cpuCores(request.getCpuCores()).memoryGib(request.getMemoryGib())
                 .description(request.getDescription()).status("active").build();
     }
@@ -179,12 +179,13 @@ public class ComputeSpecService {
     }
 
     /**
-     * 相同参数的多张 Gpu 可复用一个规格，容量为关联物理卡数乘以单卡切分数。
+     * 独享规格容量按物理卡总数除以每规格节点卡数计算；共享规格按单卡切分数计算。
      */
     public int capacityNodes(ComputeSpec spec) {
         int gpuCount = gpuMapper.countByComputeSpecId(spec.getId());
         if ("EXCLUSIVE".equals(spec.getSpecType())) {
-            return gpuCount;
+            int gpuCountPerNode = spec.getGpuCount() == null ? 1 : spec.getGpuCount();
+            return gpuCount / gpuCountPerNode;
         }
         if ("1/8".equals(spec.getGpuShare())) {
             return gpuCount * 8;

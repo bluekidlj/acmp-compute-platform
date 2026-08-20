@@ -48,6 +48,7 @@ public final class K8sResourceBuilder {
             Integer port,
             ComputeSpec spec,
             Integer replicas,
+            Integer gpuCountPerReplica,
             String hostModelPath,
             Map<String, String> envVars,
             String command,
@@ -56,7 +57,7 @@ public final class K8sResourceBuilder {
                 .name("vllm")
                 .image(image)
                 .addPortsItem(new V1ContainerPort().containerPort(port).name("http"))
-                .resources(resources(spec));
+                .resources(resources(spec, gpuCountPerReplica));
 
         List<String> commandValues = split(command);
         if (!commandValues.isEmpty()) {
@@ -146,9 +147,10 @@ public final class K8sResourceBuilder {
                         .type("ClusterIP"));
     }
 
-    private static V1ResourceRequirements resources(ComputeSpec spec) {
+    private static V1ResourceRequirements resources(ComputeSpec spec, Integer gpuCountPerReplica) {
+        int gpuCount = gpuCountPerReplica == null ? 1 : gpuCountPerReplica;
         Map<String, Quantity> limits = new HashMap<>();
-        limits.put(gpuResourceKey(spec), Quantity.fromString(String.valueOf(spec.getGpuCount())));
+        limits.put(gpuResourceKey(spec), Quantity.fromString(String.valueOf(gpuCount)));
         limits.put("cpu", Quantity.fromString(String.valueOf(spec.getCpuCores())));
         limits.put("memory", Quantity.fromString(spec.getMemoryGib() + "Gi"));
 

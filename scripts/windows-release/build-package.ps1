@@ -1,6 +1,5 @@
 [CmdletBinding()]
 param(
-    [string]$OutputRoot = (Join-Path (Split-Path -Parent $PSScriptRoot) 'release'),
     [switch]$SkipFrontendBuild,
     [switch]$SkipBackendBuild
 )
@@ -8,29 +7,25 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$frontendDir = Join-Path $projectRoot 'frontend'
-$backendDir = $projectRoot
-$sourceAppYaml = Join-Path $projectRoot 'src\main\resources\application.yml'
-$sourceLogback = Join-Path $projectRoot 'src\main\resources\logback-spring.xml'
-
+$frontendRoot = Join-Path $projectRoot 'frontend'
+$templateRoot = Join-Path $PSScriptRoot 'templates'
+$stageRoot = Join-Path $projectRoot '.runtime\release-staging'
+$mavenTarget = Join-Path $projectRoot '.runtime\windows-release-target'
+$frontendBuildRoot = Join-Path $projectRoot '.runtime\windows-release-frontend'
+$legacyStageRoot = Join-Path $projectRoot '.runtime\windows-release'
+$outputRoot = Join-Path $projectRoot 'release'
 $buildId = Get-Date -Format 'yyyyMMdd-HHmmss'
-$stageRoot = Join-Path $projectRoot ".runtime\windows-release"
-$packageDir = Join-Path $stageRoot "acmp-$buildId"
-$artifactName = "acmp-$buildId.tar.gz"
-$artifactPath = Join-Path $OutputRoot $artifactName
+$releaseName = "acmp-release-$buildId"
+$releaseRoot = Join-Path $stageRoot $releaseName
+$archivePath = Join-Path $OutputRoot "$releaseName.tar.gz"
 
-function Write-Log {
-    param(
-        [Parameter(Mandatory)][string]$Level,
-        [Parameter(Mandatory)][string]$Message
-    )
-
-    Write-Host ("[{0}] [{1}] {2}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level.ToUpperInvariant(), $Message)
+function Write-Step {
+    param([string]$Message)
+    Write-Host ("[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message)
 }
 
 function Require-Command {
-    param([Parameter(Mandatory)][string]$Name)
-
+    param([string]$Name)
     $command = Get-Command $Name -ErrorAction SilentlyContinue
     if ($null -eq $command) {
         throw "Required command '$Name' was not found in PATH."
@@ -38,104 +33,42 @@ function Require-Command {
     return $command.Source
 }
 
-function Copy-IfExists {
+function Copy-TextAsLinuxFile {
     param(
-        [Parameter(Mandatory)][string]$Source,
-        [Parameter(Mandatory)][string]$Target
+        [string]$Source,
+        [string]$Destination
     )
-
-    if (Test-Path -LiteralPath $Source) {
-        Copy-Item -LiteralPath $Source -Destination $Target -Force
+    if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) {
+        throw "Missing release template: $Source"
     }
+    $content = [System.IO.File]::ReadAllText($Source).Replace("`r`n", "`n")
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Destination, $content, $encoding)
 }
 
-function New-ReleaseStartScript {
-    param([Parameter(Mandatory)][string]$TargetDir)
-
-    $content = @'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-
-APP_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-JAR_PATH="${JAR_PATH:-${APP_HOME}/app.jar}"
-CONF_DIR="${CONF_DIR:-${APP_HOME}}"
-LOG_DIR="${LOG_DIR:-${APP_HOME}/log}"
-PID_FILE="${PID_FILE:-${APP_HOME}/acmp-backend.pid}"
-JAVA_BIN="${JAVA_BIN:-java}"
-JAVA_OPTS="${JAVA_OPTS:--Xms512m -Xmx512m -Dfile.encoding=UTF-8}"
-
-mkdir -p "${LOG_DIR}"
-
-if [[ ! -f "${JAR_PATH}" ]]; then
-  echo "missing jar: ${JAR_PATH}" >&2
-  exit 1
-fi
-
-if [[ ! -f "${CONF_DIR}/application.yaml" ]]; then
-  echo "missing config: ${CONF_DIR}/application.yaml" >&2
-  exit 1
-fi
-
-if [[ -f "${PID_FILE}" ]]; then
-  OLD_PID="$(cat "${PID_FILE}" || true)"
-  if [[ -n "${OLD_PID}" ]] && kill -0 "${OLD_PID}" 2>/dev/null; then
-    echo "backend already running: ${OLD_PID}"
-    exit 0
-  fi
-  rm -f "${PID_FILE}"
-fi
-
-nohup "${JAVA_BIN}" ${JAVA_OPTS} \
-  -jar "${JAR_PATH}" \
-  --spring.config.additional-location=file:"${CONF_DIR}/" \
-  --logging.config=file:"${CONF_DIR}/logback-spring.xml" \
-  >>"${LOG_DIR}/backend.bootstrap.log" 2>&1 &
-
-echo $! > "${PID_FILE}"
-echo "backend started: $(cat "${PID_FILE}")"
-'@
-
-    Set-Content -LiteralPath (Join-Path $TargetDir 'start.sh') -Value $content -Encoding ascii
+function Remove-ReleaseIntermediates {
+    foreach ($path in @($stageRoot, $mavenTarget, $frontendBuildRoot, $legacyStageRoot)) {
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    Get-ChildItem -LiteralPath (Join-Path $projectRoot '.runtime') -Directory `
+            -Filter 'release-check-*' -ErrorAction SilentlyContinue |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-function New-ReleaseStopScript {
-    param([Parameter(Mandatory)][string]$TargetDir)
-
-    $content = @'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-
-APP_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PID_FILE="${PID_FILE:-${APP_HOME}/acmp-backend.pid}"
-
-if [[ -f "${PID_FILE}" ]]; then
-  PID="$(cat "${PID_FILE}" || true)"
-  if [[ -n "${PID}" ]] && kill -0 "${PID}" 2>/dev/null; then
-    kill "${PID}"
-    echo "stopped: ${PID}"
-  fi
-  rm -f "${PID_FILE}"
-fi
-'@
-
-    Set-Content -LiteralPath (Join-Path $TargetDir 'stop.sh') -Value $content -Encoding ascii
-}
-
-Require-Command 'mvn'
-Require-Command 'npm'
-Require-Command 'tar'
-
-New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
-Remove-Item -LiteralPath $packageDir -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+try {
+    $maven = Require-Command 'mvn'
+    $npm = Require-Command 'npm'
+    $tar = Require-Command 'tar'
 
 if (-not $SkipBackendBuild) {
-    Write-Log 'INFO' '构建后端 Jar'
-    Push-Location $backendDir
+    Write-Step '[1/6] Building backend JAR'
+    Push-Location $projectRoot
     try {
-        & mvn -DskipTests clean package
+        & $maven clean package -DskipTests -Pwindows-release
         if ($LASTEXITCODE -ne 0) {
-            throw "mvn build failed with exit code $LASTEXITCODE"
+            throw "Maven build failed with exit code $LASTEXITCODE."
         }
     }
     finally {
@@ -143,27 +76,40 @@ if (-not $SkipBackendBuild) {
     }
 }
 
-$backendJar = Get-ChildItem -Path (Join-Path $backendDir 'target') -File -Filter '*.jar' |
-    Where-Object { $_.Name -notlike '*original*' } |
+$backendJar = Get-ChildItem -LiteralPath $mavenTarget -File -Filter '*.jar' |
+    Where-Object { $_.Name -notlike '*.original' -and $_.Name -notlike 'original-*' } |
     Sort-Object LastWriteTime |
     Select-Object -Last 1
-
 if ($null -eq $backendJar) {
-    throw '未找到后端 Jar，请先确认 Maven 构建成功。'
+    throw 'Backend JAR was not found in the release build directory. Run without -SkipBackendBuild.'
 }
 
 if (-not $SkipFrontendBuild) {
-    Write-Log 'INFO' '构建前端'
-    Push-Location $frontendDir
-    try {
-        & npm install
-        if ($LASTEXITCODE -ne 0) {
-            throw "npm install failed with exit code $LASTEXITCODE"
+    Write-Step '[2/6] Building frontend assets in an isolated workspace'
+    if (Test-Path -LiteralPath $frontendBuildRoot) {
+        Remove-Item -LiteralPath $frontendBuildRoot -Recurse -Force
+    }
+    New-Item -ItemType Directory -Force -Path $frontendBuildRoot | Out-Null
+    foreach ($itemName in @('src', 'public', 'index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts')) {
+        $sourceItem = Join-Path $frontendRoot $itemName
+        if (Test-Path -LiteralPath $sourceItem) {
+            Copy-Item -LiteralPath $sourceItem -Destination $frontendBuildRoot -Recurse -Force
         }
-
-        & npm run build
+    }
+    Push-Location $frontendBuildRoot
+    try {
+        if (Test-Path -LiteralPath (Join-Path $frontendBuildRoot 'package-lock.json')) {
+            & $npm ci --no-audit --no-fund
+        }
+        else {
+            & $npm install --no-audit --no-fund
+        }
         if ($LASTEXITCODE -ne 0) {
-            throw "npm run build failed with exit code $LASTEXITCODE"
+            throw "npm install failed with exit code $LASTEXITCODE."
+        }
+        & $npm run build
+        if ($LASTEXITCODE -ne 0) {
+            throw "Frontend build failed with exit code $LASTEXITCODE."
         }
     }
     finally {
@@ -171,69 +117,67 @@ if (-not $SkipFrontendBuild) {
     }
 }
 
-$frontendDist = Join-Path $frontendDir 'dist'
-if (-not (Test-Path -LiteralPath $frontendDist)) {
-    throw "前端 dist 目录不存在: $frontendDist"
+$frontendDist = if ($SkipFrontendBuild) {
+    Join-Path $frontendRoot 'dist'
+}
+else {
+    Join-Path $frontendBuildRoot 'dist'
+}
+if (-not (Test-Path -LiteralPath (Join-Path $frontendDist 'index.html') -PathType Leaf)) {
+    throw 'Frontend dist/index.html was not found. Run without -SkipFrontendBuild.'
 }
 
-Write-Log 'INFO' '组装 release 目录'
-New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $packageDir 'log') | Out-Null
+Write-Step '[3/6] Creating release directory'
+if (Test-Path -LiteralPath $releaseRoot) {
+    Remove-Item -LiteralPath $releaseRoot -Recurse -Force
+}
+$frontEndTarget = Join-Path $releaseRoot 'front-end'
+$backEndTarget = Join-Path $releaseRoot 'back-end'
+$backEndConfTarget = Join-Path $backEndTarget 'conf'
+New-Item -ItemType Directory -Force -Path $frontEndTarget | Out-Null
+New-Item -ItemType Directory -Force -Path $backEndConfTarget | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $backEndTarget 'log') | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $backEndTarget 'data') | Out-Null
 
-Copy-Item -LiteralPath $backendJar.FullName -Destination (Join-Path $packageDir 'app.jar') -Force
-Copy-IfExists -Source $sourceAppYaml -Target (Join-Path $packageDir 'application.yaml')
-Copy-IfExists -Source $sourceLogback -Target (Join-Path $packageDir 'logback-spring.xml')
-Copy-Item -Path (Join-Path $frontendDist '*') -Destination $packageDir -Recurse -Force
+Copy-Item -Path (Join-Path $frontendDist '*') -Destination $frontEndTarget -Recurse -Force
+Copy-Item -LiteralPath $backendJar.FullName -Destination (Join-Path $backEndTarget 'acmp-compute.jar') -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'src\main\resources\application.yml') -Destination $backEndConfTarget -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'src\main\resources\logback-spring.xml') -Destination $backEndConfTarget -Force
 
-if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'application.yaml'))) {
-    throw "未找到 application.yaml 源文件: $sourceAppYaml"
+Write-Step '[4/6] Adding Linux start/stop scripts and Nginx config'
+foreach ($fileName in @('start-back.sh', 'start-front.sh', 'stop.sh', 'nginx.conf')) {
+    Copy-TextAsLinuxFile -Source (Join-Path $templateRoot $fileName) -Destination (Join-Path $releaseRoot $fileName)
 }
 
-New-ReleaseStartScript -TargetDir $packageDir
-New-ReleaseStopScript -TargetDir $packageDir
-
-$readme = @"
-ACMP Windows Release Package
-
-目录结构要求:
-  app.jar
-  application.yaml
-  logback-spring.xml
-  start.sh
-  stop.sh
-  log/
-  前端静态文件
-
-启动:
-  ./start.sh
-
-停止:
-  ./stop.sh
-
-说明:
-  1. application.yaml 与 app.jar 同级。
-  2. 启动脚本会自动把外置配置目录指向当前目录。
-  3. 如果后端日志需要单独目录，按实际需要调整 application.yaml 里的 logging 配置。
-"@
-Set-Content -LiteralPath (Join-Path $packageDir 'README.txt') -Value $readme -Encoding ascii
-
-$parentName = Split-Path $packageDir -Leaf
-Write-Log 'INFO' "打包目录: $packageDir"
-Write-Log 'INFO' "压缩文件: $artifactPath"
-
-if (Test-Path -LiteralPath $artifactPath) {
-    Remove-Item -LiteralPath $artifactPath -Force
+Write-Step '[5/6] Creating release archive'
+New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
+Get-ChildItem -LiteralPath $OutputRoot -File -Filter 'acmp-release-*.tar.gz' -ErrorAction SilentlyContinue |
+    Remove-Item -Force
+if (Test-Path -LiteralPath $archivePath) {
+    Remove-Item -LiteralPath $archivePath -Force
 }
-
 Push-Location $stageRoot
 try {
-    & tar -czf $artifactPath $parentName
+    & $tar -czf $archivePath $releaseName
     if ($LASTEXITCODE -ne 0) {
-        throw "tar package failed with exit code $LASTEXITCODE"
+        throw "tar failed with exit code $LASTEXITCODE."
     }
 }
 finally {
     Pop-Location
 }
 
-Write-Log 'INFO' "完成: $artifactPath"
+Write-Step '[6/6] Verifying archive'
+$archiveEntries = & $tar -tzf $archivePath
+$hasFrontend = $archiveEntries -contains "$releaseName/front-end/index.html"
+$hasBackend = $archiveEntries -contains "$releaseName/back-end/acmp-compute.jar"
+$hasNginxConfig = $archiveEntries -contains "$releaseName/nginx.conf"
+if ($LASTEXITCODE -ne 0 -or -not $hasFrontend -or -not $hasBackend -or -not $hasNginxConfig) {
+    throw "Release archive verification failed: $archivePath"
+}
+
+Write-Step "Release ready: $archivePath"
+}
+finally {
+    Remove-ReleaseIntermediates
+}

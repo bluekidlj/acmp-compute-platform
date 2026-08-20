@@ -21,6 +21,11 @@ public class NodeJoinSpecRequest {
 
     private String gpuShare;
 
+    /** 一个规格节点（一个 Pod 副本）占用的物理 GPU 张数。 */
+    @NotNull
+    @Min(1)
+    private Integer gpuCount;
+
     @NotNull
     @Min(1)
     private Integer cpuCores;

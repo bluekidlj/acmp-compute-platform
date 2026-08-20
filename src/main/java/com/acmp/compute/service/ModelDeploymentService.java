@@ -2,6 +2,7 @@ package com.acmp.compute.service;
 
 import com.acmp.compute.dto.ModelDeploymentRequest;
 import com.acmp.compute.dto.ModelDeploymentResponse;
+import com.acmp.compute.dto.DeploymentMetricsResponse;
 import com.acmp.compute.dto.ModelResponse;
 import com.acmp.compute.dto.ChatCompletionRequest;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -32,13 +33,20 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.time.Instant;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ModelDeploymentService {
+    private static final Pattern PROMETHEUS_SAMPLE = Pattern.compile(
+            "^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\\{[^}]*})?\\s+([^\\s]+)(?:\\s+\\d+)?$");
     private final ModelDeploymentMapper mapper;
     private final ProjectMapper projectMapper;
     private final ComputeSpecMapper specMapper;
@@ -56,15 +64,6 @@ public class ModelDeploymentService {
     public ModelDeploymentResponse deploy(String projectId, ModelDeploymentRequest request) {
         Project project = project(projectId);
         ensureAccess(project);
-        int replicas = request.getReplicas() == null ? 1 : request.getReplicas();
-        if (replicas <= 0) {
-            throw new BadRequestException("replicas 必须大于 0");
-        }
-        int port = request.getPort() == null ? 8000 : request.getPort();
-        if (port < 1 || port > 65535) {
-            throw new BadRequestException("port 必须在 1 到 65535 之间");
-        }
-
         ComputeSpec spec = specMapper.findByName(request.getSpecName()).orElse(null);
         if (spec == null) {
             throw new ResourceNotFoundException("规格不存在: " + request.getSpecName());
@@ -72,11 +71,39 @@ public class ModelDeploymentService {
         if (spec.getResourcePoolId() == null) {
             throw new BadRequestException("规格未绑定固定资源池");
         }
-        if (spec.getGpuCount() == null || spec.getGpuCount() != 1) {
-            throw new BadRequestException("0.1 版本只支持单 Gpu 算力规格");
-        }
 
-        String clusterId = candidateCluster(spec, replicas);
+        int replicas = request.getReplicas() == null ? 1 : request.getReplicas();
+        if (replicas <= 0) {
+            throw new BadRequestException("replicas 必须大于 0");
+        }
+        int gpuCountPerReplica = spec.getGpuCount() == null ? 1 : spec.getGpuCount();
+        if (gpuCountPerReplica <= 0) {
+            throw new BadRequestException("算力规格 GPU 数量必须大于 0");
+        }
+        int tensorParallelSize = request.getTensorParallelSize() == null
+                ? gpuCountPerReplica
+                : request.getTensorParallelSize();
+        if (tensorParallelSize <= 0) {
+            throw new BadRequestException("tensorParallelSize 必须大于 0");
+        }
+        if (tensorParallelSize > gpuCountPerReplica) {
+            throw new BadRequestException("tensorParallelSize 不能大于 gpuCountPerReplica");
+        }
+        double gpuMemoryUtilization = request.getGpuMemoryUtilization() == null
+                ? 0.8D
+                : request.getGpuMemoryUtilization();
+        if (gpuMemoryUtilization <= 0.0D || gpuMemoryUtilization > 1.0D) {
+            throw new BadRequestException("gpuMemoryUtilization 必须在 0 到 1 之间");
+        }
+        int maxModelLength = request.getMaxModelLength() == null ? 8192 : request.getMaxModelLength();
+        if (maxModelLength <= 0) {
+            throw new BadRequestException("maxModelLength 必须大于 0");
+        }
+        int port = request.getPort() == null ? 8000 : request.getPort();
+        if (port < 1 || port > 65535) {
+            throw new BadRequestException("port 必须在 1 到 65535 之间");
+        }
+        String clusterId = candidateCluster(spec, replicas, gpuCountPerReplica);
 
         TenantSpecQuota quota = quotaService.requireAvailable(project.getTenantId(), spec.getId(), replicas);
         quotaService.changeUsed(quota.getId(), replicas);
@@ -96,12 +123,37 @@ public class ModelDeploymentService {
             hostModelPath = model.getStoragePath();
             modelSource = model.getModelSource();
         }
+        boolean vllmMode = image != null && image.contains("vllm");
+        String command = request.getCommand();
+        String args = request.getArgs();
+        java.util.Map<String, String> envVars = request.getEnvVars() == null
+                ? new java.util.HashMap<>()
+                : new java.util.HashMap<>(request.getEnvVars());
+        envVars.remove("CUDA_DISABLE_CONTROL");
+        if ("EXCLUSIVE".equals(spec.getSpecType())) {
+            envVars.put("CUDA_DISABLE_CONTROL", "true");
+        }
+        if (vllmMode) {
+            if (request.getModelName() == null || request.getModelName().isBlank()) {
+                throw new BadRequestException("vLLM 部署必须提供模型名称");
+            }
+            command = (command == null || command.isBlank()) ? "vllm" : command;
+            args = buildVllmArgs(modelPath, port, request.getModelName(), tensorParallelSize,
+                    gpuMemoryUtilization, maxModelLength);
+        }
+        List<String> assignedGpuIds = new ArrayList<>();
+        if ("EXCLUSIVE".equals(spec.getSpecType())) {
+            int requiredGpu = replicas * gpuCountPerReplica;
+            assignedGpuIds = reserveGpuDevices(clusterId, spec.getGpuModel(), requiredGpu);
+        }
 
         log.info("推理部署准备: projectId={}, tenantId={}, clusterId={}, namespace={}, specId={}, "
-                        + "specName={}, specType={}, replicas={}, image={}, modelId={}, "
-                        + "hostModelPath={}, containerModelPath={}, port={}",
+                        + "specName={}, specType={}, replicas={}, gpuCountPerReplica={}, tensorParallelSize={}, "
+                        + "gpuMemoryUtilization={}, maxModelLength={}, image={}, modelId={}, hostModelPath={}, "
+                        + "containerModelPath={}, port={}",
                 projectId, project.getTenantId(), clusterId, namespace, spec.getId(), spec.getName(),
-                spec.getSpecType(), replicas, image, request.getModelId(), hostModelPath, modelPath, port);
+                spec.getSpecType(), replicas, gpuCountPerReplica, tensorParallelSize, gpuMemoryUtilization,
+                maxModelLength, image, request.getModelId(), hostModelPath, modelPath, port);
 
         ModelDeployment record = ModelDeployment.builder().id(id).projectId(projectId)
                 .tenantId(project.getTenantId())
@@ -109,18 +161,22 @@ public class ModelDeploymentService {
                 .specId(spec.getId()).name(request.getName())
                 .modelName(request.getModelName()).modelSource(modelSource).modelIdOrPath(modelPath)
                 .vllmImage(image).port(port)
+                .gpuCountPerReplica(gpuCountPerReplica)
+                .tensorParallelSize(tensorParallelSize)
+                .gpuMemoryUtilization(gpuMemoryUtilization)
+                .maxModelLength(maxModelLength)
+                .assignedGpuIdsJson(jsonArray(assignedGpuIds))
                 .replicas(replicas).k8sDeploymentName(deploymentName).k8sServiceName(serviceName)
                 .status("PENDING").actualClusterId(clusterId).createdBy(currentUser().getId()).build();
-        mapper.insert(record);
-
         try {
+            mapper.insert(record);
             // Tenant 不再永久绑定 Namespace；部署时按 Tenant ID 创建稳定 Namespace。
             log.info("推理部署阶段开始: deploymentId={}, stage=create-namespace", id);
             clientManager.createNamespace(clusterId, namespace);
             log.info("推理部署阶段开始: deploymentId={}, stage=build-kubernetes-resources", id);
             V1Deployment deployment = K8sResourceBuilder.buildVllmDeployment(
-                    deploymentName, namespace, image, modelPath, port, spec, replicas, hostModelPath,
-                    request.getEnvVars(), request.getCommand(), request.getArgs());
+                    deploymentName, namespace, image, modelPath, port, spec, replicas, gpuCountPerReplica,
+                    hostModelPath, envVars, command, args);
             V1Service service = K8sResourceBuilder.buildVllmService(
                     serviceName,
                     namespace,
@@ -135,9 +191,12 @@ public class ModelDeploymentService {
             log.info("推理部署提交成功: deploymentId={}, deploymentName={}, serviceName={}, serviceUrl={}",
                     id, deploymentName, serviceName, url);
         } catch (Exception e) {
+            releaseGpuDevices(assignedGpuIds);
             quotaService.changeUsed(quota.getId(), -replicas);
-            mapper.updateStatus(id, "FAILED", null);
-            mapper.updateFailure(id, shortMessage(e.getMessage()));
+            if (mapper.findById(id).isPresent()) {
+                mapper.updateStatus(id, "FAILED", null);
+                mapper.updateFailure(id, shortMessage(e.getMessage()));
+            }
             record.setStatus("FAILED");
             record.setFailureMessage(shortMessage(e.getMessage()));
             log.error("推理服务提交 Kubernetes 失败: deploymentId={}, clusterId={}, namespace={}, "
@@ -199,6 +258,110 @@ public class ModelDeploymentService {
             log.warn("查询 Kubernetes Deployment 状态失败，保留数据库状态: {}", e.getMessage());
         }
         return response(record, ready);
+    }
+
+    public DeploymentMetricsResponse metrics(String projectId, String deploymentId) {
+        Project project = project(projectId);
+        ensureAccess(project);
+        ModelDeployment record = record(projectId, deploymentId);
+        Instant collectedAt = Instant.now();
+        try {
+            String metricsText = clientManager.getServiceProxy(
+                    record.getActualClusterId(),
+                    namespace(record.getTenantId()),
+                    record.getK8sServiceName(),
+                    record.getPort(),
+                    "/metrics");
+            Map<String, List<Double>> samples = parsePrometheusSamples(metricsText);
+            Double running = metricSum(samples, "vllm:num_requests_running");
+            Double waiting = metricSum(samples, "vllm:num_requests_waiting");
+            Double promptTokens = metricSum(samples, "vllm:prompt_tokens_total");
+            Double generationTokens = metricSum(samples, "vllm:generation_tokens_total");
+            Double successfulRequests = metricSum(samples, "vllm:request_success_total");
+            Double gpuCacheRatio = metricAverage(samples, "vllm:gpu_cache_usage_perc");
+            Double e2eLatency = histogramAverageMs(samples, "vllm:e2e_request_latency_seconds");
+            Double ttft = histogramAverageMs(samples, "vllm:time_to_first_token_seconds");
+            boolean available = running != null || waiting != null || promptTokens != null
+                    || generationTokens != null || successfulRequests != null || gpuCacheRatio != null;
+            return DeploymentMetricsResponse.builder()
+                    .deploymentId(record.getId())
+                    .available(available)
+                    .message(available ? null : "vLLM /metrics 未返回可识别的指标")
+                    .collectedAt(collectedAt)
+                    .runningRequests(running)
+                    .waitingRequests(waiting)
+                    .promptTokensTotal(promptTokens)
+                    .generationTokensTotal(generationTokens)
+                    .successfulRequestsTotal(successfulRequests)
+                    .gpuCacheUsagePercent(gpuCacheRatio == null ? null : gpuCacheRatio * 100.0D)
+                    .averageE2eLatencyMs(e2eLatency)
+                    .averageTimeToFirstTokenMs(ttft)
+                    .build();
+        } catch (Exception exception) {
+            String message = shortMessage(exception.getMessage());
+            log.warn("读取 vLLM 指标失败: deploymentId={}, error={}", deploymentId, message);
+            return DeploymentMetricsResponse.builder()
+                    .deploymentId(record.getId())
+                    .available(false)
+                    .message(message)
+                    .collectedAt(collectedAt)
+                    .build();
+        }
+    }
+
+    private Map<String, List<Double>> parsePrometheusSamples(String metricsText) {
+        Map<String, List<Double>> result = new HashMap<>();
+        if (metricsText == null || metricsText.isBlank()) {
+            return result;
+        }
+        for (String line : metricsText.split("\\R")) {
+            if (line.isBlank() || line.startsWith("#")) {
+                continue;
+            }
+            Matcher matcher = PROMETHEUS_SAMPLE.matcher(line.trim());
+            if (!matcher.matches()) {
+                continue;
+            }
+            try {
+                double value = Double.parseDouble(matcher.group(2));
+                if (Double.isFinite(value)) {
+                    result.computeIfAbsent(matcher.group(1), ignored -> new ArrayList<>()).add(value);
+                }
+            } catch (NumberFormatException ignored) {
+                // NaN and infinity do not represent usable monitoring values.
+            }
+        }
+        return result;
+    }
+
+    private Double metricSum(Map<String, List<Double>> samples, String metric) {
+        List<Double> values = samples.get(metric);
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        double total = 0.0D;
+        for (Double value : values) {
+            total += value;
+        }
+        return total;
+    }
+
+    private Double metricAverage(Map<String, List<Double>> samples, String metric) {
+        List<Double> values = samples.get(metric);
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        double total = 0.0D;
+        for (Double value : values) {
+            total += value;
+        }
+        return total / values.size();
+    }
+
+    private Double histogramAverageMs(Map<String, List<Double>> samples, String metricPrefix) {
+        Double sum = metricSum(samples, metricPrefix + "_sum");
+        Double count = metricSum(samples, metricPrefix + "_count");
+        return sum == null || count == null || count <= 0.0D ? null : sum / count * 1000.0D;
     }
 
     /**
@@ -322,6 +485,7 @@ public class ModelDeploymentService {
             TenantSpecQuota quota = quotaService.requireAvailable(record.getTenantId(), record.getSpecId(), 0);
             quotaService.changeUsed(quota.getId(), -record.getReplicas());
         }
+        releaseGpuDevices(parseAssignedGpuIds(record.getAssignedGpuIdsJson()));
         mapper.deleteById(deploymentId);
     }
 
@@ -339,17 +503,12 @@ public class ModelDeploymentService {
      * <p>历史预置规格没有来源 Gpu 时保留按资源池和型号查找候选集群的兼容逻辑。
      * 共享规格的多个副本由 HAMi 在同一张物理 Gpu 上切分，不按副本数要求物理卡数量。
      */
-    private String candidateCluster(ComputeSpec spec, int replicas) {
+    private String candidateCluster(ComputeSpec spec, int replicas, int gpuCountPerReplica) {
         GpuDevice sourceGpu = gpuMapper.findByComputeSpecId(spec.getId()).orElse(null);
+        int requiredPhysicalGpu = "EXCLUSIVE".equals(spec.getSpecType())
+                ? replicas * gpuCountPerReplica
+                : 1;
 
-        if (sourceGpu != null) {
-            if (!"READY".equals(sourceGpu.getStatus())) {
-                throw new BadRequestException("规格来源 Gpu 当前不可用");
-            }
-            return sourceGpu.getClusterId();
-        }
-
-        int requiredPhysicalGpu = "EXCLUSIVE".equals(spec.getSpecType()) ? replicas : 1;
         List<String> clusters = gpuMapper.findCandidateClusterIds(
                 spec.getResourcePoolId(),
                 spec.getGpuModel(),
@@ -357,6 +516,15 @@ public class ModelDeploymentService {
 
         if (clusters.isEmpty()) {
             throw new BadRequestException("资源池中没有满足规格的在线 Gpu");
+        }
+
+        if (sourceGpu != null) {
+            if (!"READY".equals(sourceGpu.getStatus())) {
+                throw new BadRequestException("规格来源 Gpu 当前不可用");
+            }
+            if (clusters.contains(sourceGpu.getClusterId())) {
+                return sourceGpu.getClusterId();
+            }
         }
 
         return clusters.get(0);
@@ -409,11 +577,83 @@ public class ModelDeploymentService {
         return value.length() > max ? value.substring(0, max) : value;
     }
 
+    private String buildVllmArgs(
+            String modelPath,
+            Integer port,
+            String modelName,
+            int tensorParallelSize,
+            double gpuMemoryUtilization,
+            int maxModelLength) {
+        List<String> args = new ArrayList<>();
+        args.add("--model");
+        args.add(modelPath);
+        args.add("--served-model-name");
+        args.add(modelName);
+        args.add("--host");
+        args.add("0.0.0.0");
+        args.add("--port");
+        args.add(String.valueOf(port));
+        args.add("--gpu-memory-utilization");
+        args.add(String.valueOf(gpuMemoryUtilization));
+        args.add("--max-model-len");
+        args.add(String.valueOf(maxModelLength));
+        args.add("--tensor-parallel-size");
+        args.add(String.valueOf(tensorParallelSize));
+        return String.join(" ", args);
+    }
+
     private String shortMessage(String value) {
         if (value == null) {
             return null;
         }
         return value.length() > 900 ? value.substring(0, 900) : value;
+    }
+
+    private List<String> reserveGpuDevices(String clusterId, String gpuModel, int required) {
+        if (required <= 0) {
+            return List.of();
+        }
+        List<GpuDevice> devices = gpuMapper.findIdleByCluster(clusterId, gpuModel, required);
+        if (devices.size() < required) {
+            throw new BadRequestException("资源池中没有足够的空闲 GPU");
+        }
+        List<String> ids = new ArrayList<>();
+        for (GpuDevice device : devices) {
+            ids.add(device.getId());
+        }
+        int updated = gpuMapper.updateUsageStatusByIds(ids, "BUSY");
+        if (updated != ids.size()) {
+            releaseGpuDevices(ids);
+            throw new BadRequestException("GPU 预留失败，请稍后重试");
+        }
+        return ids;
+    }
+
+    private void releaseGpuDevices(List<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        gpuMapper.updateUsageStatusByIds(ids, "IDLE");
+    }
+
+    private List<String> parseAssignedGpuIds(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(json, objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+        } catch (Exception e) {
+            log.warn("解析部署 GPU 预留列表失败: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private String jsonArray(List<String> values) {
+        try {
+            return objectMapper.writeValueAsString(values == null ? List.of() : values);
+        } catch (Exception e) {
+            return "[]";
+        }
     }
 
     private ModelDeploymentResponse response(ModelDeployment m, Integer ready) {
@@ -422,6 +662,10 @@ public class ModelDeploymentService {
                 .name(m.getName()).modelName(m.getModelName())
                 .modelSource(m.getModelSource()).modelIdOrPath(m.getModelIdOrPath()).vllmImage(m.getVllmImage())
                 .port(m.getPort()).replicas(m.getReplicas())
+                .gpuCountPerReplica(m.getGpuCountPerReplica())
+                .tensorParallelSize(m.getTensorParallelSize())
+                .gpuMemoryUtilization(m.getGpuMemoryUtilization())
+                .maxModelLength(m.getMaxModelLength())
                 .k8sDeploymentName(m.getK8sDeploymentName()).k8sServiceName(m.getK8sServiceName())
                 .status(m.getStatus()).serviceUrl(m.getServiceUrl()).readyReplicas(ready)
                 .actualClusterId(m.getActualClusterId()).createdBy(m.getCreatedBy())

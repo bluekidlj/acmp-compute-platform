@@ -132,9 +132,10 @@ public class ClusterInventoryService {
     }
 
     private ClusterNode toNode(String clusterId, V1Node source) {
+        Map<String, String> labels = source.getMetadata() == null ? null : source.getMetadata().getLabels();
         String name = source.getMetadata() == null ? "unknown" : source.getMetadata().getName();
         Map<String, Quantity> allocatable = source.getStatus() == null ? null : source.getStatus().getAllocatable();
-        AcceleratorInventory accelerator = accelerator(allocatable);
+        AcceleratorInventory accelerator = accelerator(allocatable, labels);
         return ClusterNode.builder()
                 .id(stableId("node", clusterId, name))
                 .clusterId(clusterId)
@@ -144,7 +145,7 @@ public class ClusterInventoryService {
                 .memoryBytes(quantity(allocatable, "memory"))
                 .gpuCount(accelerator.count)
                 .status(nodeStatus(source))
-                .labelsJson(json(source.getMetadata() == null ? null : source.getMetadata().getLabels()))
+                .labelsJson(json(labels))
                 .taintsJson(json(source.getSpec() == null ? null : source.getSpec().getTaints()))
                 .lastSyncAt(java.time.Instant.now())
                 .build();
@@ -167,10 +168,10 @@ public class ClusterInventoryService {
 
     private int syncGpus(ClusterNode node, V1Node source) {
         Map<String, Quantity> allocatable = source.getStatus() == null ? null : source.getStatus().getAllocatable();
-        AcceleratorInventory accelerator = accelerator(allocatable);
-        int count = accelerator.count;
         Map<String, String> labels = source.getMetadata() == null ? null : source.getMetadata().getLabels();
         Map<String, String> annotations = source.getMetadata() == null ? null : source.getMetadata().getAnnotations();
+        AcceleratorInventory accelerator = accelerator(allocatable, labels);
+        int count = accelerator.count;
         GpuMetadata metadata = gpuMetadata(labels, annotations, accelerator);
 
         for (int index = 0; index < count; index++) {
@@ -208,8 +209,12 @@ public class ClusterInventoryService {
         if (cuda == null || cuda.isBlank()) {
             cuda = versionFromParts(labels, "nvidia.com/cuda.runtime");
         }
-        Long memoryMb = number(first(annotations, "nvidia.com/gpu-memory", "gpu-memory-mb",
-                "hygon.com/dcu-memory", "huawei.com/ascend-memory"));
+        Long memoryMb = parseMemoryMb(first(labels, "nvidia.com/gpu.memory", "nvidia.com/gpu-memory",
+                "gpu-memory-mb", "hygon.com/dcu-memory", "huawei.com/ascend-memory"));
+        if (memoryMb == null) {
+            memoryMb = parseMemoryMb(first(annotations, "nvidia.com/gpu-memory", "gpu-memory-mb",
+                    "hygon.com/dcu-memory", "huawei.com/ascend-memory"));
+        }
 
         String hamiRegister = first(annotations, "hami.io/node-nvidia-register");
         if (hamiRegister != null) {
@@ -236,7 +241,7 @@ public class ClusterInventoryService {
         }
         // 某些设备插件只上报 gpu-memory=1（占位值），不能把它当成 1 MiB 展示。
         // 在没有真实 DCGM/显存字段的测试集群中，按型号中的容量做确定性兜底。
-        if (memoryMb == null || memoryMb < 1024) {
+        if (memoryMb == null || memoryMb < 1024 || memoryMb > 1024L * 1024L) {
             Long inferred = memoryMbFromModel(model);
             if (inferred != null) {
                 memoryMb = inferred;
@@ -267,6 +272,39 @@ public class ClusterInventoryService {
         return null;
     }
 
+    private Long parseMemoryMb(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String text = raw.trim().replace(",", "");
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("(?i)(\\d+(?:\\.\\d+)?)\\s*(tb|tib|gb|gib|mb|mib)?")
+                .matcher(text);
+        if (!matcher.find()) {
+            return null;
+        }
+        try {
+            java.math.BigDecimal value = new java.math.BigDecimal(matcher.group(1));
+            String unit = matcher.group(2);
+            long result;
+            if (unit == null || unit.isBlank() || unit.equalsIgnoreCase("mb") || unit.equalsIgnoreCase("mib")) {
+                result = value.longValue();
+            } else if (unit.equalsIgnoreCase("gb") || unit.equalsIgnoreCase("gib")) {
+                result = value.multiply(java.math.BigDecimal.valueOf(1024L)).longValue();
+            } else if (unit.equalsIgnoreCase("tb") || unit.equalsIgnoreCase("tib")) {
+                result = value.multiply(java.math.BigDecimal.valueOf(1024L * 1024L)).longValue();
+            } else {
+                return null;
+            }
+            if (result <= 0 || result > 1024L * 1024L) {
+                return null;
+            }
+            return result;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /**
      * HAMI 的节点注解通常会把 GPU 注册信息拼成逗号分隔的字符串。
      * 这里采用宽松解析，尽量只提取我们真正需要展示的型号和显存。
@@ -295,9 +333,11 @@ public class ClusterInventoryService {
             if (model == null && looksLikeGpuModel(part)) {
                 model = part;
             }
-            Long value = number(part);
-            if (value != null && value >= 1024 && (memoryMb == null || value > memoryMb)) {
-                memoryMb = value;
+            if (containsMemoryHint(part)) {
+                Long value = parseMemoryMb(part);
+                if (value != null && value >= 1024 && (memoryMb == null || value > memoryMb)) {
+                    memoryMb = value;
+                }
             }
             if (driver == null) {
                 String maybeDriver = extractVersionLikeToken(part, "driver");
@@ -313,6 +353,19 @@ public class ClusterInventoryService {
             }
         }
         return new GpuMetadata(model, memoryMb, driver, cuda);
+    }
+
+    private boolean containsMemoryHint(String value) {
+        if (value == null) {
+            return false;
+        }
+        String lower = value.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("memory")
+                || lower.contains("mem")
+                || lower.contains("gb")
+                || lower.contains("gib")
+                || lower.contains("mb")
+                || lower.contains("mib");
     }
 
     private boolean looksLikeGpuModel(String value) {
@@ -347,8 +400,11 @@ public class ClusterInventoryService {
         return value.trim();
     }
 
-    private AcceleratorInventory accelerator(Map<String, Quantity> values) {
+    private AcceleratorInventory accelerator(Map<String, Quantity> values, Map<String, String> labels) {
         int nvidia = (int) quantity(values, "nvidia.com/gpu");
+        if (nvidia <= 0) {
+            nvidia = positiveInt(first(labels, "nvidia.com/gpu.count", "nvidia.com/gpu-count", "gpu-count"));
+        }
         int hygon = (int) firstPositiveQuantity(values,
                 "hygon.com/dcunum", "hygon.com/dcu", "amd.com/dcu", "amd.com/gpu");
         int ascend = 0;
@@ -382,6 +438,21 @@ public class ClusterInventoryService {
             return new AcceleratorInventory(GpuBrand.HUAWEI_ASCEND, ascend, ascendModel);
         }
         return new AcceleratorInventory(null, 0, null);
+    }
+
+    private int positiveInt(String value) {
+        if (value == null || value.isBlank()) {
+            return 0;
+        }
+        try {
+            long parsed = Long.parseLong(value.replaceAll("[^0-9]", ""));
+            if (parsed > Integer.MAX_VALUE) {
+                return Integer.MAX_VALUE;
+            }
+            return (int) Math.max(parsed, 0L);
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     private long quantity(Map<String, Quantity> values, String key) {

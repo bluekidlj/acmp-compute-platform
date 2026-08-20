@@ -19,10 +19,11 @@
 
 ## HAMi 配置入口
 
-MVP 只使用 HAMi 的节点级 ConfigMap：
+MVP 只使用 HAMi 的节点级 ConfigMap。不同 HAMi 安装包的 ConfigMap 名称可能不同，
+平台优先读取配置的名称；该名称不存在时，在 `hami-system` 中识别包含
+`nodeconfig` JSON 的 ConfigMap，并使用识别到的真实名称覆盖写回。
 
 ```text
-ConfigMap: hami-device-plugin
 Namespace: hami-system
 Data: config.json
 ```
@@ -42,13 +43,16 @@ Data: config.json
 }
 ```
 
-平台只替换同名节点配置，保留其他节点。当前 MVP 支持 `1/2`、`1/4`、`1/8`、`1/10`，分别转换为 `devicesplitcount=2/4/8/10`，显存和核心比例转换为 `1 / splitCount`。
+平台只替换同名节点配置，保留其他节点。独享池覆盖写入
+`devicesplitcount=1`、`devicememoryscaling=1.0`、`devicecorescaling=1.0`；
+共享池支持 `1/2`、`1/4`、`1/8`、`1/10`，分别写入 `2/4/8/10`，
+显存和核心比例为 `1 / splitCount`。
 
 ## 加入共享池
 
 1. 校验 Node 是 READY，且全部 GPU 未入池。
 2. 清理旧 ACMP 标签。
-3. 通过 Kubernetes API 读取 `hami-device-plugin` ConfigMap。
+3. 通过 Kubernetes API 定位实际包含 `nodeconfig` 的 ConfigMap。
 4. 删除目标 Node 的旧 `nodeconfig`，写入新切分配置。
 5. 更新 ConfigMap。
 6. 删除目标 Node 上的 HAMi device-plugin Pod，由 DaemonSet 自动重建。
@@ -68,10 +72,12 @@ Data: config.json
 
 ## 运行前提
 
-正式环境约定 GPU 节点安装并运行 HAMi，Namespace 固定为 `hami-system`，ConfigMap 名称为 `hami-device-plugin`。为了支持开发测试，平台通过读取该 ConfigMap 判断 HAMi 是否安装：
+正式环境约定 GPU 节点安装并运行 HAMi，Namespace 默认为 `hami-system`。
+ConfigMap 名称可通过 `acmp.hami.config-map` 配置，默认尝试 `hami-device-plugin`，
+名称不匹配时自动识别包含 `nodeconfig` 的 ConfigMap。
 
-- 加入独享池：已安装 HAMi 时清理节点配置；未安装时跳过 HAMi 操作，仍可正常入池。
-- 加入共享池：已安装 HAMi 时修改节点配置；未安装时拒绝操作，并提示节点不能进行共享切分。
+- 加入独享池：覆盖目标 Node 配置并写入切分数 `1`。
+- 加入共享池：覆盖目标 Node 配置并写入所选切分数。
 - 删除规格：已安装 HAMi 时清理节点配置；未安装时跳过 HAMi 清理，只清理 ACMP 标签和数据库关系。
 
 如果读取 ConfigMap 返回非 404 的 Kubernetes API 错误，平台会直接返回检测失败，避免在权限或连接异常时继续修改资源池。

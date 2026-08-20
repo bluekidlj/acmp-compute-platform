@@ -13,6 +13,7 @@ import io.kubernetes.client.openapi.apis.AppsV1Api;
 import io.kubernetes.client.openapi.apis.CoreV1Api;
 import io.kubernetes.client.openapi.models.V1Deployment;
 import io.kubernetes.client.openapi.models.V1ConfigMap;
+import io.kubernetes.client.openapi.models.V1ConfigMapList;
 import io.kubernetes.client.openapi.models.V1Namespace;
 import io.kubernetes.client.openapi.models.V1Node;
 import io.kubernetes.client.openapi.models.V1NodeList;
@@ -38,6 +39,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.LinkedHashMap;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -52,7 +54,6 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class KubernetesClientManager {
     private static final String HAMI_NAMESPACE = "hami-system";
-    private static final String HAMI_CONFIG_MAP = "hami-device-plugin";
     private static final MediaType JSON_MEDIA_TYPE =
             MediaType.get("application/json; charset=utf-8");
     private static final MediaType MERGE_PATCH_MEDIA_TYPE =
@@ -71,6 +72,9 @@ public class KubernetesClientManager {
 
     @Value("${acmp.kubernetes.call-timeout-seconds:30}")
     private int callTimeoutSeconds;
+
+    @Value("${acmp.hami.config-map:hami-device-plugin}")
+    private String hamiConfigMapName;
 
     /**
      * 获取集群客户端。缓存未命中时才解密并解析 kubeconfig。
@@ -161,12 +165,11 @@ public class KubernetesClientManager {
     }
 
     /**
-     * MVP 通过固定 ConfigMap 判断 HAMi 是否已安装。404 表示未安装，其他异常仍需抛出。
+     * 通过包含 nodeconfig 的 ConfigMap 判断 HAMi 是否已安装。
      */
     public boolean isHamiInstalled(String clusterId) {
         try {
-            new CoreV1Api(getClient(clusterId))
-                    .readNamespacedConfigMap(HAMI_CONFIG_MAP, HAMI_NAMESPACE).execute();
+            findHamiConfigMap(new CoreV1Api(getClient(clusterId)));
             return true;
         } catch (Exception e) {
             if (e instanceof ApiException && ((ApiException) e).getCode() == 404) {
@@ -180,19 +183,26 @@ public class KubernetesClientManager {
     }
 
     /**
-     * 修改单个节点的 HAMi 节点级配置。HAMi 通过 hami-device-plugin ConfigMap
-     * 的 nodeconfig 数组读取切分参数，平台只替换目标节点，保留其他节点配置。
+     * 修改单个节点的 HAMi 节点级配置，平台只替换目标节点并保留其他节点配置。
      */
     public void applyHamiNodeSharing(String clusterId, String nodeName, String gpuShare) {
-        int splitCount = hamiSplitCount(gpuShare);
+        applyHamiNodeConfig(clusterId, nodeName, hamiSplitCount(gpuShare));
+    }
+
+    /** 独享池也显式覆盖节点配置，切分数 1 表示整卡。 */
+    public void applyHamiNodeExclusive(String clusterId, String nodeName) {
+        applyHamiNodeConfig(clusterId, nodeName, 1);
+    }
+
+    private void applyHamiNodeConfig(String clusterId, String nodeName, int splitCount) {
         double ratio = 1.0d / splitCount;
         try {
             CoreV1Api api = new CoreV1Api(getClient(clusterId));
-            V1ConfigMap configMap = api.readNamespacedConfigMap(HAMI_CONFIG_MAP, HAMI_NAMESPACE).execute();
+            V1ConfigMap configMap = findHamiConfigMap(api);
+            String configMapName = configMap.getMetadata().getName();
             Map<String, String> data = configMap.getData() == null
                     ? new LinkedHashMap<>() : new LinkedHashMap<>(configMap.getData());
-            String key = data.containsKey("config.json") ? "config.json"
-                    : data.keySet().stream().findFirst().orElse("config.json");
+            String key = hamiConfigKey(data);
             ObjectNode root = data.containsKey(key) && data.get(key) != null
                     ? (ObjectNode) objectMapper.readTree(data.get(key)) : objectMapper.createObjectNode();
             ArrayNode nodes = root.withArray("nodeconfig");
@@ -204,13 +214,13 @@ public class KubernetesClientManager {
             nodeConfig.put("devicecorescaling", ratio);
             data.put(key, objectMapper.writeValueAsString(root));
             configMap.setData(data);
-            log.info("HAMi 节点配置提交: clusterId={}, nodeName={}, share={}, splitCount={}, configKey={}\n{}",
-                    clusterId, nodeName, gpuShare, splitCount, key, data.get(key));
-            api.replaceNamespacedConfigMap(HAMI_CONFIG_MAP, HAMI_NAMESPACE, configMap).execute();
+            log.info("HAMi 节点配置提交: clusterId={}, configMap={}, nodeName={}, splitCount={}, configKey={}\n{}",
+                    clusterId, configMapName, nodeName, splitCount, key, data.get(key));
+            api.replaceNamespacedConfigMap(configMapName, HAMI_NAMESPACE, configMap).execute();
             restartHamiDevicePlugin(api, nodeName);
         } catch (Exception e) {
-            log.error("HAMi 节点配置失败: clusterId={}, nodeName={}, share={}, error={}",
-                    clusterId, nodeName, gpuShare, e.getMessage(), e);
+            log.error("HAMi 节点配置失败: clusterId={}, nodeName={}, splitCount={}, error={}",
+                    clusterId, nodeName, splitCount, e.getMessage(), e);
             throw new IllegalStateException("更新 HAMi 节点切分配置失败: " + e.getMessage(), e);
         }
     }
@@ -219,18 +229,18 @@ public class KubernetesClientManager {
     public void removeHamiNodeSharing(String clusterId, String nodeName) {
         try {
             CoreV1Api api = new CoreV1Api(getClient(clusterId));
-            V1ConfigMap configMap = api.readNamespacedConfigMap(HAMI_CONFIG_MAP, HAMI_NAMESPACE).execute();
+            V1ConfigMap configMap = findHamiConfigMap(api);
+            String configMapName = configMap.getMetadata().getName();
             Map<String, String> data = configMap.getData() == null
                     ? new LinkedHashMap<>() : new LinkedHashMap<>(configMap.getData());
-            String key = data.containsKey("config.json") ? "config.json"
-                    : data.keySet().stream().findFirst().orElse("config.json");
+            String key = hamiConfigKey(data);
             if (data.containsKey(key)) {
                 ObjectNode root = (ObjectNode) objectMapper.readTree(data.get(key));
                 removeHamiNodeConfig(root.withArray("nodeconfig"), nodeName);
                 data.put(key, objectMapper.writeValueAsString(root));
                 configMap.setData(data);
                 log.info("HAMi 节点配置清理提交: clusterId={}, nodeName={}\n{}", clusterId, nodeName, data.get(key));
-                api.replaceNamespacedConfigMap(HAMI_CONFIG_MAP, HAMI_NAMESPACE, configMap).execute();
+                api.replaceNamespacedConfigMap(configMapName, HAMI_NAMESPACE, configMap).execute();
                 restartHamiDevicePlugin(api, nodeName);
             }
         } catch (Exception e) {
@@ -246,6 +256,72 @@ public class KubernetesClientManager {
                 nodes.remove(i);
             }
         }
+    }
+
+    private V1ConfigMap findHamiConfigMap(CoreV1Api api) throws ApiException {
+        try {
+            V1ConfigMap configured = api.readNamespacedConfigMap(
+                    hamiConfigMapName, HAMI_NAMESPACE).execute();
+            if (hasHamiNodeConfig(configured)) {
+                return configured;
+            }
+        } catch (ApiException exception) {
+            if (exception.getCode() != 404) {
+                throw exception;
+            }
+            log.info("HAMi 默认 ConfigMap 不存在，开始按 nodeconfig 自动识别: namespace={}, name={}",
+                    HAMI_NAMESPACE, hamiConfigMapName);
+        }
+
+        V1ConfigMapList configMaps = api.listNamespacedConfigMap(HAMI_NAMESPACE).execute();
+        for (V1ConfigMap configMap : configMaps.getItems()) {
+            if (hasHamiNodeConfig(configMap)) {
+                log.info("HAMi ConfigMap 自动识别成功: namespace={}, name={}",
+                        HAMI_NAMESPACE, configMap.getMetadata().getName());
+                return configMap;
+            }
+        }
+
+        String availableNames = configMaps.getItems().stream()
+                .filter(item -> item.getMetadata() != null)
+                .map(item -> item.getMetadata().getName())
+                .collect(Collectors.joining(", "));
+        throw new IllegalStateException("命名空间 " + HAMI_NAMESPACE
+                + " 中未找到包含 nodeconfig 的 HAMi ConfigMap，可用 ConfigMap: " + availableNames);
+    }
+
+    private boolean hasHamiNodeConfig(V1ConfigMap configMap) {
+        if (configMap == null || configMap.getData() == null) {
+            return false;
+        }
+        for (String value : configMap.getData().values()) {
+            if (value == null || value.isBlank()) {
+                continue;
+            }
+            try {
+                JsonNode root = objectMapper.readTree(value);
+                if (root != null && root.isObject() && root.has("nodeconfig")) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+                // ConfigMap 中可能同时包含非 JSON 数据，只识别 HAMi 配置项。
+            }
+        }
+        return false;
+    }
+
+    private String hamiConfigKey(Map<String, String> data) {
+        for (Map.Entry<String, String> entry : data.entrySet()) {
+            try {
+                JsonNode root = objectMapper.readTree(entry.getValue());
+                if (root != null && root.isObject() && root.has("nodeconfig")) {
+                    return entry.getKey();
+                }
+            } catch (Exception ignored) {
+                // 继续检查下一个数据项。
+            }
+        }
+        throw new IllegalStateException("HAMi ConfigMap 中缺少包含 nodeconfig 的 JSON 配置项");
     }
 
     private void restartHamiDevicePlugin(CoreV1Api api, String nodeName) throws ApiException {
@@ -475,6 +551,46 @@ public class KubernetesClientManager {
         } catch (IOException exception) {
             throw new IllegalStateException(
                     "通过 Kubernetes Service Proxy 调用失败: " + exception.getMessage(),
+                    exception);
+        }
+    }
+
+    /** 通过 Kubernetes API Server 的 Service Proxy 读取集群内 HTTP 服务。 */
+    public String getServiceProxy(
+            String clusterId,
+            String namespace,
+            String serviceName,
+            int port,
+            String path) {
+        requireDnsLabel(namespace, "Namespace");
+        requireDnsLabel(serviceName, "Service");
+        String normalizedPath = path.startsWith("/") ? path.substring(1) : path;
+        String proxyUrl = getClient(clusterId).getBasePath()
+                + "/api/v1/namespaces/" + namespace
+                + "/services/http:" + serviceName + ":" + port
+                + "/proxy/" + normalizedPath;
+
+        okhttp3.OkHttpClient proxyClient = getClient(clusterId).getHttpClient()
+                .newBuilder()
+                .readTimeout(15, TimeUnit.SECONDS)
+                .callTimeout(20, TimeUnit.SECONDS)
+                .build();
+        Request request = new Request.Builder()
+                .url(proxyUrl)
+                .get()
+                .header("Accept", "text/plain")
+                .build();
+
+        try (Response response = proxyClient.newCall(request).execute()) {
+            String body = response.body() == null ? "" : response.body().string();
+            if (!response.isSuccessful()) {
+                throw new IllegalStateException(
+                        "服务返回 HTTP " + response.code() + ": " + body);
+            }
+            return body;
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                    "通过 Kubernetes Service Proxy 读取失败: " + exception.getMessage(),
                     exception);
         }
     }
