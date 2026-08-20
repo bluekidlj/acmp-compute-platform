@@ -103,8 +103,11 @@ public class ComputeSpecService {
         }
         List<ClusterNode> nodes = nodeMapper.findByComputeSpecId(id);
         for (ClusterNode node : nodes) {
-            // 删除规格即移出资源池：清理 HAMi 节点级切分配置和 ACMP 标签。
-            kubernetesClientManager.removeHamiNodeSharing(node.getClusterId(), node.getName());
+            if ("SHARED".equals(spec.getSpecType())) {
+                kubernetesClientManager.removeHamiNodeSharing(node.getClusterId(), node.getName());
+            } else {
+                kubernetesClientManager.removeHamiNodeExclusive(node.getClusterId(), node.getName());
+            }
             kubernetesClientManager.removeAcmpNodeLabels(node.getClusterId(), node.getName());
         }
         gpuMapper.clearPoolBySpecId(id);

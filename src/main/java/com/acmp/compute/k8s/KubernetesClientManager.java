@@ -76,6 +76,9 @@ public class KubernetesClientManager {
     @Value("${acmp.hami.config-map:hami-device-plugin}")
     private String hamiConfigMapName;
 
+    @Value("${acmp.hami.exclusive-node-config-enabled:false}")
+    private boolean hamiExclusiveNodeConfigEnabled;
+
     /**
      * 获取集群客户端。缓存未命中时才解密并解析 kubeconfig。
      */
@@ -191,7 +194,22 @@ public class KubernetesClientManager {
 
     /** 独享池也显式覆盖节点配置，切分数 1 表示整卡。 */
     public void applyHamiNodeExclusive(String clusterId, String nodeName) {
+        if (!hamiExclusiveNodeConfigEnabled) {
+            log.info("跳过独享池 HAMi NodeConfig 写入: clusterId={}, nodeName={}, reason=config-disabled",
+                    clusterId, nodeName);
+            return;
+        }
         applyHamiNodeConfig(clusterId, nodeName, 1);
+    }
+
+    /** 删除独享规格时使用同一个开关，避免无 HAMi 测试集群访问 ConfigMap。 */
+    public void removeHamiNodeExclusive(String clusterId, String nodeName) {
+        if (!hamiExclusiveNodeConfigEnabled) {
+            log.info("跳过独享池 HAMi NodeConfig 清理: clusterId={}, nodeName={}, reason=config-disabled",
+                    clusterId, nodeName);
+            return;
+        }
+        removeHamiNodeSharing(clusterId, nodeName);
     }
 
     private void applyHamiNodeConfig(String clusterId, String nodeName, int splitCount) {

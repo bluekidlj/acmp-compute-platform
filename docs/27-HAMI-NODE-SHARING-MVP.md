@@ -80,4 +80,16 @@ ConfigMap 名称可通过 `acmp.hami.config-map` 配置，默认尝试 `hami-dev
 - 加入共享池：覆盖目标 Node 配置并写入所选切分数。
 - 删除规格：已安装 HAMi 时清理节点配置；未安装时跳过 HAMi 清理，只清理 ACMP 标签和数据库关系。
 
+外网测试集群没有安装 HAMi 时，可以关闭独享池 NodeConfig 写入：
+
+```yaml
+acmp:
+  hami:
+    exclusive-node-config-enabled: false
+```
+
+也可通过环境变量 `HAMI_EXCLUSIVE_NODE_CONFIG_ENABLED` 控制。该开关同时控制
+独享池入池写入和删除规格时的清理；共享池必须由 HAMi 执行切分，仍会读取和覆盖
+HAMi ConfigMap。
+
 如果读取 ConfigMap 返回非 404 的 Kubernetes API 错误，平台会直接返回检测失败，避免在权限或连接异常时继续修改资源池。

@@ -19,6 +19,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../api/real';
 import { useAuth } from '../contexts/AuthContext';
 import { useCluster } from '../contexts/ClusterContext';
+import { useFeatureFlags } from '../contexts/FeatureFlagsContext';
 import type { PhysicalCluster } from '../types';
 import { ROLE_LABELS } from '../types';
 
@@ -29,6 +30,7 @@ export default function RealLayout() {
   const location = useLocation();
   const { username, role, logout } = useAuth();
   const { clusterId, setClusterId } = useCluster();
+  const { innovationLabEnabled } = useFeatureFlags();
   const [clusters, setClusters] = useState<PhysicalCluster[]>([]);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -94,7 +96,7 @@ export default function RealLayout() {
           { key: '/monitoring/alerts', icon: <AlertOutlined />, label: '监控告警' },
         ],
       },
-      {
+      ...(innovationLabEnabled ? [{
         key: 'innovation-lab',
         icon: <ExperimentOutlined />,
         label: '创新实验室',
@@ -103,9 +105,9 @@ export default function RealLayout() {
           { key: '/innovation-lab/twin', icon: <ApiOutlined />, label: '数字孪生' },
           { key: '/innovation-lab/strategy', icon: <ExperimentOutlined />, label: '策略仿真' },
         ],
-      },
+      }] : []),
     ];
-  }, []);
+  }, [innovationLabEnabled]);
 
   function handleMenuClick(info: { key: string }) {
     navigate(info.key);
@@ -179,7 +181,9 @@ export default function RealLayout() {
           mode="inline"
           theme="dark"
           selectedKeys={[selectedKey]}
-          defaultOpenKeys={['resources', 'business', 'monitoring', 'innovation-lab']}
+          defaultOpenKeys={innovationLabEnabled
+            ? ['resources', 'business', 'monitoring', 'innovation-lab']
+            : ['resources', 'business', 'monitoring']}
           items={items}
           onClick={handleMenuClick}
           className="app-menu"

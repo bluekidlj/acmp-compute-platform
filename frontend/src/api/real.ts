@@ -9,6 +9,7 @@ import type {
   ComputeSpec,
   DeploymentRequest,
   DeploymentMetrics,
+  FeatureFlags,
   GpuDevice,
   LoginResponse,
   Model,
@@ -57,6 +58,9 @@ client.interceptors.response.use(
 );
 
 export const api = {
+  async featureFlags(): Promise<FeatureFlags> {
+    return (await client.get<FeatureFlags>('/platform/config/features')).data;
+  },
   async login(username: string, password: string): Promise<LoginResponse> {
     const response = await client.post<LoginResponse>('/auth/login', { username, password });
     return response.data;

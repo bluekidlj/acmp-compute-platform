@@ -313,6 +313,10 @@ export interface DeploymentMetrics {
   averageTimeToFirstTokenMs: number | null;
 }
 
+export interface FeatureFlags {
+  innovationLabEnabled: boolean;
+}
+
 export interface DeploymentRequest {
   name: string;
   specName: string;

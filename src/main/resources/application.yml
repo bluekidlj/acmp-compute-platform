@@ -40,6 +40,11 @@ encryption:
   aes-key: ${AES_KEY:acmp32byteskey!!!!!!!!!!!!!!!!!!}
 
 acmp:
+  features:
+    innovation-lab-enabled: ${INNOVATION_LAB_ENABLED:false}
+  hami:
+    # 外网测试集群没有 HAMi 时保持 false；生产环境使用 HAMi 管理整卡时设为 true。
+    exclusive-node-config-enabled: ${HAMI_EXCLUSIVE_NODE_CONFIG_ENABLED:false}
   kubernetes:
     connect-timeout-seconds: ${K8S_CONNECT_TIMEOUT_SECONDS:5}
     read-timeout-seconds: ${K8S_READ_TIMEOUT_SECONDS:15}

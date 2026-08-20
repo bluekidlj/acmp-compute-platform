@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import RealLayout from './components/RealLayout';
 import { useAuth } from './contexts/AuthContext';
+import { FeatureFlagsProvider, useFeatureFlags } from './contexts/FeatureFlagsContext';
 import LoginPage from './pages/Login';
 import AlertMonitoringPage from './pages/real/AlertMonitoring';
 import ClusterDetailPage from './pages/real/ClusterDetail';
@@ -40,12 +41,18 @@ function Protected({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+function InnovationLabRoute({ children }: { children: ReactNode }) {
+  const { innovationLabEnabled, loaded } = useFeatureFlags();
+  if (!loaded) return null;
+  return innovationLabEnabled ? <>{children}</> : <Navigate to="/" replace />;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route element={<Protected><RealLayout /></Protected>}>
+        <Route element={<Protected><FeatureFlagsProvider><RealLayout /></FeatureFlagsProvider></Protected>}>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/clusters" element={<ClustersPage />} />
           <Route path="/clusters/:clusterId" element={<ClusterDetailPage />} />
@@ -67,10 +74,10 @@ export default function App() {
           <Route path="/monitoring/clusters/:clusterId" element={<ClusterMonitoringDetailPage />} />
           <Route path="/monitoring/clusters/:clusterId/nodes/:nodeId" element={<NodeMonitoringPage />} />
           <Route path="/monitoring/alerts" element={<AlertMonitoringPage />} />
-          <Route path="/innovation-lab" element={<Navigate to="/innovation-lab/workload" replace />} />
-          <Route path="/innovation-lab/workload" element={<WorkloadInsightPage />} />
-          <Route path="/innovation-lab/twin" element={<DigitalTwinPage />} />
-          <Route path="/innovation-lab/strategy" element={<StrategySimulationPage />} />
+          <Route path="/innovation-lab" element={<InnovationLabRoute><Navigate to="/innovation-lab/workload" replace /></InnovationLabRoute>} />
+          <Route path="/innovation-lab/workload" element={<InnovationLabRoute><WorkloadInsightPage /></InnovationLabRoute>} />
+          <Route path="/innovation-lab/twin" element={<InnovationLabRoute><DigitalTwinPage /></InnovationLabRoute>} />
+          <Route path="/innovation-lab/strategy" element={<InnovationLabRoute><StrategySimulationPage /></InnovationLabRoute>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
